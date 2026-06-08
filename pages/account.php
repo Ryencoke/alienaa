@@ -15,8 +15,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $accent = $_POST['accent_color'];
     }
     $pdo->prepare('UPDATE players SET theme = ?, accent_color = ? WHERE id = ?')->execute([$theme, $accent, $pid]);
-    $msg = 'Appearance saved.';
-    $player = current_player();
+    // Reload via GET so index.php re-renders the <head> with the new theme immediately.
+    echo '<script>location.replace("index.php?p=account&saved=theme");</script>';
+    return;
   }
 
   elseif ($action === 'chatcolor') {
@@ -59,6 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
 }
+
+if (($_GET['saved'] ?? '') === 'theme' && $msg === '') $msg = 'Appearance saved.';
 
 $role      = $player['role'] ?? 'member';
 $curTheme  = $player['theme'] ?? 'neon';
