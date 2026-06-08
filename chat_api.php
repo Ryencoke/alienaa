@@ -8,6 +8,7 @@ $player = current_player();
 if (!$player) { http_response_code(401); echo json_encode(['ok' => false, 'error' => 'auth']); exit; }
 
 $pdo    = db();
+$pdo->prepare('UPDATE players SET last_seen = NOW() WHERE id = ?')->execute([$player['id']]);
 $action = $_POST['action'] ?? $_GET['action'] ?? 'list';
 
 if ($action === 'say' && $_SERVER['REQUEST_METHOD'] === 'POST') {

@@ -4,6 +4,7 @@ require 'lib.php';
 $p   = $_GET['p']   ?? 'home';
 $act = $_GET['act'] ?? '';
 $player = current_player();
+if ($player) db()->prepare('UPDATE players SET last_seen = NOW() WHERE id = ?')->execute([$player['id']]);
 
 // Pages that don't require login
 $public = ['login','register'];
@@ -126,7 +127,22 @@ function bar($label, $val, $max) {
       load(); setInterval(load,4000);
     })();
     </script>
-    <div class="panel"><h3>Jacked In</h3><p class="muted">Online players list.</p></div>
+    <div class="panel">
+      <h3>Jacked In</h3>
+      <?php
+        $online = db()->query("SELECT id, username, role, chat_color FROM players
+                               WHERE last_seen >= (NOW() - INTERVAL 5 MINUTE)
+                               ORDER BY username LIMIT 50")->fetchAll();
+      ?>
+      <?php if ($online): ?>
+        <?php foreach ($online as $o): $oc = chat_color($o['role'], $o['chat_color']); ?>
+          <div style="font-size:12px;padding:1px 0"><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a></div>
+        <?php endforeach; ?>
+        <p class="muted" style="font-size:10px;margin-top:6px"><?= count($online) ?> jacked in</p>
+      <?php else: ?>
+        <p class="muted">Nobody's jacked in.</p>
+      <?php endif; ?>
+    </div>
   </aside>
 </div>
 
