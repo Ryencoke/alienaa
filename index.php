@@ -95,7 +95,7 @@ function bar($label, $val, $max) {
       if(!feed||!form) return;
       function render(msgs){
         feed.innerHTML='';
-        msgs.forEach(function(m){
+        msgs.slice(-5).forEach(function(m){
           var line=document.createElement('div'); line.style.marginBottom='2px';
           var t=document.createElement('span');
           t.textContent=m.time+' '; t.style.color='#5d6680'; t.style.fontSize='10px';
