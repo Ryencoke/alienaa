@@ -10,7 +10,7 @@
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);
-  font:13px/1.45 "Courier New",monospace}
+  font:12px/1.5 Verdana,Tahoma,Geneva,sans-serif}
 a{color:var(--accent);text-decoration:none}
 a:hover{color:var(--neon2)}
 
