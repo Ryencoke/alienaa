@@ -1,0 +1,14 @@
+---
+# cPanel "Git Version Control" auto-deploy.
+# When you click Deploy in cPanel (or via webhook), these tasks copy the repo
+# into your web root. config.php is NOT in the repo, so the server's own
+# config.php (with real DB credentials) is left untouched.
+#
+# EDIT the DEPLOYPATH below: replace CPANELUSER with your cPanel username, and
+# point it at the folder your domain serves (public_html, or a subfolder).
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/ixv3yw83owgs/public_html/
+    - /bin/cp -R index.php chat_api.php config.sample.php style.css $DEPLOYPATH
+    - /bin/cp -R pages $DEPLOYPATH
+    - /bin/cp -R *.sql $DEPLOYPATH

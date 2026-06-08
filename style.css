@@ -1,0 +1,48 @@
+:root{
+  --bg:#0a0a12; --panel:#12121f; --line:#241f3a;
+  --neon:#19f0c7; --neon2:#ff2d95; --text:#c9d1e0; --muted:#5d6680;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.5 "Courier New",monospace}
+a{color:var(--neon);text-decoration:none}
+a:hover{color:var(--neon2)}
+.topbar{display:flex;gap:18px;justify-content:center;padding:10px;
+  background:#070710;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.shell{display:grid;grid-template-columns:230px 1fr 230px;gap:14px;
+  max-width:1200px;margin:14px auto;padding:0 12px}
+.shell.solo{grid-template-columns:1fr;max-width:480px}
+.left .card{background:var(--panel);border:1px solid var(--line);
+  padding:12px;text-align:center;border-radius:6px}
+.avatar{width:84px;height:84px;margin:0 auto 8px;border:1px solid var(--neon);
+  background:radial-gradient(circle,#1c2540,#0a0a12);border-radius:4px}
+.name{color:var(--neon);font-weight:bold;letter-spacing:1px}
+.stat{font-size:12px;color:var(--muted)}
+.meters{margin:12px 0}
+.meter{margin-bottom:8px;font-size:11px}
+.meter span{color:var(--muted)}
+.track{height:10px;background:#080812;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.fill{height:100%;background:linear-gradient(90deg,var(--neon),var(--neon2))}
+.meter em{font-style:normal;color:var(--muted);font-size:10px}
+.menu{list-style:none;padding:0;margin:12px 0;background:var(--panel);
+  border:1px solid var(--line);border-radius:6px}
+.menu li{border-bottom:1px solid var(--line)}
+.menu a{display:block;padding:8px 12px}
+.panel{background:var(--panel);border:1px solid var(--line);padding:14px;
+  margin-bottom:14px;border-radius:6px}
+.panel h2,.panel h3{color:var(--neon);margin-top:0;
+  text-shadow:0 0 6px rgba(25,240,199,.4)}
+.muted{color:var(--muted)}
+.districts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.district h4{color:var(--neon2);border-bottom:1px solid var(--line);padding-bottom:4px}
+.district ul{list-style:none;padding:0;margin:0}
+input[type=text],input[type=password],input[type=number]{
+  background:#080812;border:1px solid var(--line);color:var(--text);
+  padding:6px;border-radius:3px;width:100%}
+button,input[type=submit]{background:var(--neon);color:#04040a;border:0;
+  padding:8px 14px;font-weight:bold;border-radius:3px;cursor:pointer}
+button:hover{background:var(--neon2);color:#fff}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:6px;border-bottom:1px solid var(--line)}
+th{color:var(--neon2)}
+.flash{border:1px solid var(--neon);padding:8px;margin-bottom:10px;border-radius:4px}

@@ -1,0 +1,17 @@
+# --- Secrets: NEVER commit real DB credentials ---
+config.php
+
+# Claude Code local settings (not part of the game)
+.claude/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs / temp
+*.log
+*.tmp
