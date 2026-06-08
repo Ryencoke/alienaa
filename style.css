@@ -125,3 +125,26 @@ code{color:var(--neon2);font-size:11px}
 .score{font-weight:bold;color:var(--text);font-size:12px;padding:1px 0}
 .postbody{flex:1;min-width:0}
 .posthead{font-size:11px;margin-bottom:5px;border-bottom:1px solid var(--line);padding-bottom:3px}
+
+/* ---- landing / splash ---- */
+.land{max-width:1080px;margin:0 auto;padding:18px 14px}
+.land-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-bottom:20px;border-bottom:1px solid var(--line);padding-bottom:12px}
+.land-logo{color:var(--accent);font-weight:bold;font-size:22px;letter-spacing:3px;
+  text-shadow:0 0 8px rgba(255,255,255,.12)}
+.land-login{display:flex;gap:6px;align-items:center}
+.land-login input{width:auto}
+.land-hero{display:grid;grid-template-columns:1.25fr 1fr;gap:18px;align-items:start}
+.land-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.land-card{cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:6px;
+  padding:16px 10px;text-align:center;transition:border-color .15s,transform .1s}
+.land-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.land-card .cap{margin-top:8px;font-weight:bold;color:var(--accent);letter-spacing:1px}
+.land-card .sub{font-size:11px;color:var(--muted)}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:flex-start;
+  justify-content:center;z-index:50;padding:48px 12px;overflow:auto}
+.modal-bg.show{display:flex}
+.modal{background:var(--panel);border:1px solid var(--accent);border-radius:8px;max-width:380px;
+  width:100%;padding:18px;position:relative}
+.modal .x{position:absolute;top:6px;right:11px;color:var(--muted);cursor:pointer;font-size:20px}
+@media(max-width:760px){.land-hero{grid-template-columns:1fr}}

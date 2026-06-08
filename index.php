@@ -6,10 +6,6 @@ $act = $_GET['act'] ?? '';
 $player = current_player();
 if ($player) db()->prepare('UPDATE players SET last_seen = NOW() WHERE id = ?')->execute([$player['id']]);
 
-// Pages that don't require login
-$public = ['login','register'];
-if (!in_array($p, $public) && !$player) { header('Location: index.php?p=login'); exit; }
-
 function bar($label, $val, $max, $key = '') {
   $pct = $max > 0 ? min(100, round($val / $max * 100)) : 0;
   $df  = $key ? ' data-fill="'.$key.'"' : '';
@@ -186,15 +182,15 @@ function bar($label, $val, $max, $key = '') {
 </div>
 
 <?php else: ?>
-<div class="shell solo">
-  <main class="center">
 <?php
-  $file = __DIR__ . "/pages/{$p}.php";
-  if (in_array($p,$public) && file_exists($file)) require $file;
-  else { header('Location: index.php?p=login'); exit; }
+  if ($p === 'login' || $p === 'register') {
+    echo '<div class="shell solo"><main class="center">';
+    require __DIR__ . "/pages/{$p}.php";
+    echo '</main></div>';
+  } else {
+    require __DIR__ . '/pages/landing.php';   // full-width splash
+  }
 ?>
-  </main>
-</div>
 <?php endif; ?>
 
 </body></html>
