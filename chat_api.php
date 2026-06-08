@@ -2,6 +2,7 @@
 require __DIR__ . '/config.php';
 require __DIR__ . '/lib.php';
 header('Content-Type: application/json');
+header('Cache-Control: no-store, max-age=0');
 
 $player = current_player();
 if (!$player) { http_response_code(401); echo json_encode(['ok' => false, 'error' => 'auth']); exit; }
