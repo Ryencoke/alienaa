@@ -83,6 +83,63 @@ $avail = max(0, $loanCap - $loan);
 <div class="panel">
   <h2>Bank</h2>
   <p class="muted" style="text-align:center;margin-top:-8px">Skimming a little off the top since the blackout.</p>
+
+  <div style="margin:0 -14px 6px">
+  <svg viewBox="0 0 800 220" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg"
+       style="width:100%;height:auto;max-height:240px;display:block;border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+    <style>
+      .bg{fill:var(--bg)}
+      .panln{fill:var(--panel);stroke:var(--line);stroke-width:2}
+      .pan2ln{fill:var(--panel2);stroke:var(--line);stroke-width:2}
+      .bgln{fill:var(--bg);stroke:var(--line);stroke-width:1.5}
+      .accln{fill:none;stroke:var(--accent);stroke-width:2}
+      .accbg{fill:var(--bg);stroke:var(--accent);stroke-width:2}
+      .sign{fill:var(--accent);font:bold 26px Verdana,Arial,sans-serif;letter-spacing:8px}
+      .sub{fill:var(--neon2);font:9px Verdana,Arial,sans-serif;letter-spacing:3px}
+      .win{fill:var(--accent);opacity:.7}
+    </style>
+    <defs>
+      <filter id="bglow" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="2.5" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <rect width="800" height="220" class="bg"/>
+    <!-- distant Sprawl skyline -->
+    <rect x="18" y="70" width="60" height="150" class="panln"/>
+    <rect x="86" y="104" width="44" height="116" class="panln"/>
+    <rect x="664" y="58" width="54" height="162" class="panln"/>
+    <rect x="726" y="98" width="56" height="122" class="panln"/>
+    <rect x="32" y="86" width="6" height="6" class="win"/><rect x="50" y="86" width="6" height="6" class="win"/>
+    <rect x="32" y="104" width="6" height="6" class="win"/><rect x="56" y="122" width="6" height="6" class="win"/>
+    <rect x="678" y="76" width="6" height="6" class="win"/><rect x="696" y="76" width="6" height="6" class="win"/>
+    <rect x="678" y="98" width="6" height="6" class="win"/><rect x="742" y="114" width="6" height="6" class="win"/>
+    <!-- pediment + architrave -->
+    <polygon points="190,106 610,106 400,42" class="panln"/>
+    <rect x="196" y="106" width="408" height="20" class="pan2ln"/>
+    <!-- columns -->
+    <rect x="222" y="126" width="16" height="76" class="bgln"/>
+    <rect x="270" y="126" width="16" height="76" class="bgln"/>
+    <rect x="318" y="126" width="16" height="76" class="bgln"/>
+    <rect x="466" y="126" width="16" height="76" class="bgln"/>
+    <rect x="514" y="126" width="16" height="76" class="bgln"/>
+    <rect x="562" y="126" width="16" height="76" class="bgln"/>
+    <!-- vault doorway -->
+    <rect x="364" y="132" width="72" height="70" class="accbg"/>
+    <circle cx="400" cy="152" r="15" class="accln"/>
+    <line x1="400" y1="152" x2="400" y2="137" class="accln"/>
+    <line x1="400" y1="152" x2="413" y2="160" class="accln"/>
+    <!-- steps -->
+    <rect x="200" y="202" width="400" height="6" class="panln"/>
+    <rect x="184" y="208" width="432" height="6" class="panln"/>
+    <rect x="168" y="214" width="464" height="6" class="panln"/>
+    <!-- neon signage -->
+    <text x="400" y="96" text-anchor="middle" class="sign" filter="url(#bglow)">BANK</text>
+    <text x="400" y="120" text-anchor="middle" class="sub">SPRAWL-9 CREDIT</text>
+  </svg>
+  </div>
+  <p class="muted" style="text-align:center;font-style:italic;font-size:11px;margin:0 0 8px">A typical day at the Bank.</p>
+
   <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
   <p><b>Teller:</b> You have <b><?= number_format($player['creds_bank']) ?></b> creds in the bank and
      <b><?= number_format($player['creds_pocket']) ?></b> in pocket.
