@@ -10,7 +10,7 @@ CREATE TABLE players (
   integrity_max INT NOT NULL DEFAULT 15,
   xp            INT NOT NULL DEFAULT 0,
   xp_next       INT NOT NULL DEFAULT 300,
-  signal        INT NOT NULL DEFAULT 10,
+  `signal`      INT NOT NULL DEFAULT 10,
   signal_max    INT NOT NULL DEFAULT 10,
   cycles        INT NOT NULL DEFAULT 50,
   cycles_max    INT NOT NULL DEFAULT 1500,

@@ -2,14 +2,17 @@
 $err=''; $ok='';
 if ($_SERVER['REQUEST_METHOD']==='POST') {
   $u=trim($_POST['username']??''); $pw=$_POST['password']??'';
-  if (!preg_match('/^[A-Za-z0-9_]{3,32}$/',$u)) $err='Handle must be 3-32 letters/numbers.';
+  if (!preg_match('/^[A-Za-z0-9_]{3,32}$/',$u)) $err='Handle must be 3-32 characters: letters, numbers, or underscore only (no spaces, dots, or @).';
   elseif (strlen($pw)<8) $err='Passkey must be at least 8 characters.';
   else {
     try {
       db()->prepare('INSERT INTO players (username,pass_hash) VALUES (?,?)')
           ->execute([$u,password_hash($pw,PASSWORD_DEFAULT)]);
       $ok='Ghost created. You can jack in now.';
-    } catch (PDOException $e) { $err='That handle is taken.'; }
+    } catch (PDOException $ex) {
+      if ($ex->getCode() === '23000') $err='That handle is taken. Pick another.';
+      else $err='Registration failed: '.$ex->getMessage();
+    }
   }
 }
 ?>
