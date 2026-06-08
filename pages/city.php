@@ -12,7 +12,7 @@
 
   <div class="district panel"><h4>The Bazaar</h4><ul>
     <li><a href="index.php?p=bazaar">Open Market</a></li>
-    <li><a href="index.php?p=ledger&act=bank">Iron Ledger Credit Union</a></li>
+    <li><a href="index.php?p=ledger&act=bank">Bank</a></li>
   </ul></div>
 
   <div class="district panel"><h4>The Exchange Block</h4><ul>

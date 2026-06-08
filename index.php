@@ -57,7 +57,7 @@ function bar($label, $val, $max) {
     <ul class="menu">
       <li><a href="index.php?p=home">Hideout</a></li>
       <li><a href="index.php?p=stash">Stash</a></li>
-      <li><a href="index.php?p=ledger&act=bank">Iron Ledger</a></li>
+      <li><a href="index.php?p=ledger&act=bank">Bank</a></li>
       <li><a href="index.php?p=city">The Sprawl</a></li>
       <li><a href="index.php?p=bazaar">Bazaar</a></li>
       <li><a href="index.php?p=boards">Message Boards</a></li>
