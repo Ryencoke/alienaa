@@ -40,7 +40,7 @@ function bar($label, $val, $max) {
   <aside class="left">
     <div class="card">
       <div class="avatar"></div>
-      <div class="name"><?= e($player['username']) ?></div>
+      <div class="name"><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>" style="color:inherit"><?= e($player['username']) ?></a></div>
       <div class="stat"><span>Level</span><b><?= (int)$player['level'] ?></b></div>
       <div class="stat"><span>Creds</span><b><?= number_format($player['creds_pocket']) ?></b></div>
       <div class="stat"><span>Bank</span><b><?= number_format($player['creds_bank']) ?></b></div>
@@ -99,8 +99,8 @@ function bar($label, $val, $max) {
           var line=document.createElement('div'); line.style.marginBottom='2px';
           var t=document.createElement('span');
           t.textContent=m.time+' '; t.style.color='#5d6680'; t.style.fontSize='10px';
-          var who=document.createElement('b');
-          who.textContent=m.username+': '; who.style.color=m.color;
+          var who=document.createElement('a'); who.href='index.php?p=profile&id='+m.id;
+          who.textContent=m.username+': '; who.style.color=m.color; who.style.fontWeight='bold';
           var body=document.createElement('span');
           body.style.color=m.color; body.innerHTML=m.html;   // server-sanitized (escaped + whitelisted BBCode)
           line.appendChild(t); line.appendChild(who); line.appendChild(body);

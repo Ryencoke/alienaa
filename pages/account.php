@@ -31,6 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
 
+  elseif ($action === 'bio') {
+    $bio = trim($_POST['bio'] ?? '');
+    if (mb_strlen($bio) > 200) $bio = mb_substr($bio, 0, 200);
+    $pdo->prepare('UPDATE players SET bio = ? WHERE id = ?')->execute([$bio, $pid]);
+    $msg = 'Profile updated.';
+    $player = current_player();
+  }
+
   elseif ($action === 'handle') {
     $newu = trim($_POST['new_username'] ?? '');
     $cur  = $_POST['current_password'] ?? '';
@@ -72,6 +80,17 @@ $curAccent = $player['accent_color'] ?? '';
   <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
   <p class="muted">Tune how Sprawl-9 looks and how you show up in chat. Your stats live on the
     <a href="index.php?p=home">Hideout</a>.</p>
+</div>
+
+<div class="panel">
+  <h3>Profile</h3>
+  <form method="post">
+    <input type="hidden" name="action" value="bio">
+    <label>Tagline / bio &mdash; shown on your public profile (200 max)</label>
+    <p><textarea name="bio" maxlength="200" style="min-height:60px"><?= e($player['bio'] ?? '') ?></textarea></p>
+    <p><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>">View my profile &raquo;</a></p>
+    <p><button type="submit">Save Profile</button></p>
+  </form>
 </div>
 
 <div class="panel">

@@ -28,12 +28,13 @@ if ($action === 'say' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // List recent messages (oldest-first). Optional &n= up to 100.
 $n = min(100, max(10, (int)($_GET['n'] ?? 30)));
-$rows = $pdo->query('SELECT c.id, c.body, c.created_at, p.username, p.role, p.chat_color
+$rows = $pdo->query('SELECT c.id, c.body, c.created_at, p.id AS uid, p.username, p.role, p.chat_color
                      FROM chat_messages c JOIN players p ON p.id = c.player_id
                      ORDER BY c.id DESC LIMIT ' . (int)$n)->fetchAll();
 $msgs = [];
 foreach (array_reverse($rows) as $r) {
   $msgs[] = [
+    'id'       => (int)$r['uid'],
     'time'     => date('H:i:s', strtotime($r['created_at'])),
     'username' => $r['username'],
     'color'    => chat_color($r['role'], $r['chat_color']),

@@ -40,7 +40,7 @@ if (!function_exists('render_post')) {
     echo '<div class="post" style="margin-left:' . ($depth * 22) . 'px">';
     echo votebox_html($p['id'], $scores[$p['id']] ?? 0);
     echo '<div class="postbody"><div class="posthead">';
-    echo '<b style="color:' . e($col) . '">' . e($p['author']) . '</b>';
+    echo '<a href="index.php?p=profile&id=' . (int)$p['author_id'] . '" style="color:' . e($col) . ';font-weight:bold">' . e($p['author']) . '</a>';
     if ($p['role'] !== 'member') echo ' <span class="muted">[' . e(role_label($p['role'])) . ']</span>';
     echo ' <span class="muted">' . e($p['created_at']) . '</span>';
     echo ' &middot; <a href="index.php?p=boards&t=' . (int)$tid . '&reply=' . (int)$p['id'] . '#replyform">Reply</a>';
@@ -171,7 +171,7 @@ if ($tid) {
       <?= votebox_html($op['id'], $scores[$op['id']] ?? 0) ?>
       <div class="postbody">
         <div class="posthead">
-          <b style="color:<?= e($col) ?>"><?= e($op['author']) ?></b>
+          <a href="index.php?p=profile&id=<?= (int)$op['author_id'] ?>" style="color:<?= e($col) ?>;font-weight:bold"><?= e($op['author']) ?></a>
           <?php if ($op['role'] !== 'member'): ?> <span class="muted">[<?= e(role_label($op['role'])) ?>]</span><?php endif; ?>
           <span class="muted">&middot; #<?= (int)$op['id'] ?> &middot; <?= $opc ?> posts
             &middot; <?= e($op['created_at']) ?> &middot; <?= (int)$topic['views'] ?> views
@@ -220,7 +220,7 @@ if ($bid) {
   $pg = min($pg, $pages);
   $off = ($pg - 1) * TOPICS_PER_PAGE;
 
-  $tq = $pdo->prepare('SELECT t.id, t.title, t.last_post_at, pl.username AS author,
+  $tq = $pdo->prepare('SELECT t.id, t.title, t.last_post_at, pl.username AS author, pl.id AS author_id,
                          (SELECT COUNT(*) - 1 FROM posts p WHERE p.topic_id = t.id) AS replies
                        FROM topics t JOIN players pl ON pl.id = t.author_id
                        WHERE t.board_id = ? ORDER BY t.last_post_at DESC
@@ -242,7 +242,7 @@ if ($bid) {
       <?php foreach ($topics as $t): ?>
       <tr>
         <td><a href="index.php?p=boards&t=<?= (int)$t['id'] ?>"><?= e($t['title']) ?></a></td>
-        <td><?= e($t['author']) ?></td>
+        <td><a href="index.php?p=profile&id=<?= (int)$t['author_id'] ?>"><?= e($t['author']) ?></a></td>
         <td><?= (int)$t['replies'] ?></td>
         <td class="muted"><?= e($t['last_post_at']) ?></td>
       </tr>
