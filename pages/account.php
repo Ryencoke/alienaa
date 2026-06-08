@@ -1,39 +1,69 @@
-<?php /* pages/account.php — account summary + chat settings */
+<?php /* pages/account.php — settings hub: appearance + chat */
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
+$all_themes = themes();
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'chatcolor') {
-  $c = $_POST['chat_color'] ?? '';
-  if (preg_match('/^#[0-9a-fA-F]{6}$/', $c)) {
-    $pdo->prepare('UPDATE players SET chat_color = ? WHERE id = ?')->execute([$c, $pid]);
-    $msg = 'Chat color updated.';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $action = $_POST['action'] ?? '';
+
+  if ($action === 'theme') {
+    $theme = $_POST['theme'] ?? 'neon';
+    if (!isset($all_themes[$theme])) $theme = 'neon';
+    $accent = '';
+    if (isset($_POST['use_accent']) && preg_match('/^#[0-9a-fA-F]{6}$/', $_POST['accent_color'] ?? '')) {
+      $accent = $_POST['accent_color'];
+    }
+    $pdo->prepare('UPDATE players SET theme = ?, accent_color = ? WHERE id = ?')->execute([$theme, $accent, $pid]);
+    $msg = 'Appearance saved.';
     $player = current_player();
-  } else {
-    $msg = 'Pick a valid color.';
+  }
+
+  elseif ($action === 'chatcolor') {
+    $c = $_POST['chat_color'] ?? '';
+    if (preg_match('/^#[0-9a-fA-F]{6}$/', $c)) {
+      $pdo->prepare('UPDATE players SET chat_color = ? WHERE id = ?')->execute([$c, $pid]);
+      $msg = 'Chat color updated.';
+      $player = current_player();
+    } else {
+      $msg = 'Pick a valid color.';
+    }
   }
 }
 
-$role = $player['role'] ?? 'member';
+$role      = $player['role'] ?? 'member';
+$curTheme  = $player['theme'] ?? 'neon';
+$curAccent = $player['accent_color'] ?? '';
 ?>
 <div class="panel">
-  <h2>Account &mdash; <?= e($player['username']) ?></h2>
-  <p class="muted">Your ghost's vitals, as far as the Grid is willing to admit it knows you.</p>
-  <table>
-    <tr><th>Handle</th><td><?= e($player['username']) ?></td></tr>
-    <tr><th>Level</th><td><?= (int)$player['level'] ?></td></tr>
-    <tr><th>XP</th><td><?= number_format($player['xp']) ?> / <?= number_format($player['xp_next']) ?></td></tr>
-    <tr><th>Creds (pocket)</th><td><?= number_format($player['creds_pocket']) ?></td></tr>
-    <tr><th>Creds (bank)</th><td><?= number_format($player['creds_bank']) ?></td></tr>
-    <tr><th>Shards</th><td><?= number_format($player['shards']) ?></td></tr>
-    <tr><th>Role</th><td><?= $role === 'member' ? 'Member' : e(role_label($role)) ?></td></tr>
-    <tr><th>Jacked in since</th><td><?= e($player['created_at']) ?></td></tr>
-  </table>
+  <h2>Account Settings</h2>
+  <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
+  <p class="muted">Tune how Sprawl-9 looks and how you show up in chat. Your stats live on the
+    <a href="index.php?p=home">Hideout</a>.</p>
+</div>
+
+<div class="panel">
+  <h3>Appearance</h3>
+  <form method="post">
+    <input type="hidden" name="action" value="theme">
+    <label>Theme</label>
+    <p><select name="theme">
+      <?php foreach ($all_themes as $key => $t): ?>
+        <option value="<?= e($key) ?>" <?= $key === $curTheme ? 'selected' : '' ?>><?= e($t['name']) ?></option>
+      <?php endforeach; ?>
+    </select></p>
+    <label style="display:inline-block">
+      <input type="checkbox" name="use_accent" value="1" <?= $curAccent ? 'checked' : '' ?> style="width:auto">
+      Custom accent color (overrides the theme's)
+    </label>
+    <p><input type="color" name="accent_color" value="<?= e($curAccent ?: '#19f0c7') ?>"
+       style="width:64px;height:34px;padding:2px"></p>
+    <p><button type="submit">Save Appearance</button></p>
+  </form>
 </div>
 
 <div class="panel">
   <h3>Chat Settings</h3>
-  <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
   <?php if ($role !== 'member'): ?>
     <p>Your name shows in
       <b style="color:<?= e(chat_color($role, '')) ?>"><?= e(role_label($role)) ?></b>
