@@ -1,16 +1,14 @@
-<?php /* pages/boards.php — Message Boards: categories -> boards -> topics -> posts */
+<?php /* pages/boards.php — Message Boards: categories -> boards -> threaded topics */
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 
 const TOPICS_PER_PAGE = 20;
-const POSTS_PER_PAGE  = 15;
 const BODY_MAX        = 8000;
 
 $bid = (int)($_GET['b'] ?? 0);   // viewing a board
 $tid = (int)($_GET['t'] ?? 0);   // viewing a topic
 $pg  = max(1, (int)($_GET['pg'] ?? 1));
-$jumpLast = false;
 
 function pager($base, $pg, $pages) {
   if ($pages <= 1) return '';
@@ -21,7 +19,39 @@ function pager($base, $pg, $pages) {
   return $o . '</p>';
 }
 
-/* ---------- POST: new topic / reply (inline, no redirect) ---------- */
+// Vote arrows for a post (two tiny POST forms).
+function votebox_html($postId, $score) {
+  $o  = '<div class="votebox">';
+  $o .= '<form method="post" style="margin:0"><input type="hidden" name="action" value="vote">'
+      . '<input type="hidden" name="post_id" value="' . (int)$postId . '">'
+      . '<input type="hidden" name="dir" value="up"><button class="vote" title="up">&#9650;</button></form>';
+  $o .= '<div class="score">' . (int)$score . '</div>';
+  $o .= '<form method="post" style="margin:0"><input type="hidden" name="action" value="vote">'
+      . '<input type="hidden" name="post_id" value="' . (int)$postId . '">'
+      . '<input type="hidden" name="dir" value="down"><button class="vote" title="down">&#9660;</button></form>';
+  $o .= '</div>';
+  return $o;
+}
+
+// Recursively render a reply and its children.
+if (!function_exists('render_post')) {
+  function render_post($p, $children, $scores, $tid, $depth) {
+    $col = chat_color($p['role'], $p['chat_color']);
+    echo '<div class="post" style="margin-left:' . ($depth * 22) . 'px">';
+    echo votebox_html($p['id'], $scores[$p['id']] ?? 0);
+    echo '<div class="postbody"><div class="posthead">';
+    echo '<b style="color:' . e($col) . '">' . e($p['author']) . '</b>';
+    if ($p['role'] !== 'member') echo ' <span class="muted">[' . e(role_label($p['role'])) . ']</span>';
+    echo ' <span class="muted">' . e($p['created_at']) . '</span>';
+    echo ' &middot; <a href="index.php?p=boards&t=' . (int)$tid . '&reply=' . (int)$p['id'] . '#replyform">Reply</a>';
+    echo '</div><div>' . bbcode($p['body']) . '</div></div></div>';
+    if (!empty($children[$p['id']])) {
+      foreach ($children[$p['id']] as $c) render_post($c, $children, $scores, $tid, $depth + 1);
+    }
+  }
+}
+
+/* ---------- POST: new topic / reply / vote ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = $_POST['action'] ?? '';
   try {
@@ -34,33 +64,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$chk->fetchColumn())             throw new RuntimeException('That board does not exist.');
       if ($title === '' || mb_strlen($title) > 160) throw new RuntimeException('Title must be 1-160 characters.');
       if ($body === '')                     throw new RuntimeException('Write something in the body.');
-      if (mb_strlen($body) > BODY_MAX)      throw new RuntimeException('Body is too long (' . BODY_MAX . ' max).');
+      if (mb_strlen($body) > BODY_MAX)      throw new RuntimeException('Body is too long.');
 
       $pdo->beginTransaction();
       $pdo->prepare('INSERT INTO topics (board_id, author_id, title, created_at, last_post_at)
                      VALUES (?,?,?,NOW(),NOW())')->execute([$board, $pid, $title]);
       $tid = (int)$pdo->lastInsertId();
-      $pdo->prepare('INSERT INTO posts (topic_id, author_id, body, created_at)
-                     VALUES (?,?,?,NOW())')->execute([$tid, $pid, $body]);
+      $pdo->prepare('INSERT INTO posts (topic_id, parent_id, author_id, body, created_at)
+                     VALUES (?,NULL,?,?,NOW())')->execute([$tid, $pid, $body]);
       $pdo->commit();
       $msg = 'Topic posted.';
-      $pg = 1;
     }
 
     elseif ($action === 'reply') {
-      $topic = (int)($_POST['topic_id'] ?? 0);
-      $body  = trim($_POST['body'] ?? '');
+      $topic  = (int)($_POST['topic_id'] ?? 0);
+      $parent = (int)($_POST['parent_id'] ?? 0);
+      $body   = trim($_POST['body'] ?? '');
       $chk = $pdo->prepare('SELECT 1 FROM topics WHERE id = ?'); $chk->execute([$topic]);
-      if (!$chk->fetchColumn())            throw new RuntimeException('That topic is gone.');
-      if ($body === '')                    throw new RuntimeException('Write something first.');
-      if (mb_strlen($body) > BODY_MAX)     throw new RuntimeException('Reply is too long (' . BODY_MAX . ' max).');
+      if (!$chk->fetchColumn())          throw new RuntimeException('That topic is gone.');
+      if ($body === '')                  throw new RuntimeException('Write something first.');
+      if (mb_strlen($body) > BODY_MAX)   throw new RuntimeException('Reply is too long.');
+      // parent must belong to this topic, else treat as top-level
+      if ($parent) {
+        $pc = $pdo->prepare('SELECT 1 FROM posts WHERE id = ? AND topic_id = ?');
+        $pc->execute([$parent, $topic]);
+        if (!$pc->fetchColumn()) $parent = 0;
+      }
 
       $pdo->beginTransaction();
-      $pdo->prepare('INSERT INTO posts (topic_id, author_id, body, created_at)
-                     VALUES (?,?,?,NOW())')->execute([$topic, $pid, $body]);
+      $pdo->prepare('INSERT INTO posts (topic_id, parent_id, author_id, body, created_at)
+                     VALUES (?,?,?,?,NOW())')->execute([$topic, $parent ?: null, $pid, $body]);
       $pdo->prepare('UPDATE topics SET last_post_at = NOW() WHERE id = ?')->execute([$topic]);
       $pdo->commit();
-      $tid = $topic; $msg = 'Reply posted.'; $jumpLast = true;
+      $tid = $topic; $msg = 'Reply posted.';
+    }
+
+    elseif ($action === 'vote') {
+      $post_id = (int)($_POST['post_id'] ?? 0);
+      $dir = ($_POST['dir'] ?? '') === 'down' ? -1 : 1;
+      $chk = $pdo->prepare('SELECT topic_id FROM posts WHERE id = ?'); $chk->execute([$post_id]);
+      $owner_topic = $chk->fetchColumn();
+      if ($owner_topic) {
+        $pdo->prepare('INSERT INTO post_votes (post_id, player_id, value) VALUES (?,?,?)
+                       ON DUPLICATE KEY UPDATE value = VALUES(value)')->execute([$post_id, $pid, $dir]);
+        $tid = (int)$owner_topic;
+      }
     }
 
   } catch (Throwable $ex) {
@@ -73,60 +121,82 @@ $flash = $msg ? '<div class="flash">' . e($msg) . '</div>' : '';
 
 /* ============================ TOPIC VIEW ============================ */
 if ($tid) {
-  $tq = $pdo->prepare('SELECT t.id, t.title, t.board_id, b.name AS board_name, pl.username AS author
-                       FROM topics t JOIN boards b ON b.id = t.board_id
-                       JOIN players pl ON pl.id = t.author_id WHERE t.id = ?');
+  $tq = $pdo->prepare('SELECT t.id, t.title, t.board_id, t.views, b.name AS board_name
+                       FROM topics t JOIN boards b ON b.id = t.board_id WHERE t.id = ?');
   $tq->execute([$tid]);
   $topic = $tq->fetch();
-
   if (!$topic) {
     echo '<div class="panel"><h2>Message Boards</h2>' . $flash
        . '<p class="muted">That topic doesn\'t exist. <a href="index.php?p=boards">Back to the boards.</a></p></div>';
     return;
   }
+  $pdo->prepare('UPDATE topics SET views = views + 1 WHERE id = ?')->execute([$tid]);
 
-  $total = (int)$pdo->query('SELECT COUNT(*) FROM posts WHERE topic_id = ' . (int)$tid)->fetchColumn();
-  $pages = max(1, (int)ceil($total / POSTS_PER_PAGE));
-  if ($jumpLast) $pg = $pages;
-  $pg = min($pg, $pages);
-  $off = ($pg - 1) * POSTS_PER_PAGE;
-
-  $pq = $pdo->prepare('SELECT p.body, p.created_at, pl.username AS author, pl.level AS lvl
+  $pq = $pdo->prepare('SELECT p.id, p.parent_id, p.body, p.created_at, p.author_id,
+                         pl.username AS author, pl.role, pl.chat_color
                        FROM posts p JOIN players pl ON pl.id = p.author_id
-                       WHERE p.topic_id = ? ORDER BY p.created_at ASC, p.id ASC
-                       LIMIT ' . (int)POSTS_PER_PAGE . ' OFFSET ' . (int)$off);
+                       WHERE p.topic_id = ? ORDER BY p.id ASC');
   $pq->execute([$tid]);
-  $rows = $pq->fetchAll();
-  $base = 'index.php?p=boards&t=' . (int)$tid;
+  $posts = $pq->fetchAll();
+
+  $scores = [];
+  $sv = $pdo->prepare('SELECT pv.post_id, SUM(pv.value) s FROM post_votes pv
+                       JOIN posts p ON p.id = pv.post_id WHERE p.topic_id = ? GROUP BY pv.post_id');
+  $sv->execute([$tid]);
+  foreach ($sv as $r) $scores[$r['post_id']] = (int)$r['s'];
+
+  $op = $posts ? $posts[0] : null;
+  $opId = $op ? $op['id'] : 0;
+  $children = [];
+  foreach ($posts as $i => $p) {
+    if ($i === 0) continue;
+    $par = $p['parent_id'] ? (int)$p['parent_id'] : $opId; // legacy NULL -> reply to OP
+    $children[$par][] = $p;
+  }
+
+  // OP author post-count + reply target
+  $opc = 0;
+  if ($op) { $q = $pdo->prepare('SELECT COUNT(*) FROM posts WHERE author_id = ?'); $q->execute([$op['author_id']]); $opc = (int)$q->fetchColumn(); }
+  $replyTo = (int)($_GET['reply'] ?? 0);
+  $replyParent = $opId; $replyToName = '';
+  foreach ($posts as $p) { if ($p['id'] == $replyTo) { $replyParent = $replyTo; $replyToName = $p['author']; break; } }
   ?>
   <div class="panel">
     <h2><?= e($topic['title']) ?></h2>
     <p class="muted"><a href="index.php?p=boards">Message Boards</a> &raquo;
       <a href="index.php?p=boards&b=<?= (int)$topic['board_id'] ?>"><?= e($topic['board_name']) ?></a></p>
     <?= $flash ?>
+    <?php if ($op): $col = chat_color($op['role'], $op['chat_color']); ?>
+    <div class="post">
+      <?= votebox_html($op['id'], $scores[$op['id']] ?? 0) ?>
+      <div class="postbody">
+        <div class="posthead">
+          <b style="color:<?= e($col) ?>"><?= e($op['author']) ?></b>
+          <?php if ($op['role'] !== 'member'): ?> <span class="muted">[<?= e(role_label($op['role'])) ?>]</span><?php endif; ?>
+          <span class="muted">&middot; #<?= (int)$op['id'] ?> &middot; <?= $opc ?> posts
+            &middot; <?= e($op['created_at']) ?> &middot; <?= (int)$topic['views'] ?> views
+            &middot; <a href="index.php?p=boards&t=<?= (int)$tid ?>&reply=<?= (int)$op['id'] ?>#replyform">Reply</a></span>
+        </div>
+        <div><?= bbcode($op['body']) ?></div>
+      </div>
+    </div>
+    <?php endif; ?>
   </div>
 
-  <?= pager($base, $pg, $pages) ?>
+  <div class="bar">Replies To This Message</div>
+  <?php
+    if (!empty($children[$opId])) { foreach ($children[$opId] as $c) render_post($c, $children, $scores, $tid, 0); }
+    else { echo '<p class="muted">No replies yet.</p>'; }
+  ?>
 
-  <?php foreach ($rows as $r): ?>
-  <div class="panel">
-    <p class="muted" style="border-bottom:1px solid var(--line);padding-bottom:6px;margin-top:0">
-      <b style="color:var(--neon)"><?= e($r['author']) ?></b>
-      &middot; Lv <?= (int)$r['lvl'] ?> &middot; <?= e($r['created_at']) ?>
-    </p>
-    <div><?= nl2br(e($r['body'])) ?></div>
-  </div>
-  <?php endforeach; ?>
-
-  <?= pager($base, $pg, $pages) ?>
-
-  <div class="panel">
-    <h3>Post a Reply</h3>
+  <div class="panel" id="replyform">
+    <h3><?= $replyToName ? 'Reply to ' . e($replyToName) : 'Post a Reply' ?></h3>
     <form method="post">
       <input type="hidden" name="action" value="reply">
       <input type="hidden" name="topic_id" value="<?= (int)$tid ?>">
-      <p><textarea name="body" maxlength="<?= BODY_MAX ?>"
-         style="width:100%;min-height:120px;background:#080812;border:1px solid var(--line);color:var(--text);padding:6px;border-radius:3px"></textarea></p>
+      <input type="hidden" name="parent_id" value="<?= (int)$replyParent ?>">
+      <p><textarea name="body" maxlength="<?= BODY_MAX ?>" style="min-height:110px"></textarea></p>
+      <p class="muted" style="font-size:11px">Formatting: <code>[b]bold[/b] [i]italics[/i] [u]underline[/u]</code></p>
       <p><button type="submit">Transmit</button></p>
     </form>
   </div>
@@ -139,7 +209,6 @@ if ($bid) {
   $bq = $pdo->prepare('SELECT id, name, descr FROM boards WHERE id = ?');
   $bq->execute([$bid]);
   $board = $bq->fetch();
-
   if (!$board) {
     echo '<div class="panel"><h2>Message Boards</h2>' . $flash
        . '<p class="muted">No such board. <a href="index.php?p=boards">Back to the boards.</a></p></div>';
@@ -192,8 +261,7 @@ if ($bid) {
       <input type="hidden" name="action" value="new_topic">
       <input type="hidden" name="board_id" value="<?= (int)$bid ?>">
       <p><label>Title</label><input type="text" name="title" maxlength="160"></p>
-      <p><label>Body</label><textarea name="body" maxlength="<?= BODY_MAX ?>"
-         style="width:100%;min-height:140px;background:#080812;border:1px solid var(--line);color:var(--text);padding:6px;border-radius:3px"></textarea></p>
+      <p><label>Body</label><textarea name="body" maxlength="<?= BODY_MAX ?>" style="min-height:130px"></textarea></p>
       <p><button type="submit">Post Topic</button></p>
     </form>
   </div>
@@ -208,7 +276,6 @@ $boards = $pdo->query(
      (SELECT COUNT(*) FROM topics t WHERE t.board_id = b.id) AS topics,
      (SELECT COUNT(*) FROM posts p JOIN topics t ON t.id = p.topic_id WHERE t.board_id = b.id) AS posts
    FROM boards b ORDER BY b.sort, b.id')->fetchAll();
-
 $byCat = [];
 foreach ($boards as $b) $byCat[$b['cat_id']][] = $b;
 ?>

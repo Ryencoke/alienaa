@@ -29,6 +29,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $msg = 'Pick a valid color.';
     }
   }
+
+  elseif ($action === 'handle') {
+    $newu = trim($_POST['new_username'] ?? '');
+    $cur  = $_POST['current_password'] ?? '';
+    if (!password_verify($cur, $player['pass_hash']))            $msg = 'Current passkey is wrong.';
+    elseif (!preg_match('/^[A-Za-z0-9_]{3,32}$/', $newu))        $msg = 'Handle must be 3-32 letters, numbers, or underscore.';
+    else {
+      try {
+        $pdo->prepare('UPDATE players SET username = ? WHERE id = ?')->execute([$newu, $pid]);
+        $msg = 'Handle changed to ' . $newu . '.';
+        $player = current_player();
+      } catch (PDOException $e) { $msg = 'That handle is taken.'; }
+    }
+  }
+
+  elseif ($action === 'password') {
+    $cur = $_POST['current_password'] ?? '';
+    $n1  = $_POST['new_password'] ?? '';
+    $n2  = $_POST['new_password2'] ?? '';
+    if (!password_verify($cur, $player['pass_hash'])) $msg = 'Current passkey is wrong.';
+    elseif (strlen($n1) < 8)                          $msg = 'New passkey must be at least 8 characters.';
+    elseif ($n1 !== $n2)                              $msg = 'New passkeys do not match.';
+    else {
+      $pdo->prepare('UPDATE players SET pass_hash = ? WHERE id = ?')
+          ->execute([password_hash($n1, PASSWORD_DEFAULT), $pid]);
+      $msg = 'Passkey changed.';
+      $player = current_player();
+    }
+  }
 }
 
 $role      = $player['role'] ?? 'member';
@@ -79,4 +108,26 @@ $curAccent = $player['accent_color'] ?? '';
       <p><button type="submit">Save Color</button></p>
     </form>
   <?php endif; ?>
+</div>
+
+<div class="panel">
+  <h3>Account Credentials</h3>
+  <form method="post" style="margin-bottom:16px">
+    <input type="hidden" name="action" value="handle">
+    <label>Change handle</label>
+    <p><input type="text" name="new_username" value="<?= e($player['username']) ?>" maxlength="32"></p>
+    <label>Current passkey (to confirm)</label>
+    <p><input type="password" name="current_password" autocomplete="current-password"></p>
+    <p><button type="submit">Change Handle</button></p>
+  </form>
+  <form method="post">
+    <input type="hidden" name="action" value="password">
+    <label>Current passkey</label>
+    <p><input type="password" name="current_password" autocomplete="current-password"></p>
+    <label>New passkey (8+ chars)</label>
+    <p><input type="password" name="new_password" autocomplete="new-password"></p>
+    <label>New passkey again</label>
+    <p><input type="password" name="new_password2" autocomplete="new-password"></p>
+    <p><button type="submit">Change Passkey</button></p>
+  </form>
 </div>

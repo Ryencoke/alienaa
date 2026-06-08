@@ -114,3 +114,14 @@ th{color:var(--neon2);font-size:11px;text-transform:uppercase;letter-spacing:.5p
 .chatsay{display:flex;gap:6px}
 .chatsay input[type=text]{flex:1}
 code{color:var(--neon2);font-size:11px}
+
+/* ---- threaded board posts ---- */
+.post{display:flex;gap:10px;border:1px solid var(--line);background:var(--panel2);
+  padding:8px;border-radius:4px;margin-bottom:8px}
+.votebox{display:flex;flex-direction:column;align-items:center;width:30px;flex:none}
+.vote{background:none;color:var(--muted);border:0;cursor:pointer;padding:0;
+  font-size:13px;line-height:1.1}
+.vote:hover{color:var(--accent);background:none}
+.score{font-weight:bold;color:var(--text);font-size:12px;padding:1px 0}
+.postbody{flex:1;min-width:0}
+.posthead{font-size:11px;margin-bottom:5px;border-bottom:1px solid var(--line);padding-bottom:3px}
