@@ -10,11 +10,13 @@ if ($player) db()->prepare('UPDATE players SET last_seen = NOW() WHERE id = ?')-
 $public = ['login','register'];
 if (!in_array($p, $public) && !$player) { header('Location: index.php?p=login'); exit; }
 
-function bar($label, $val, $max) {
+function bar($label, $val, $max, $key = '') {
   $pct = $max > 0 ? min(100, round($val / $max * 100)) : 0;
+  $df  = $key ? ' data-fill="'.$key.'"' : '';
+  $de  = $key ? ' data-em="'.$key.'"' : '';
   echo '<div class="meter"><span>'.e($label).'</span>'
-     . '<div class="track"><div class="fill" style="width:'.$pct.'%"></div></div>'
-     . '<em>'.number_format($val).' / '.number_format($max).'</em></div>';
+     . '<div class="track"><div class="fill"'.$df.' style="width:'.$pct.'%"></div></div>'
+     . '<em'.$de.'>'.number_format($val).' / '.number_format($max).'</em></div>';
 }
 ?>
 <!DOCTYPE html>
@@ -42,17 +44,17 @@ function bar($label, $val, $max) {
     <div class="card">
       <div class="avatar"></div>
       <div class="name"><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>" style="color:inherit"><?= e($player['username']) ?></a></div>
-      <div class="stat"><span>Level</span><b><?= (int)$player['level'] ?></b></div>
-      <div class="stat"><span>Creds</span><b><?= number_format($player['creds_pocket']) ?></b></div>
-      <div class="stat"><span>Bank</span><b><?= number_format($player['creds_bank']) ?></b></div>
-      <div class="stat"><span>Shards</span><b><?= number_format($player['shards']) ?></b></div>
+      <div class="stat"><span>Level</span><b id="st-level"><?= (int)$player['level'] ?></b></div>
+      <div class="stat"><span>Creds</span><b id="st-pocket"><?= number_format($player['creds_pocket']) ?></b></div>
+      <div class="stat"><span>Bank</span><b id="st-bank"><?= number_format($player['creds_bank']) ?></b></div>
+      <div class="stat"><span>Shards</span><b id="st-shards"><?= number_format($player['shards']) ?></b></div>
     </div>
     <div class="meters">
       <?php
-        bar('Integrity', $player['integrity'], $player['integrity_max']);
-        bar('XP', $player['xp'], $player['xp_next']);
-        bar('Signal', $player['signal'], $player['signal_max']);
-        bar('Cycles', $player['cycles'], $player['cycles_max']);
+        bar('Integrity', $player['integrity'], $player['integrity_max'], 'integrity');
+        bar('XP', $player['xp'], $player['xp_next'], 'xp');
+        bar('Signal', $player['signal'], $player['signal_max'], 'signal');
+        bar('Cycles', $player['cycles'], $player['cycles_max'], 'cycles');
       ?>
     </div>
     <ul class="menu">
@@ -134,16 +136,53 @@ function bar($label, $val, $max) {
                                WHERE last_seen >= (NOW() - INTERVAL 5 MINUTE)
                                ORDER BY username LIMIT 50")->fetchAll();
       ?>
-      <?php if ($online): ?>
+      <div id="jackedin">
         <?php foreach ($online as $o): $oc = chat_color($o['role'], $o['chat_color']); ?>
           <div style="font-size:12px;padding:1px 0"><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a></div>
         <?php endforeach; ?>
-        <p class="muted" style="font-size:10px;margin-top:6px"><?= count($online) ?> jacked in</p>
-      <?php else: ?>
-        <p class="muted">Nobody's jacked in.</p>
-      <?php endif; ?>
+      </div>
+      <p class="muted" style="font-size:10px;margin-top:6px"><span id="jackedin-count"><?= count($online) ?></span> jacked in</p>
     </div>
   </aside>
+
+  <script>
+  (function(){
+    function fmt(n){ return Number(n).toLocaleString('en-US'); }
+    function setText(id,v){ var el=document.getElementById(id); if(el) el.textContent=v; }
+    function setMeter(key,val,max){
+      var f=document.querySelector('[data-fill="'+key+'"]'), em=document.querySelector('[data-em="'+key+'"]');
+      var pct = max>0 ? Math.min(100, Math.round(val/max*100)) : 0;
+      if(f) f.style.width=pct+'%';
+      if(em) em.textContent=fmt(val)+' / '+fmt(max);
+    }
+    function renderOnline(list){
+      var box=document.getElementById('jackedin'); if(!box) return;
+      box.innerHTML='';
+      list.forEach(function(o){
+        var d=document.createElement('div'); d.style.fontSize='12px'; d.style.padding='1px 0';
+        var a=document.createElement('a'); a.href='index.php?p=profile&id='+o.id;
+        a.textContent=o.name; a.style.color=o.color; a.style.fontWeight='bold';
+        d.appendChild(a); box.appendChild(d);
+      });
+      var c=document.getElementById('jackedin-count'); if(c) c.textContent=list.length;
+    }
+    function refresh(){
+      fetch('state_api.php',{credentials:'same-origin'})
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(!d||!d.ok) return; var s=d.s;
+          setText('st-level', s.level); setText('st-pocket', fmt(s.pocket));
+          setText('st-bank', fmt(s.bank)); setText('st-shards', fmt(s.shards));
+          setMeter('integrity', s.integrity, s.integrity_max);
+          setMeter('xp', s.xp, s.xp_next);
+          setMeter('signal', s.signal, s.signal_max);
+          setMeter('cycles', s.cycles, s.cycles_max);
+          if(d.online) renderOnline(d.online);
+        }).catch(function(){});
+    }
+    refresh(); setInterval(refresh, 3000);
+  })();
+  </script>
 </div>
 
 <?php else: ?>
