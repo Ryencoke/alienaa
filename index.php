@@ -32,6 +32,7 @@ function bar($label, $val, $max, $key = '') {
   <a href="index.php?p=boards">Boards</a>
   <a href="index.php?p=datacore&act=lab">Datacore</a>
   <a href="index.php?p=account">Account</a>
+  <a href="index.php?p=updates">Updates</a>
   <a href="index.php?p=logout">Jack Out</a>
 </nav>
 
@@ -62,6 +63,7 @@ function bar($label, $val, $max, $key = '') {
       <li><a href="index.php?p=boards">Message Boards</a></li>
       <li><a href="index.php?p=datacore&act=lab">Datacore</a></li>
       <li><a href="index.php?p=account">Account</a></li>
+      <li><a href="index.php?p=updates">Updates</a></li>
     </ul>
   </aside>
 
