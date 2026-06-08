@@ -39,10 +39,10 @@ function bar($label, $val, $max) {
     <div class="card">
       <div class="avatar"></div>
       <div class="name"><?= e($player['username']) ?></div>
-      <div class="stat">Level <?= (int)$player['level'] ?></div>
-      <div class="stat">Creds: <?= number_format($player['creds_pocket']) ?></div>
-      <div class="stat">Bank: <?= number_format($player['creds_bank']) ?></div>
-      <div class="stat">Shards: <?= number_format($player['shards']) ?></div>
+      <div class="stat"><span>Level</span><b><?= (int)$player['level'] ?></b></div>
+      <div class="stat"><span>Creds</span><b><?= number_format($player['creds_pocket']) ?></b></div>
+      <div class="stat"><span>Bank</span><b><?= number_format($player['creds_bank']) ?></b></div>
+      <div class="stat"><span>Shards</span><b><?= number_format($player['shards']) ?></b></div>
     </div>
     <div class="meters">
       <?php

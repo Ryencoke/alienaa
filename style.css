@@ -1,48 +1,107 @@
+/* ============================================================
+   Sprawl-9 theme. Colors are driven by CSS variables so the
+   Account Options theme switcher (Phase 2) can override them.
+   ============================================================ */
 :root{
-  --bg:#0a0a12; --panel:#12121f; --line:#241f3a;
+  --bg:#0a0a12; --panel:#12121f; --panel2:#181828; --line:#241f3a;
   --neon:#19f0c7; --neon2:#ff2d95; --text:#c9d1e0; --muted:#5d6680;
+  --accent:#19f0c7;                 /* themeable accent */
+  --bar1:#2b2b3d; --bar2:#13131d;   /* grey gradient pill */
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);
-  font:14px/1.5 "Courier New",monospace}
-a{color:var(--neon);text-decoration:none}
+  font:13px/1.45 "Courier New",monospace}
+a{color:var(--accent);text-decoration:none}
 a:hover{color:var(--neon2)}
-.topbar{display:flex;gap:18px;justify-content:center;padding:10px;
-  background:#070710;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.shell{display:grid;grid-template-columns:230px 1fr 230px;gap:14px;
-  max-width:1200px;margin:14px auto;padding:0 12px}
-.shell.solo{grid-template-columns:1fr;max-width:480px}
+
+/* ---- top nav ---- */
+.topbar{display:flex;gap:16px;justify-content:center;padding:10px;
+  background:#06060d;border-bottom:1px solid var(--line);flex-wrap:wrap;
+  letter-spacing:.5px}
+.topbar a{color:var(--text)}
+.topbar a:hover{color:var(--accent)}
+
+/* ---- layout shell ---- */
+.shell{display:grid;grid-template-columns:215px 1fr 230px;gap:14px;
+  max-width:1180px;margin:14px auto;padding:0 12px}
+.shell.solo{grid-template-columns:1fr;max-width:440px}
+
+/* ---- left character card ---- */
 .left .card{background:var(--panel);border:1px solid var(--line);
-  padding:12px;text-align:center;border-radius:6px}
-.avatar{width:84px;height:84px;margin:0 auto 8px;border:1px solid var(--neon);
+  padding:12px;border-radius:6px;text-align:center}
+.avatar{width:80px;height:80px;margin:0 auto 8px;border:1px solid var(--accent);
   background:radial-gradient(circle,#1c2540,#0a0a12);border-radius:4px}
-.name{color:var(--neon);font-weight:bold;letter-spacing:1px}
-.stat{font-size:12px;color:var(--muted)}
+.name{color:var(--accent);font-weight:bold;letter-spacing:1px;
+  border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:6px}
+.left .card .stat{display:flex;justify-content:space-between;
+  font-size:12px;color:var(--muted);padding:1px 0}
+.left .card .stat b{color:var(--text);font-weight:bold}
+
+/* ---- meter bars: label | bar | value ---- */
 .meters{margin:12px 0}
-.meter{margin-bottom:8px;font-size:11px}
-.meter span{color:var(--muted)}
-.track{height:10px;background:#080812;border:1px solid var(--line);border-radius:3px;overflow:hidden}
-.fill{height:100%;background:linear-gradient(90deg,var(--neon),var(--neon2))}
-.meter em{font-style:normal;color:var(--muted);font-size:10px}
+.meter{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.meter span{color:var(--muted);width:56px;flex:none;font-size:10px}
+.meter .track{flex:1;height:12px;background:#080812;border:1px solid var(--line);
+  border-radius:2px;overflow:hidden}
+.meter .fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--neon2))}
+.meter em{font-style:normal;color:var(--muted);font-size:9px;width:66px;
+  text-align:right;flex:none}
+
+/* ---- left menu ---- */
 .menu{list-style:none;padding:0;margin:12px 0;background:var(--panel);
-  border:1px solid var(--line);border-radius:6px}
+  border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .menu li{border-bottom:1px solid var(--line)}
-.menu a{display:block;padding:8px 12px}
+.menu li:last-child{border-bottom:0}
+.menu a{display:block;padding:7px 12px;color:var(--text)}
+.menu a:hover{background:var(--panel2);color:var(--accent)}
+
+/* ---- panels ---- */
 .panel{background:var(--panel);border:1px solid var(--line);padding:14px;
   margin-bottom:14px;border-radius:6px}
-.panel h2,.panel h3{color:var(--neon);margin-top:0;
-  text-shadow:0 0 6px rgba(25,240,199,.4)}
+/* page-title pill (A3 grey gradient bar) */
+.panel h2{margin:-14px -14px 14px;padding:9px 14px;text-align:center;
+  background:linear-gradient(180deg,var(--bar1),var(--bar2));
+  border-bottom:1px solid var(--line);border-radius:6px 6px 0 0;
+  color:var(--accent);font-size:15px;letter-spacing:1px;
+  text-shadow:0 0 6px rgba(255,255,255,.12)}
+/* underlined section header */
+.panel h3{margin:16px 0 8px;padding-bottom:4px;color:var(--neon2);
+  border-bottom:1px solid var(--line);font-size:13px;letter-spacing:.5px}
+.panel > h3:first-child{margin-top:0}
+
+/* reusable grey pill bar (boards section dividers, etc.) */
+.bar{background:linear-gradient(180deg,var(--bar1),var(--bar2));
+  border:1px solid var(--line);border-radius:6px;text-align:center;
+  padding:9px;color:var(--accent);font-weight:bold;letter-spacing:1px;
+  margin-bottom:12px}
+
 .muted{color:var(--muted)}
-.districts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
-.district h4{color:var(--neon2);border-bottom:1px solid var(--line);padding-bottom:4px}
+
+/* ---- district map ---- */
+.districts{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px}
+.district h4{color:var(--neon2);border-bottom:1px solid var(--line);
+  padding-bottom:4px;margin:0 0 6px}
 .district ul{list-style:none;padding:0;margin:0}
-input[type=text],input[type=password],input[type=number]{
+.district li{padding:2px 0}
+
+/* ---- forms ---- */
+input[type=text],input[type=password],input[type=number],select,textarea{
   background:#080812;border:1px solid var(--line);color:var(--text);
-  padding:6px;border-radius:3px;width:100%}
-button,input[type=submit]{background:var(--neon);color:#04040a;border:0;
-  padding:8px 14px;font-weight:bold;border-radius:3px;cursor:pointer}
-button:hover{background:var(--neon2);color:#fff}
-table{width:100%;border-collapse:collapse}
+  padding:6px;border-radius:3px;width:100%;font-family:inherit;font-size:12px}
+button,input[type=submit]{background:var(--accent);color:#04040a;border:0;
+  padding:7px 14px;font-weight:bold;border-radius:3px;cursor:pointer;
+  font-family:inherit;font-size:12px}
+button:hover,input[type=submit]:hover{background:var(--neon2);color:#fff}
+label{display:block;color:var(--muted);font-size:11px;margin-bottom:2px}
+
+/* ---- tables ---- */
+table{width:100%;border-collapse:collapse;font-size:12px}
 th,td{text-align:left;padding:6px;border-bottom:1px solid var(--line)}
-th{color:var(--neon2)}
-.flash{border:1px solid var(--neon);padding:8px;margin-bottom:10px;border-radius:4px}
+th{color:var(--neon2);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+
+/* ---- right column ---- */
+.right .panel h3{margin-top:0;color:var(--accent);border-bottom:1px solid var(--line)}
+
+/* ---- flash / messages ---- */
+.flash{border:1px solid var(--accent);background:rgba(255,255,255,.04);
+  padding:8px;margin:0 0 12px;border-radius:4px;font-size:12px}
