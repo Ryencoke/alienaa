@@ -1,5 +1,6 @@
 <?php
 require 'config.php';
+require 'lib.php';
 $p   = $_GET['p']   ?? 'home';
 $act = $_GET['act'] ?? '';
 $player = current_player();
@@ -94,13 +95,14 @@ function bar($label, $val, $max) {
       function render(msgs){
         feed.innerHTML='';
         msgs.forEach(function(m){
-          var line=document.createElement('div');
-          var who=document.createElement('span');
-          who.textContent=m.username+': ';
-          who.style.color='#19f0c7'; who.style.fontWeight='bold';
+          var line=document.createElement('div'); line.style.marginBottom='2px';
+          var t=document.createElement('span');
+          t.textContent=m.time+' '; t.style.color='#5d6680'; t.style.fontSize='10px';
+          var who=document.createElement('b');
+          who.textContent=m.username+': '; who.style.color=m.color;
           var body=document.createElement('span');
-          body.textContent=m.body;                 // textContent => no HTML injection
-          line.appendChild(who); line.appendChild(body);
+          body.style.color=m.color; body.innerHTML=m.html;   // server-sanitized (escaped + whitelisted BBCode)
+          line.appendChild(t); line.appendChild(who); line.appendChild(body);
           feed.appendChild(line);
         });
         feed.scrollTop=feed.scrollHeight;

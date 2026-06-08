@@ -105,3 +105,12 @@ th{color:var(--neon2);font-size:11px;text-transform:uppercase;letter-spacing:.5p
 /* ---- flash / messages ---- */
 .flash{border:1px solid var(--accent);background:rgba(255,255,255,.04);
   padding:8px;margin:0 0 12px;border-radius:4px;font-size:12px}
+
+/* ---- chat (Town Hall) ---- */
+.chatroom{height:430px;overflow-y:auto;border:1px solid var(--line);
+  background:#080812;padding:8px;border-radius:4px;margin-bottom:10px;font-size:12px}
+.chatline{margin-bottom:3px;line-height:1.45}
+.chattime{color:var(--muted);font-size:10px;margin-right:4px}
+.chatsay{display:flex;gap:6px}
+.chatsay input[type=text]{flex:1}
+code{color:var(--neon2);font-size:11px}
