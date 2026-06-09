@@ -4,9 +4,29 @@ require 'lib.php';
 csrf_guard();
 $p   = $_GET['p']   ?? 'home';
 $act = $_GET['act'] ?? '';
+$pageTitles = [
+  'home'=>'Hideout','stash'=>'Stash','city'=>'The Sprawl','bazaar'=>'Bazaar',
+  'boards'=>'Boards','messages'=>'Messages','friends'=>'Friends','account'=>'Account',
+  'updates'=>'Updates','admin'=>'Admin Panel','profile'=>'Profile','chat'=>'Public Channel',
+  'daemon'=>'Daemon Casino','cityhall'=>'City Hall','datacore'=>'Skillsoft Lab',
+  'foundry'=>'Foundry','transit'=>'Transit Hub','sim'=>'Combat Sim','ledger'=>'Ledger',
+  'registry'=>'ID Registry','exchange'=>'Exchange','lounge'=>'The Lounge',
+  'blacksmith'=>'Blacksmith','generalstore'=>'General Store',
+];
+$pageTitle = $pageTitles[$p] ?? ucfirst($p);
 $player = current_player();
 if ($player) db()->prepare('UPDATE players SET last_seen = NOW() WHERE id = ?')->execute([$player['id']]);
 $isStaff = $player && in_array($player['role'] ?? 'member', ['chatmod','moderator','admin','manager'], true);
+// Sidebar stat preferences
+$sbBars = null;
+if ($player) {
+  try {
+    $sbQ = db()->prepare('SELECT v FROM settings WHERE k=?');
+    $sbQ->execute(['sidebar_bars:' . $player['id']]);
+    $sbRaw = $sbQ->fetchColumn();
+    if ($sbRaw !== false && $sbRaw !== '') $sbBars = array_filter(explode(',', $sbRaw));
+  } catch (Throwable $e) {}
+}
 // Per-page staff note key: includes numeric 'id' param so profile/thread notes are isolated
 $noteKey = 'staff_note:' . $p . (isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? ':' . (int)$_GET['id'] : '');
 if ($isStaff && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['__staffnote'])) {
@@ -28,7 +48,8 @@ function bar($label, $val, $max, $key = '') {
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sprawl-9</title>
+<title>Sprawl-9 &mdash; <?= e($pageTitle) ?></title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__.'/style.css') ?: '1' ?>">
 <?php if ($player) echo theme_css($player['theme'] ?? 'neon', $player['accent_color'] ?? ''); ?>
 </head><body>
@@ -41,6 +62,7 @@ function bar($label, $val, $max, $key = '') {
   <a href="index.php?p=bazaar" class="<?= $p==='bazaar'?'active':'' ?>">Bazaar</a>
   <a href="index.php?p=boards" class="<?= $p==='boards'?'active':'' ?>">Boards</a>
   <a href="index.php?p=messages" class="<?= $p==='messages'?'active':'' ?>">Messages</a>
+  <a href="index.php?p=friends" class="<?= $p==='friends'?'active':'' ?>">Friends</a>
   <a href="index.php?p=account" class="<?= $p==='account'?'active':'' ?>">Account</a>
   <a href="index.php?p=updates" class="<?= $p==='updates'?'active':'' ?>">Updates</a>
   <?php if ($isStaff): ?><a href="index.php?p=admin" class="<?= $p==='admin'?'active':'' ?>">Admin</a><?php endif; ?>
@@ -55,18 +77,24 @@ function bar($label, $val, $max, $key = '') {
         <div class="pcard-info">
           <div class="name"><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>" style="color:inherit"><?= e($player['username']) ?></a></div>
           <div class="pcard-stat"><span>Lv</span><b id="st-level"><?= (int)$player['level'] ?></b></div>
+          <?php if ($sbBars === null || in_array('creds', $sbBars, true)): ?>
           <div class="pcard-stat"><span>Creds</span><b id="st-pocket"><?= number_format($player['creds_pocket']) ?></b></div>
+          <?php endif; ?>
+          <?php if ($sbBars === null || in_array('bank', $sbBars, true)): ?>
           <div class="pcard-stat"><span>Bank</span><b id="st-bank"><?= number_format($player['creds_bank']) ?></b></div>
+          <?php endif; ?>
+          <?php if ($sbBars === null || in_array('shards', $sbBars, true)): ?>
           <div class="pcard-stat"><span>Shards</span><b id="st-shards"><?= number_format($player['shards']) ?></b></div>
+          <?php endif; ?>
         </div>
       </div>
     </div>
     <div class="meters">
       <?php
-        bar('Integrity', $player['integrity'], $player['integrity_max'], 'integrity');
-        bar('XP', $player['xp'], $player['xp_next'], 'xp');
-        bar('Signal', $player['signal'], $player['signal_max'], 'signal');
-        bar('Cycles', $player['cycles'], $player['cycles_max'], 'cycles');
+        if ($sbBars === null || in_array('integrity', $sbBars, true)) bar('Integrity', $player['integrity'], $player['integrity_max'], 'integrity');
+        if ($sbBars === null || in_array('xp', $sbBars, true))        bar('XP', $player['xp'], $player['xp_next'], 'xp');
+        if ($sbBars === null || in_array('signal', $sbBars, true))    bar('Signal', $player['signal'], $player['signal_max'], 'signal');
+        if ($sbBars === null || in_array('cycles', $sbBars, true))    bar('Cycles', $player['cycles'], $player['cycles_max'], 'cycles');
       ?>
     </div>
     <ul class="menu">
@@ -87,8 +115,7 @@ function bar($label, $val, $max, $key = '') {
   if ($isStaff) {
     $snote = '';
     try { $s = db()->prepare('SELECT v FROM settings WHERE k=?'); $s->execute([$noteKey]); $snote = (string)$s->fetchColumn(); } catch (Throwable $e) {}
-    $noteLabel = e($noteKey);
-    echo '<div class="staffnote"><div class="staffnote-head">&#128204; <b>Staff Note</b> <span style="color:var(--muted);font-size:10px;font-weight:normal">[' . $noteLabel . ']</span>'
+    echo '<div class="staffnote"><div class="staffnote-head">&#128204; <b>Staff Note</b>'
        . '<a href="#" onclick="var n=this.closest(\'.staffnote\');n.querySelector(\'.staffnote-edit\').style.display=\'block\';n.querySelector(\'.staffnote-view\').style.display=\'none\';return false;" style="float:right;font-size:11px">[Edit]</a></div>'
        . '<div class="staffnote-view">' . ($snote !== '' ? nl2br(e($snote)) : '<span class="muted">+ Add note for this page</span>') . '</div>'
        . '<form class="staffnote-edit" method="post" style="display:none;margin-top:6px"><input type="hidden" name="__staffnote" value="1">'
@@ -132,7 +159,7 @@ function bar($label, $val, $max, $key = '') {
           var t=document.createElement('span');
           t.textContent=m.time+' '; t.style.color='#5d6680'; t.style.fontSize='10px';
           var who=document.createElement('a'); who.href='index.php?p=profile&id='+m.id;
-          who.textContent=m.username+': '; who.style.color=m.color; who.style.fontWeight='bold';
+          who.textContent=m.username+': '; who.style.color=m.name_color||'#c9d1e0'; who.style.fontWeight='bold';
           var body=document.createElement('span');
           body.style.color=m.color; body.innerHTML=m.html;   // server-sanitized (escaped + whitelisted BBCode)
           line.appendChild(t); line.appendChild(who); line.appendChild(body);
@@ -159,18 +186,34 @@ function bar($label, $val, $max, $key = '') {
     })();
     </script>
     <div class="panel">
-      <h3>Online</h3>
+      <h3>Online <a href="index.php?p=friends" style="font-size:11px;float:right;font-weight:normal">[friends]</a></h3>
       <?php
-        $online = db()->query("SELECT id, username, role, chat_color FROM players
-                               WHERE last_seen >= (NOW() - INTERVAL 5 MINUTE)
-                               ORDER BY username LIMIT 50")->fetchAll();
+        // Show online friends first; fall back to all online if no friends table yet
+        try {
+          $onlineQ = db()->prepare("SELECT p.id, p.username, p.role, p.chat_color
+                                    FROM friends f JOIN players p ON p.id = f.friend_id
+                                    WHERE f.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
+                                    ORDER BY p.username LIMIT 50");
+          $onlineQ->execute([$player['id']]);
+          $online = $onlineQ->fetchAll();
+          if (empty($online)) {
+            // No online friends — show a soft hint rather than all players
+            $online = [];
+          }
+        } catch (Throwable $e) {
+          $online = db()->query("SELECT id, username, role, chat_color FROM players
+                                 WHERE last_seen >= (NOW() - INTERVAL 5 MINUTE)
+                                 ORDER BY username LIMIT 50")->fetchAll();
+        }
       ?>
       <div id="jackedin">
-        <?php foreach ($online as $o): $oc = chat_color($o['role'], $o['chat_color']); ?>
+        <?php if (empty($online)): ?>
+          <p class="muted" style="font-size:11px">No friends online. <a href="index.php?p=friends">Add friends</a> to see them here.</p>
+        <?php else: foreach ($online as $o): $oc = chat_color($o['role'], ''); ?>
           <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a></div>
-        <?php endforeach; ?>
+        <?php endforeach; endif; ?>
       </div>
-      <p class="muted" style="font-size:10px;margin-top:6px"><span id="jackedin-count"><?= count($online) ?></span> online</p>
+      <p class="muted" style="font-size:10px;margin-top:6px"><span id="jackedin-count"><?= count($online) ?></span> friends online</p>
     </div>
   </aside>
 
@@ -215,7 +258,8 @@ function bar($label, $val, $max, $key = '') {
   </script>
 
   <script>
-  /* AJAX: submit center-column forms in place instead of a full page reload. */
+  /* AJAX: swap only main.center for both form submits and link navigation.
+     Sidebars, chat, and the state poll are untouched across page changes. */
   (function(){
     function runScripts(c){ c.querySelectorAll('script').forEach(function(o){
       var s=document.createElement('script'); if(o.src)s.src=o.src; else s.textContent=o.textContent;
@@ -228,10 +272,35 @@ function bar($label, $val, $max, $key = '') {
       requestAnimationFrame(function(){ t.classList.add('show'); });
       setTimeout(function(){ t.classList.remove('show'); setTimeout(function(){ t.remove(); },300); }, 3200);
     }
+    function swapCenter(html, href){
+      var doc=new DOMParser().parseFromString(html,'text/html');
+      var nm=doc.querySelector('main.center');
+      var main=document.querySelector('main.center');
+      if(!nm||!main){ window.location.href=href; return; }
+      main.innerHTML=nm.innerHTML; runScripts(main); main.style.opacity='';
+      var fl=main.querySelector('.flash:not(.combat)');
+      if(fl){ showToast(fl.textContent.trim()); fl.remove(); }
+      if(window.refreshState) window.refreshState();
+      // sync active states without a full reload
+      var m=(href||'').match(/[?&]p=([a-z]+)/);
+      var curP=m?m[1]:'home';
+      document.querySelectorAll('.topbar a').forEach(function(a){
+        var am=(a.getAttribute('href')||'').match(/[?&]p=([a-z]+)/);
+        a.classList.toggle('active',!!(am&&am[1]===curP));
+      });
+      document.querySelectorAll('.menu li').forEach(function(li){
+        var a=li.querySelector('a'); if(!a) return;
+        var am=(a.getAttribute('href')||'').match(/[?&]p=([a-z]+)/);
+        li.classList.toggle('active',!!(am&&am[1]===curP));
+      });
+      // Sync browser tab title
+      var nt=doc.querySelector('title'); if(nt) document.title=nt.textContent;
+    }
+    // POST forms inside main.center
     document.addEventListener('submit', function(ev){
       var form=ev.target;
       if(!form || (form.getAttribute('method')||'get').toLowerCase()!=='post') return;
-      if(form.getAttribute('action')) return;                 // only forms that post to the current page
+      if(form.getAttribute('action')) return;
       var main=document.querySelector('main.center');
       if(!main || !main.contains(form)) return;
       ev.preventDefault();
@@ -240,15 +309,34 @@ function bar($label, $val, $max, $key = '') {
       main.style.opacity='0.45';
       fetch(window.location.href,{method:'POST',body:fd,credentials:'same-origin'})
         .then(function(r){return r.text();})
-        .then(function(html){
-          var nm=new DOMParser().parseFromString(html,'text/html').querySelector('main.center');
-          if(!nm){ window.location.reload(); return; }
-          main.innerHTML=nm.innerHTML; runScripts(main); main.style.opacity='';
-          var fl=main.querySelector('.flash:not(.combat)');
-          if(fl){ showToast(fl.textContent.trim()); fl.remove(); }
-          if(window.refreshState) window.refreshState();
-        })
+        .then(function(html){ swapCenter(html, window.location.href); })
         .catch(function(){ main.style.opacity=''; form.submit(); });
+    });
+    // GET link navigation — keep chat + sidebars alive
+    document.addEventListener('click', function(ev){
+      var a=ev.target.closest('a[href]'); if(!a) return;
+      var href=a.getAttribute('href');
+      if(!href||href.charAt(0)==='#'||a.target) return;
+      if(href.indexOf('://')!==-1) return;           // external
+      if(href.indexOf('p=logout')!==-1) return;      // needs full reload
+      var main=document.querySelector('main.center'); if(!main) return;
+      ev.preventDefault();
+      history.pushState(null,'',href);
+      main.style.opacity='0.45';
+      fetch(href,{credentials:'same-origin'})
+        .then(function(r){return r.text();})
+        .then(function(html){ swapCenter(html, href); })
+        .catch(function(){ main.style.opacity=''; window.location.href=href; });
+    });
+    // Browser back/forward
+    window.addEventListener('popstate', function(){
+      var href=window.location.href;
+      var main=document.querySelector('main.center'); if(!main) return;
+      main.style.opacity='0.45';
+      fetch(href,{credentials:'same-origin'})
+        .then(function(r){return r.text();})
+        .then(function(html){ swapCenter(html, href); })
+        .catch(function(){ window.location.reload(); });
     });
   })();
   </script>

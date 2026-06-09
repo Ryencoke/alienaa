@@ -20,26 +20,28 @@ function pager($base, $pg, $pages) {
   return $o . '</p>';
 }
 
-// Vote arrows for a post (two tiny POST forms).
-function votebox_html($postId, $score) {
+// Vote arrows for a post (two tiny POST forms). $myVote: 1=up, -1=down, 0=none
+function votebox_html($postId, $score, $myVote = 0) {
+  $upA  = $myVote === 1  ? ' vote-active' : '';
+  $dnA  = $myVote === -1 ? ' vote-active' : '';
   $o  = '<div class="votebox">';
   $o .= '<form method="post" style="margin:0"><input type="hidden" name="action" value="vote">'
       . '<input type="hidden" name="post_id" value="' . (int)$postId . '">'
-      . '<input type="hidden" name="dir" value="up"><button class="vote" title="up">&#9650;</button></form>';
+      . '<input type="hidden" name="dir" value="up"><button class="vote' . $upA . '" title="up">&#9650;</button></form>';
   $o .= '<div class="score">' . (int)$score . '</div>';
   $o .= '<form method="post" style="margin:0"><input type="hidden" name="action" value="vote">'
       . '<input type="hidden" name="post_id" value="' . (int)$postId . '">'
-      . '<input type="hidden" name="dir" value="down"><button class="vote" title="down">&#9660;</button></form>';
+      . '<input type="hidden" name="dir" value="down"><button class="vote' . $dnA . '" title="down">&#9660;</button></form>';
   $o .= '</div>';
   return $o;
 }
 
 // Recursively render a reply and its children.
 if (!function_exists('render_post')) {
-  function render_post($p, $children, $scores, $tid, $depth, $canModB = false) {
+  function render_post($p, $children, $scores, $tid, $depth, $canModB = false, $myVotes = []) {
     $col = chat_color($p['role'], $p['chat_color']);
     echo '<div class="post" style="margin-left:' . ($depth * 22) . 'px">';
-    echo votebox_html($p['id'], $scores[$p['id']] ?? 0);
+    echo votebox_html($p['id'], $scores[$p['id']] ?? 0, $myVotes[$p['id']] ?? 0);
     echo '<div class="postbody"><div class="posthead">';
     echo '<a href="index.php?p=profile&id=' . (int)$p['author_id'] . '" style="color:' . e($col) . ';font-weight:bold">' . e($p['author']) . '</a>';
     if ($p['role'] !== 'member') echo ' <span class="muted">[' . e(role_label($p['role'])) . ']</span>';
@@ -50,7 +52,7 @@ if (!function_exists('render_post')) {
     if (!empty($p['signature'])) echo '<div class="muted" style="border-top:1px solid var(--line);margin-top:6px;padding-top:4px;font-size:11px">' . bbcode($p['signature']) . '</div>';
     echo '</div></div>';
     if (!empty($children[$p['id']])) {
-      foreach ($children[$p['id']] as $c) render_post($c, $children, $scores, $tid, $depth + 1, $canModB);
+      foreach ($children[$p['id']] as $c) render_post($c, $children, $scores, $tid, $depth + 1, $canModB, $myVotes);
     }
   }
 }
@@ -109,8 +111,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $chk = $pdo->prepare('SELECT topic_id FROM posts WHERE id = ?'); $chk->execute([$post_id]);
       $owner_topic = $chk->fetchColumn();
       if ($owner_topic) {
-        $pdo->prepare('INSERT INTO post_votes (post_id, player_id, value) VALUES (?,?,?)
-                       ON DUPLICATE KEY UPDATE value = VALUES(value)')->execute([$post_id, $pid, $dir]);
+        $cur = $pdo->prepare('SELECT value FROM post_votes WHERE post_id = ? AND player_id = ?');
+        $cur->execute([$post_id, $pid]);
+        $curVal = (int)($cur->fetchColumn() ?: 0);
+        $newVal = ($curVal === $dir) ? 0 : $dir;  // re-click same dir = cancel back to 0
+        if ($newVal === 0) {
+          $pdo->prepare('DELETE FROM post_votes WHERE post_id = ? AND player_id = ?')->execute([$post_id, $pid]);
+        } else {
+          $pdo->prepare('INSERT INTO post_votes (post_id, player_id, value) VALUES (?,?,?)
+                         ON DUPLICATE KEY UPDATE value = VALUES(value)')->execute([$post_id, $pid, $newVal]);
+        }
         $tid = (int)$owner_topic;
       }
     }
@@ -167,6 +177,12 @@ if ($tid) {
   $sv->execute([$tid]);
   foreach ($sv as $r) $scores[$r['post_id']] = (int)$r['s'];
 
+  $myVotes = [];
+  $mv = $pdo->prepare('SELECT pv.post_id, pv.value FROM post_votes pv
+                       JOIN posts p ON p.id = pv.post_id WHERE p.topic_id = ? AND pv.player_id = ?');
+  $mv->execute([$tid, $pid]);
+  foreach ($mv as $r) $myVotes[$r['post_id']] = (int)$r['value'];
+
   $op = $posts ? $posts[0] : null;
   $opId = $op ? $op['id'] : 0;
   $children = [];
@@ -190,7 +206,7 @@ if ($tid) {
     <?= $flash ?>
     <?php if ($op): $col = chat_color($op['role'], $op['chat_color']); ?>
     <div class="post">
-      <?= votebox_html($op['id'], $scores[$op['id']] ?? 0) ?>
+      <?= votebox_html($op['id'], $scores[$op['id']] ?? 0, $myVotes[$op['id']] ?? 0) ?>
       <div class="postbody">
         <div class="posthead">
           <a href="index.php?p=profile&id=<?= (int)$op['author_id'] ?>" style="color:<?= e($col) ?>;font-weight:bold"><?= e($op['author']) ?></a>
@@ -208,7 +224,7 @@ if ($tid) {
 
   <div class="bar">Replies To This Message</div>
   <?php
-    if (!empty($children[$opId])) { foreach ($children[$opId] as $c) render_post($c, $children, $scores, $tid, 0, $canModB); }
+    if (!empty($children[$opId])) { foreach ($children[$opId] as $c) render_post($c, $children, $scores, $tid, 0, $canModB, $myVotes); }
     else { echo '<p class="muted">No replies yet.</p>'; }
   ?>
 

@@ -198,7 +198,7 @@ label{display:block;color:var(--muted);font-size:11px;font-weight:bold;
 
 /* ============================================================ Tabs */
 .tabs{display:flex;gap:3px;border-bottom:1px solid var(--line);
-  margin-bottom:20px;overflow-x:auto;flex-wrap:nowrap;
+  margin-bottom:20px;overflow:hidden;flex-wrap:nowrap;
   scrollbar-width:none;-ms-overflow-style:none}
 .tabs::-webkit-scrollbar{display:none}
 .tab{padding:9px 16px;color:var(--muted);font-size:12px;font-weight:bold;
@@ -239,6 +239,7 @@ code{color:var(--neon2);font-size:12px}
 .vote{background:none;color:var(--muted);border:0;cursor:pointer;padding:0;
   font-size:13px;line-height:1.1}
 .vote:hover{color:var(--accent);background:none}
+.vote-active{color:var(--accent)!important;text-shadow:0 0 8px rgba(25,240,199,.7)}
 .score{font-weight:bold;color:var(--text);font-size:12px;padding:1px 0}
 .postbody{flex:1;min-width:0}
 .posthead{font-size:12px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px}
@@ -316,6 +317,19 @@ code{color:var(--neon2);font-size:12px}
   0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}
   40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
 .flash.combat{animation:flashin .25s ease, shake .42s ease}
+
+/* ============================================================ Friends list */
+.friends-list{display:flex;flex-direction:column;gap:1px}
+.friend-row{display:flex;align-items:center;gap:10px;padding:8px 4px;
+  border-bottom:1px solid var(--line)}
+.friend-row:last-child{border-bottom:0}
+.friend-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.friend-dot.online{background:var(--accent);box-shadow:0 0 5px rgba(25,240,199,.7)}
+.friend-dot.offline{background:var(--muted)}
+.friend-info{flex:1;min-width:0}
+.friend-status{font-size:11px;flex:none}
+.status-online{color:var(--accent)}
+.status-offline{color:var(--muted)}
 
 /* ============================================================ Daemon casino */
 .daemon-header{display:flex;justify-content:space-between;align-items:center;gap:16px}
@@ -452,3 +466,71 @@ code{color:var(--neon2);font-size:12px}
 
 /* ============================================================ AJAX transitions */
 main.center{transition:opacity .12s ease}
+
+/* ============================================================ Shop grid (Blacksmith / General Store) */
+.shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.shop-card{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);
+  padding:12px;cursor:pointer;transition:border-color var(--t),transform .1s ease;text-align:center}
+.shop-card:hover{border-color:rgba(25,240,199,.45);transform:translateY(-2px)}
+.shop-card.selected{border-color:var(--accent);box-shadow:0 0 12px rgba(25,240,199,.15)}
+.shop-card.owned-card{border-color:rgba(25,240,199,.35)}
+.shop-card .sc-ic{font-size:32px;margin-bottom:6px}
+.shop-card .sc-nm{font-size:12px;font-weight:bold;color:var(--accent);margin-bottom:2px}
+.shop-card .sc-pr{font-size:11px;color:var(--muted)}
+.shop-card .sc-owned{font-size:10px;color:var(--accent);margin-top:4px}
+
+.shop-detail{background:var(--panel2);border:1px solid var(--accent);border-radius:var(--radius);
+  padding:16px;margin-bottom:14px}
+.shop-detail .sd-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
+.shop-detail .sd-ic{font-size:48px;flex:none}
+.shop-detail .sd-info{flex:1;min-width:0}
+.shop-detail .sd-name{font-family:'Orbitron',sans-serif;font-weight:bold;color:var(--accent);font-size:14px}
+.shop-detail .sd-type{font-size:11px;color:var(--muted);margin-top:2px;text-transform:uppercase}
+.shop-detail .sd-desc{font-size:13px;margin-top:6px}
+.shop-detail .sd-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:12px 0}
+.shop-detail .sd-stat{font-size:12px}
+.shop-detail .sd-stat .sl{color:var(--muted)}
+.shop-detail .sd-stat .sv-pos{color:var(--accent)}
+.shop-detail .sd-stat .sv-neg{color:var(--neon2)}
+.shop-detail .sd-footer{display:flex;align-items:center;justify-content:space-between}
+.shop-detail .sd-price{font-size:14px;font-weight:bold;color:var(--accent);font-family:'Orbitron',sans-serif}
+
+/* ============================================================ Skillsoft lab cards */
+.skill-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.skill-card{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px;transition:border-color var(--t)}
+.skill-card:hover{border-color:rgba(25,240,199,.3)}
+.skill-card.mastered{border-color:rgba(255,215,0,.4)}
+.skill-card .sk-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.skill-card .sk-ic{font-size:26px;flex:none}
+.skill-card .sk-name{font-family:'Orbitron',sans-serif;font-size:12px;color:var(--accent);font-weight:bold}
+.skill-card .sk-desc{font-size:11px;color:var(--muted);margin-top:2px}
+.skill-card .sk-effect{font-size:11px;color:var(--neon2);font-style:italic;margin:8px 0}
+.skill-card .sk-lvl{display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px}
+.skill-card .sk-track{height:6px;background:#080812;border-radius:999px;overflow:hidden;margin-bottom:8px;position:relative}
+.skill-card .sk-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--neon2));transition:width .4s ease}
+.skill-card .sk-preview{height:100%;border-radius:999px;background:rgba(25,240,199,.25);position:absolute;top:0;left:0;transition:width .2s}
+.mastered .sk-fill{background:linear-gradient(90deg,#c8a800,#ffe066)}
+.skill-card .sk-input-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+.skill-card .sk-qty{width:70px;text-align:center}
+.skill-card .sk-cost{font-size:11px;color:var(--muted);text-align:right;flex:1}
+.skill-mastered-badge{display:inline-block;background:rgba(255,215,0,.15);color:#ffe066;
+  font-size:10px;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,215,0,.35);
+  font-weight:bold;letter-spacing:.5px}
+
+/* ============================================================ Autocomplete */
+.ac-wrap{position:relative}
+.ac-list{position:absolute;top:100%;left:0;right:0;background:var(--panel);
+  border:1px solid var(--accent);border-radius:0 0 var(--radius) var(--radius);
+  z-index:100;max-height:180px;overflow-y:auto}
+.ac-item{padding:7px 12px;font-size:13px;cursor:pointer;color:var(--text);transition:background var(--t)}
+.ac-item:hover,.ac-item.focused{background:rgba(25,240,199,.1);color:var(--accent)}
+
+/* ============================================================ Sidebar stat toggles */
+.stat-toggle-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-top:8px}
+.stat-toggle{display:flex;align-items:center;gap:8px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;
+  cursor:pointer;transition:border-color var(--t)}
+.stat-toggle:hover{border-color:rgba(25,240,199,.35)}
+.stat-toggle input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;flex:none}
+.stat-toggle .st-label{font-size:12px;font-weight:bold}

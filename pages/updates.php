@@ -29,8 +29,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $dir = ($_POST['dir'] ?? '') === 'down' ? -1 : 1;
       $chk = $pdo->prepare('SELECT 1 FROM updates WHERE id = ?'); $chk->execute([$uid]);
       if ($chk->fetchColumn()) {
-        $pdo->prepare('INSERT INTO update_votes (update_id, player_id, value) VALUES (?,?,?)
-                       ON DUPLICATE KEY UPDATE value = VALUES(value)')->execute([$uid, $pid, $dir]);
+        $cur = $pdo->prepare('SELECT value FROM update_votes WHERE update_id = ? AND player_id = ?');
+        $cur->execute([$uid, $pid]);
+        $curVal = (int)($cur->fetchColumn() ?: 0);
+        $newVal = ($curVal === $dir) ? 0 : $dir;  // re-click same dir = cancel back to 0
+        if ($newVal === 0) {
+          $pdo->prepare('DELETE FROM update_votes WHERE update_id = ? AND player_id = ?')->execute([$uid, $pid]);
+        } else {
+          $pdo->prepare('INSERT INTO update_votes (update_id, player_id, value) VALUES (?,?,?)
+                         ON DUPLICATE KEY UPDATE value = VALUES(value)')->execute([$uid, $pid, $newVal]);
+        }
       }
     }
 
@@ -44,15 +52,19 @@ $pages = max(1, (int)ceil($total / UPDATES_PER_PAGE));
 $pg    = min($pg, $pages);
 $off   = ($pg - 1) * UPDATES_PER_PAGE;
 
-$rows = $pdo->query('SELECT u.id, u.body, u.credit, u.created_at,
-                       (SELECT COALESCE(SUM(value),0) FROM update_votes v WHERE v.update_id = u.id) AS score
+$stmt = $pdo->prepare('SELECT u.id, u.body, u.credit, u.created_at,
+                       (SELECT COALESCE(SUM(value),0) FROM update_votes v WHERE v.update_id = u.id) AS score,
+                       (SELECT COALESCE(value,0) FROM update_votes v WHERE v.update_id = u.id AND v.player_id = ?) AS my_vote
                      FROM updates u ORDER BY u.created_at DESC, u.id DESC
-                     LIMIT ' . (int)UPDATES_PER_PAGE . ' OFFSET ' . (int)$off)->fetchAll();
+                     LIMIT ' . (int)UPDATES_PER_PAGE . ' OFFSET ' . (int)$off);
+$stmt->execute([$pid]);
+$rows = $stmt->fetchAll();
 
-function uvote($uid, $dir, $glyph) {
+function uvote($uid, $dir, $glyph, $myVote) {
+  $active = ($myVote == ($dir === 'up' ? 1 : -1)) ? ' vote-active' : '';
   return '<form method="post" style="display:inline;margin:0"><input type="hidden" name="action" value="vote">'
        . '<input type="hidden" name="update_id" value="' . (int)$uid . '">'
-       . '<input type="hidden" name="dir" value="' . $dir . '"><button class="vote">' . $glyph . '</button></form>';
+       . '<input type="hidden" name="dir" value="' . $dir . '"><button class="vote' . $active . '">' . $glyph . '</button></form>';
 }
 ?>
 <div class="panel">
@@ -86,9 +98,9 @@ function uvote($uid, $dir, $glyph) {
         <?php if (trim($r['credit']) !== ''): ?><div class="muted" style="font-style:italic;font-size:11px">Thanks to <?= e($r['credit']) ?></div><?php endif; ?>
       </div>
       <div class="updvote">
-        <?= uvote($r['id'], 'up', '&#9650;') ?>
+        <?= uvote($r['id'], 'up', '&#9650;', (int)$r['my_vote']) ?>
         <b><?= (int)$r['score'] ?></b>
-        <?= uvote($r['id'], 'down', '&#9660;') ?>
+        <?= uvote($r['id'], 'down', '&#9660;', (int)$r['my_vote']) ?>
       </div>
     </div>
     <?php endforeach; ?>

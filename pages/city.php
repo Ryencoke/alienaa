@@ -67,6 +67,7 @@
   <div class="district panel"><h4>The Bazaar</h4><ul>
     <li><a href="index.php?p=bazaar">Open Market</a></li>
     <li><a href="index.php?p=ledger&act=bank">Bank</a></li>
+    <li><a href="index.php?p=generalstore">The Supply Node</a></li>
   </ul></div>
 
   <div class="district panel"><h4>The Exchange Block</h4><ul>
@@ -79,6 +80,10 @@
 
   <div class="district panel"><h4>The Undervolt</h4><ul>
     <li><a href="index.php?p=daemon">The Lucky Daemon</a></li>
+  </ul></div>
+
+  <div class="district panel"><h4>The Forge Quarter</h4><ul>
+    <li><a href="index.php?p=blacksmith">The Blacksmith</a></li>
   </ul></div>
 
   <div class="district panel"><h4>The Firewall</h4><ul>

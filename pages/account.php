@@ -48,6 +48,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('UPDATE players SET sidebar = ? WHERE id = ?')->execute(['', $pid]);
       $msg = 'Sidebar reset to defaults.'; $player = current_player();
     }
+    elseif ($action === 'sidebar_bars') {
+      $allowed = ['creds','bank','shards','integrity','xp','signal','cycles'];
+      $chosen  = array_values(array_intersect($allowed, (array)($_POST['bars'] ?? [])));
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')
+          ->execute(['sidebar_bars:' . $pid, implode(',', $chosen)]);
+      $msg = 'Stat display updated.';
+    }
     elseif ($action === 'handle') {
       $newu = trim($_POST['new_username'] ?? ''); $cur = $_POST['current_password'] ?? '';
       if (!password_verify($cur, $player['pass_hash']))      $msg = 'Current passkey is wrong.';
@@ -137,6 +144,28 @@ $curAccent = $player['accent_color'] ?? '';
   <form method="post" action="index.php?p=account&sec=sidebar" style="margin-top:8px">
     <input type="hidden" name="action" value="sidebar_reset">
     <button type="submit" class="btn btn-ghost btn-sm">Reset to defaults</button>
+  </form>
+
+  <?php
+    $sbBarsKey = 'sidebar_bars:' . $pid;
+    $sbBarsRaw = '';
+    try { $r = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $r->execute([$sbBarsKey]); $sbBarsRaw = (string)$r->fetchColumn(); } catch (Throwable $e) {}
+    $activeBars = $sbBarsRaw !== '' ? array_filter(explode(',', $sbBarsRaw)) : ['creds','bank','shards','integrity','xp','signal','cycles'];
+    $barLabels = ['creds'=>'Creds','bank'=>'Bank','shards'=>'Shards','integrity'=>'Integrity','xp'=>'XP','signal'=>'Signal','cycles'=>'Cycles'];
+  ?>
+  <h3 style="margin-top:24px">Visible Stats</h3>
+  <p class="muted">Choose which stats appear in your character card. Level is always shown.</p>
+  <form method="post" action="index.php?p=account&sec=sidebar">
+    <input type="hidden" name="action" value="sidebar_bars">
+    <div class="stat-toggle-grid">
+      <?php foreach ($barLabels as $key => $lbl): $chk = in_array($key, $activeBars, true); ?>
+      <label class="stat-toggle">
+        <input type="checkbox" name="bars[]" value="<?= e($key) ?>" <?= $chk ? 'checked' : '' ?>>
+        <span class="st-label"><?= e($lbl) ?></span>
+      </label>
+      <?php endforeach; ?>
+    </div>
+    <button type="submit" style="margin-top:12px">Save Stat Display</button>
   </form>
   <script>
   (function(){

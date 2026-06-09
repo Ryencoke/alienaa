@@ -1,51 +1,132 @@
-<?php
+<?php /* pages/datacore.php — Skillsoft Lab: burn cycles to level skills */
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 
-// ensure player has skill rows
+// Ensure skill rows exist
 $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points)
                SELECT ?, id, 0 FROM skills')->execute([$pid]);
 
-if ($_SERVER['REQUEST_METHOD']==='POST') {
-  $invest = $_POST['pts'] ?? [];   // [skill_id => points]
-  $total = array_sum(array_map('intval',$invest));
-  if ($total > 0 && $total <= $player['cycles']) {
-    foreach ($invest as $sid=>$pts) {
-      $pts=(int)$pts; if($pts<=0) continue;
-      $pdo->prepare('UPDATE player_skills ps JOIN skills s ON s.id=ps.skill_id
+$SKILLS_META = [
+  'scav'   => ['icon'=>'&#128270;', 'name'=>'Scavenging',    'effect'=>'+yield & unlock higher-tier gather nodes per level',      'color'=>'var(--accent)'],
+  'hydro'  => ['icon'=>'&#127807;', 'name'=>'Hydroponics',   'effect'=>'+crop yield & unlock hydrofarm growth vats per level',   'color'=>'#3bcf63'],
+  'fab'    => ['icon'=>'&#9881;',   'name'=>'Fabrication',   'effect'=>'+crafting output & unlock advanced recipes per level',    'color'=>'var(--neon2)'],
+  'combat' => ['icon'=>'&#9876;',   'name'=>'Combat',        'effect'=>'+damage & crit chance in combat sims per level',          'color'=>'#ff6b35'],
+  'drone'  => ['icon'=>'&#129458;', 'name'=>'Drone Ops',     'effect'=>'+mining yield & unlock remote transit nodes per level',   'color'=>'#4d6be8'],
+];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $invest = $_POST['pts'] ?? [];
+  $total  = array_sum(array_map('intval', $invest));
+  try {
+    if ($total <= 0)                   throw new RuntimeException('Enter how many cycles to burn.');
+    if ($total > $player['cycles'])    throw new RuntimeException('Not enough cycles for that.');
+    foreach ($invest as $sid => $pts) {
+      $pts = (int)$pts; if ($pts <= 0) continue;
+      $pdo->prepare('UPDATE player_skills ps JOIN skills s ON s.id = ps.skill_id
                      SET ps.points = LEAST(s.max_pts, ps.points + ?)
-                     WHERE ps.player_id=? AND ps.skill_id=?')
-          ->execute([$pts,$pid,(int)$sid]);
+                     WHERE ps.player_id = ? AND ps.skill_id = ?')
+          ->execute([$pts, $pid, (int)$sid]);
     }
-    $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id=?')
-        ->execute([$total,$pid]);
-    $msg = "Burned $total cycles into the Skillsoft Lab.";
+    $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ?')->execute([$total, $pid]);
+    $msg = "Burned {$total} cycles. Skillsofts updated.";
     $player = current_player();
-  } else { $msg='Not enough cycles for that.'; }
+  } catch (Throwable $ex) { $msg = $ex->getMessage(); }
 }
 
-$rows = $pdo->prepare('SELECT s.id,s.name,s.max_pts,ps.points
-                       FROM skills s JOIN player_skills ps
-                       ON ps.skill_id=s.id AND ps.player_id=? ORDER BY s.name');
+$rows = $pdo->prepare('SELECT s.id, s.code, s.name, s.max_pts, ps.points
+                       FROM skills s JOIN player_skills ps ON ps.skill_id = s.id AND ps.player_id = ?
+                       ORDER BY s.name');
 $rows->execute([$pid]);
+$skills = $rows->fetchAll();
 ?>
 <div class="panel">
-  <h2>Datacore: Skillsoft Lab</h2>
-  <p class="muted">Jack a skillsoft into your cortex. Costs Cycles. The deeper you go, the more the Sprawl opens up.</p>
-  <?php if($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
-  <p>Cycles available: <b><?= number_format($player['cycles']) ?></b></p>
-  <form method="post">
-    <table>
-      <tr><th>Skillsoft</th><th>Loaded</th><th>Burn</th></tr>
-      <?php foreach($rows as $r): ?>
-      <tr>
-        <td><?= e($r['name']) ?></td>
-        <td><?= $r['points'] ?> / <?= $r['max_pts'] ?></td>
-        <td><input type="number" name="pts[<?= $r['id'] ?>]" min="0" value="0" style="width:80px"></td>
-      </tr>
-      <?php endforeach; ?>
-    </table>
-    <p><button type="submit">Burn Cycles</button></p>
-  </form>
+  <h2>Datacore &mdash; Skillsoft Lab</h2>
+  <p class="muted" style="text-align:center;margin-top:-8px">Jack a skillsoft into your cortex. Costs Cycles. The deeper you go, the more the Sprawl opens up.</p>
+  <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
+  <div style="text-align:center;margin:10px 0">
+    <span class="muted" style="font-size:12px">Available Cycles:&nbsp;</span>
+    <span style="font-family:'Orbitron',sans-serif;font-weight:bold;color:var(--accent);font-size:1.3rem"><?= number_format($player['cycles']) ?></span>
+    <span class="muted" style="font-size:11px"> / <?= number_format($player['cycles_max']) ?></span>
+  </div>
 </div>
+
+<form method="post">
+<div class="skill-grid">
+<?php foreach ($skills as $sk):
+  $meta   = $SKILLS_META[$sk['code']] ?? ['icon'=>'&#127288;','name'=>$sk['name'],'effect'=>'','color'=>'var(--accent)'];
+  $pts    = (int)$sk['points'];
+  $max    = (int)$sk['max_pts'];
+  $pct    = $max > 0 ? min(100, round($pts / $max * 100)) : 0;
+  $level  = $max > 0 ? min(10, (int)floor($pts / ($max / 10)) + 1) : 1;
+  $mastered = $pts >= $max;
+?>
+<div class="skill-card<?= $mastered ? ' mastered' : '' ?>">
+  <div class="sk-head">
+    <span class="sk-ic"><?= $meta['icon'] ?></span>
+    <div style="flex:1;min-width:0">
+      <div class="sk-name"><?= e($meta['name']) ?></div>
+      <div class="sk-desc"><?= e($sk['name']) ?></div>
+    </div>
+    <?php if ($mastered): ?><span class="skill-mastered-badge">MASTERED</span><?php endif; ?>
+  </div>
+
+  <div class="sk-lvl">
+    <span>Level <b style="color:<?= $meta['color'] ?>"><?= $level ?></b> / 10</span>
+    <span class="muted"><?= number_format($pts) ?> / <?= number_format($max) ?> pts</span>
+  </div>
+  <div class="sk-track">
+    <div class="sk-fill" id="sk-fill-<?= $sk['id'] ?>" style="width:<?= $pct ?>%"></div>
+    <div class="sk-preview" id="sk-prev-<?= $sk['id'] ?>" style="width:<?= $pct ?>%"></div>
+  </div>
+  <div class="sk-effect"><?= e($meta['effect']) ?></div>
+
+  <?php if (!$mastered): ?>
+  <div class="sk-input-row">
+    <label style="font-size:11px;color:var(--muted);flex:none">Burn:</label>
+    <input type="number" class="sk-qty" name="pts[<?= (int)$sk['id'] ?>]"
+           min="0" max="<?= $max - $pts ?>" value="0"
+           data-id="<?= $sk['id'] ?>" data-pts="<?= $pts ?>" data-max="<?= $max ?>">
+    <div class="sk-cost" id="sk-cost-<?= $sk['id'] ?>">0 cycles</div>
+  </div>
+  <?php else: ?>
+  <p style="font-size:11px;color:#ffe066;text-align:center;margin:8px 0 0">Maximum knowledge loaded &#127891;</p>
+  <?php endif; ?>
+</div>
+<?php endforeach; ?>
+</div>
+
+<div style="text-align:center;margin:14px 0">
+  <div style="font-size:13px;margin-bottom:8px;color:var(--muted)">
+    Total to burn: <b id="sk-total" style="color:var(--accent)">0</b> cycles
+  </div>
+  <button type="submit" id="sk-submit" disabled style="opacity:.4">Burn Cycles</button>
+</div>
+</form>
+
+<script>
+(function(){
+  var totalEl=document.getElementById('sk-total'), btn=document.getElementById('sk-submit');
+  function upd(){
+    var t=0;
+    document.querySelectorAll('.sk-qty').forEach(function(inp){
+      var v=Math.max(0,parseInt(inp.value)||0);
+      var id=inp.getAttribute('data-id');
+      var pts=parseInt(inp.getAttribute('data-pts'));
+      var max=parseInt(inp.getAttribute('data-max'));
+      var pct=max>0?Math.min(100,Math.round((pts+v)/max*100)):0;
+      var prev=document.getElementById('sk-prev-'+id);
+      if(prev) prev.style.width=pct+'%';
+      var cost=document.getElementById('sk-cost-'+id);
+      if(cost) cost.textContent=v+' cycle'+(v!==1?'s':'');
+      t+=v;
+    });
+    totalEl.textContent=t;
+    btn.disabled=t<1; btn.style.opacity=t<1?'0.4':'1';
+  }
+  document.querySelectorAll('.sk-qty').forEach(function(inp){
+    inp.addEventListener('input',upd);
+  });
+  upd();
+})();
+</script>
