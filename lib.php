@@ -19,6 +19,11 @@ function role_label($role) {
   return $map[$role] ?? '';
 }
 
+// True if the player row has an active subscription (sub_until today or later).
+function is_subscribed($row) {
+  return !empty($row['sub_until']) && $row['sub_until'] >= date('Y-m-d');
+}
+
 // Render user text safely: escape EVERYTHING first, then convert a tiny BBCode
 // whitelist. Because we escape before converting, no raw HTML can ever slip in.
 function bbcode($text) {

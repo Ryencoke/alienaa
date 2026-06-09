@@ -43,6 +43,8 @@ if ($sec === 'records') {
     $male   = (int)$pdo->query('SELECT COUNT(*) FROM players WHERE avatar = 1')->fetchColumn();
     $female = (int)$pdo->query('SELECT COUNT(*) FROM players WHERE avatar = 2')->fetchColumn();
   } catch (Throwable $e) {}
+  $subs = null;
+  try { $subs = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE sub_until >= CURDATE()")->fetchColumn(); } catch (Throwable $e) {}
   ?>
   <div class="panel"><h2>Records Hall</h2>
     <p class="muted"><a href="index.php?p=cityhall">&laquo; City Hall</a> &middot; Live census of the Sprawl.</p>
@@ -53,19 +55,43 @@ if ($sec === 'records') {
       <?php if ($male !== null): ?>
         <li><b><?= number_format($male) ?></b> are Drifters, <b><?= number_format($female) ?></b> are Netghosts.</li>
       <?php endif; ?>
+      <?php if ($subs !== null): ?><li><b><?= number_format($subs) ?></b> are subscribed.</li><?php endif; ?>
     </ul>
     <p class="muted" style="font-size:11px">Karma alignment and subscriber counts come online with those systems later.</p>
   </div>
   <?php return;
 }
 
-/* ============================ CRYOGENIC STORAGE (placeholder) ============================ */
+/* ============================ CRYOGENIC STORAGE ============================ */
 if ($sec === 'cryo') {
+  $pid = $_SESSION['pid']; $today = date('Y-m-d'); $msg = '';
+  $sub = is_subscribed($player);
+  if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'freeze') {
+    if (!$sub) { $msg = 'Cryo is for subscribers only.'; }
+    else {
+      $days = max(3, (int)($_POST['days'] ?? 3));
+      $until = date('Y-m-d', strtotime("+{$days} days"));
+      $pdo->prepare('UPDATE players SET cryo_until = ? WHERE id = ?')->execute([$until, $pid]);
+      $msg = "Frozen until {$until}."; $player = current_player();
+    }
+  }
+  $frozen = !empty($player['cryo_until']) && $player['cryo_until'] >= $today;
   ?>
   <div class="panel"><h2>Cryogenic Storage</h2>
     <p class="muted"><a href="index.php?p=cityhall">&laquo; City Hall</a></p>
-    <p>Freeze your ghost while you're away so you don't lose subscription time or get jumped in the Sim.</p>
-    <p class="flash">NODE OFFLINE &mdash; Cryo activates alongside the subscription system (not built yet). Once subscriptions exist, you'll be able to freeze here for a set number of days.</p>
+    <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
+    <p>Freeze your ghost while you're away. Minimum 3 days. Once PvP and subscription-day loss are in, freezing protects you from both.</p>
+    <?php if ($frozen): ?>
+      <p>Status: <b>frozen until <?= e($player['cryo_until']) ?></b>.</p>
+    <?php elseif ($sub): ?>
+      <form method="post"><input type="hidden" name="action" value="freeze">
+        <label>Days to freeze (min 3)</label>
+        <p><input type="number" name="days" min="3" value="3" style="max-width:120px"></p>
+        <p><button type="submit">Freeze</button></p>
+      </form>
+    <?php else: ?>
+      <p class="flash">Subscribers only. Grab a subscription at <a href="index.php?p=exchange">The Exchange</a>.</p>
+    <?php endif; ?>
   </div>
   <?php return;
 }

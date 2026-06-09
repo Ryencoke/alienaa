@@ -38,6 +38,7 @@ try {
   <h2>Profile</h2>
   <p style="text-align:center;margin:0">
     <b style="color:<?= e($col) ?>;font-size:17px"><?= e($prof['username']) ?></b>
+    <?php if (is_subscribed($prof)): ?> <span title="Subscriber" style="color:#e8d44d">&#9733;</span><?php endif; ?>
     <?php if ($role !== 'member'): ?> <span class="muted">[<?= e($rlbl) ?>]</span><?php endif; ?>
   </p>
   <?php if (trim($bio) !== ''): ?>
