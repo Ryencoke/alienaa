@@ -99,7 +99,7 @@ $recent = $rl->fetchAll();
   <p class="muted">The house always wins. The house is also on fire. Place your bets accordingly.</p>
   <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
   <p>Pocket: <b><?= number_format($player['creds_pocket']) ?></b> creds</p>
-  <p><a href="index.php?p=blackjack">&#9824; Play Blackjack &raquo;</a></p>
+  <p><a href="index.php?p=blackjack">&#9824; Blackjack</a> &nbsp;&middot;&nbsp; <a href="index.php?p=poker">&#9827; Video Poker</a></p>
 </div>
 
 <div class="panel">
