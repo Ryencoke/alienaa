@@ -2,6 +2,7 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
+$slotReels = null;
 
 const MAX_BET = 1000000;   // sanity cap per play
 
@@ -55,11 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     elseif ($action === 'slots') {
-      $symbols = ['$','#','%','*','7'];
+      $symbols = ['🍒','🔔','💎','⚡','7️⃣'];
       $r = [$symbols[random_int(0,4)], $symbols[random_int(0,4)], $symbols[random_int(0,4)]];
+      $slotReels = $r;
 
       if ($r[0] === $r[1] && $r[1] === $r[2]) {
-        $mult = ($r[0] === '7') ? 25 : 5;
+        $mult = ($r[0] === '7️⃣') ? 25 : 5;
       } elseif ($r[0] === $r[1] || $r[1] === $r[2] || $r[0] === $r[2]) {
         $mult = 1; // pair -> push (bet returned)
       } else {
@@ -97,6 +99,7 @@ $recent = $rl->fetchAll();
   <p class="muted">The house always wins. The house is also on fire. Place your bets accordingly.</p>
   <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
   <p>Pocket: <b><?= number_format($player['creds_pocket']) ?></b> creds</p>
+  <p><a href="index.php?p=blackjack">&#9824; Play Blackjack &raquo;</a></p>
 </div>
 
 <div class="panel">
@@ -120,6 +123,13 @@ $recent = $rl->fetchAll();
   <h3>Neon Reels</h3>
   <p class="muted">Three reels. Three 7s pay 25&times; &middot; any other three-of-a-kind pays 5&times; &middot;
      a pair returns your bet &middot; anything else, you lose.</p>
+  <?php if ($slotReels): ?>
+    <div style="display:flex;gap:8px;margin:8px 0">
+      <?php foreach ($slotReels as $sym): ?>
+        <div style="width:58px;height:58px;border:2px solid var(--accent);border-radius:6px;background:#080812;display:flex;align-items:center;justify-content:center;font-size:30px"><?= $sym ?></div>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
   <form method="post">
     <input type="hidden" name="action" value="slots">
     <p><label>Bet</label><input type="number" name="bet" min="1" max="<?= (int)min(MAX_BET, $player['creds_pocket']) ?>" value="10"></p>
