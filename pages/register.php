@@ -11,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
       $ok='Ghost created. You can jack in now.';
     } catch (PDOException $ex) {
       if ($ex->getCode() === '23000') $err='That handle is taken. Pick another.';
-      else $err='Registration failed: '.$ex->getMessage();
+      else $err='Registration failed. Please try again.';
     }
   }
 }

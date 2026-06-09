@@ -1,6 +1,7 @@
 <?php /* chat_api.php — JSON endpoint for the Public Channel (outside the router). */
 require __DIR__ . '/config.php';
 require __DIR__ . '/lib.php';
+csrf_guard();
 header('Content-Type: application/json');
 header('Cache-Control: no-store, max-age=0');
 

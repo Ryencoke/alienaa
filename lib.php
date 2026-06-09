@@ -24,6 +24,19 @@ function is_subscribed($row) {
   return !empty($row['sub_until']) && $row['sub_until'] >= date('Y-m-d');
 }
 
+// CSRF mitigation: reject POSTs whose Origin/Referer host doesn't match ours.
+// (Same-origin form/fetch posts pass; a cross-site attacker's posted form is blocked.)
+function csrf_guard() {
+  if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') return;
+  $src = $_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '';
+  if ($src === '') return;                       // no header to check — allow (avoid false rejects)
+  $h = parse_url($src, PHP_URL_HOST);
+  if ($h !== null && strcasecmp($h, $_SERVER['HTTP_HOST'] ?? '') !== 0) {
+    http_response_code(403);
+    exit('Forbidden: cross-origin request blocked.');
+  }
+}
+
 // Flag emoji from a 2-letter country code ('' if none/invalid).
 function country_flag($code) {
   $code = strtoupper(trim((string)$code));

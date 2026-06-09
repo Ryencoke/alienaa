@@ -1,6 +1,7 @@
 <?php
 require 'config.php';
 require 'lib.php';
+csrf_guard();
 $p   = $_GET['p']   ?? 'home';
 $act = $_GET['act'] ?? '';
 $player = current_player();
@@ -76,7 +77,9 @@ function bar($label, $val, $max, $key = '') {
   if (preg_match('/^[a-z]+$/', $p) && file_exists($file)) {
     try { require $file; }
     catch (Throwable $ex) {
-      echo '<div class="panel"><h2>Glitch in the Grid</h2><p class="muted">'.e($ex->getMessage()).'</p></div>';
+      $seeDetail = $player && in_array($player['role'] ?? 'member', ['admin','manager'], true);
+      echo '<div class="panel"><h2>Glitch in the Grid</h2><p class="muted">'
+         . e($seeDetail ? $ex->getMessage() : 'Something glitched. Try again, or flag it to staff.') . '</p></div>';
     }
   } else {
     echo '<div class="panel"><h2>Signal Lost</h2><p>That node doesn\'t exist on the Sprawl.</p></div>';
