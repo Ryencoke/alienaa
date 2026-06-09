@@ -85,14 +85,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <p>Pocket: <b><?= number_format($player['creds_pocket']) ?></b> creds</p>
 
   <?php if (!empty($bj)): $done = $bj['done']; $pv = bj_value($bj['player']); ?>
-    <h3>Dealer <?php if ($done) echo '(' . bj_value($bj['dealer']) . ')'; ?></h3>
-    <div><?php
-      if ($done) echo bj_render($bj['dealer']);
-      else echo card_svg($bj['dealer'][0][0], $bj['dealer'][0][1]) . card_back_svg();
-    ?></div>
-
-    <h3>You (<?= $pv ?>)</h3>
-    <div><?= bj_render($bj['player']) ?></div>
+    <div class="felt">
+      <div class="label">Dealer<?php if ($done) echo ' &mdash; ' . bj_value($bj['dealer']); ?></div>
+      <div><?php
+        if ($done) echo bj_render($bj['dealer']);
+        else echo card_svg($bj['dealer'][0][0], $bj['dealer'][0][1]) . card_back_svg();
+      ?></div>
+      <div class="label" style="margin-top:16px">You &mdash; <?= $pv ?></div>
+      <div><?= bj_render($bj['player']) ?></div>
+    </div>
 
     <?php if ($done): ?>
       <div class="flash" style="margin-top:10px"><?= e($bj['result']) ?></div>

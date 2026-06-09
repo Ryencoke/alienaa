@@ -195,3 +195,24 @@ main.center{transition:opacity .12s ease}
 *::-webkit-scrollbar-track{background:var(--bg)}
 *::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
 *::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+
+/* ============================ casino + combat ============================ */
+/* card deal/flip */
+.pcard{animation:dealflip .5s cubic-bezier(.2,.7,.3,1) both}
+.pcardback{animation:dealin .35s ease both}
+@keyframes dealflip{0%{transform:perspective(520px) rotateY(-105deg) translateY(-6px);opacity:0}
+  60%{opacity:1}100%{transform:perspective(520px) rotateY(0) translateY(0);opacity:1}}
+@keyframes dealin{from{transform:translateY(-8px) scale(.96);opacity:0}to{transform:none;opacity:1}}
+
+/* green felt table */
+.felt{background:radial-gradient(circle at 50% 30%, #18432e, #0b2118 72%);
+  border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px;
+  box-shadow:inset 0 0 46px rgba(0,0,0,.55), 0 0 0 4px rgba(25,240,199,.06), 0 6px 18px rgba(0,0,0,.4)}
+.felt .label{color:#9fd9c0;font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px}
+
+/* combat status bar + hit shake */
+.statbar{height:20px;background:#080812;border:1px solid var(--line);border-radius:5px;overflow:hidden;position:relative;margin:8px 0}
+.statbar .sfill{height:100%;background:linear-gradient(90deg,#3bcf63,#19f0c7);transition:width .6s ease}
+.statbar .stxt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;color:#fff;text-shadow:0 0 3px #000}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+.flash.combat{animation:flashin .25s ease, shake .42s ease}

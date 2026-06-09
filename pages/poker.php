@@ -82,7 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <p>Pocket: <b><?= number_format($player['creds_pocket']) ?></b> creds</p>
 
   <?php if (!empty($vp)): $phase = $vp['phase']; ?>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
+    <div class="felt">
+    <div class="label"><?= $phase === 'draw' ? 'Hold the cards you want, then draw' : 'Final hand' ?></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">
     <?php for ($i = 0; $i < 5; $i++): $c = $vp['hand'][$i]; ?>
       <div style="text-align:center">
         <?= card_svg($c[0], $c[1]) ?>
@@ -93,6 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
       </div>
     <?php endfor; ?>
+    </div>
     </div>
 
     <?php if ($phase === 'draw'): ?>

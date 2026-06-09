@@ -154,7 +154,7 @@ $recent = $rl->fetchAll();
 <div class="panel">
   <h2>Combat Sim <span class="muted">&mdash; The Firewall</span></h2>
   <p class="muted">Jack into the Sim and fight for rep. Drones today, other ghosts tomorrow.</p>
-  <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
+  <?php if ($msg): ?><div class="flash combat"><?= e($msg) ?></div><?php endif; ?>
   <p>
     Integrity: <b><?= (int)$player['integrity'] ?> / <?= (int)$player['integrity_max'] ?></b> &middot;
     Attack: <b><?= (int)$pAtk ?></b> &middot; Defense: <b><?= (int)$pDef ?></b> &middot;
@@ -162,6 +162,8 @@ $recent = $rl->fetchAll();
     <?php if ($gearAtk || $gearDef): ?>&middot; Gear: <b>+<?= (int)$gearAtk ?> ATK / +<?= (int)$gearDef ?> DEF</b><?php endif; ?>
     <span class="muted">(<a href="index.php?p=stash">loadout</a> &middot; train at the <a href="index.php?p=datacore&act=lab">Datacore</a>)</span>
   </p>
+  <?php $ip = (int)$player['integrity_max'] > 0 ? round((int)$player['integrity'] / (int)$player['integrity_max'] * 100) : 0; ?>
+  <div class="statbar"><div class="sfill" style="width:<?= $ip ?>%"></div><div class="stxt">Integrity <?= (int)$player['integrity'] ?> / <?= (int)$player['integrity_max'] ?></div></div>
   <form method="post" style="margin:0">
     <input type="hidden" name="action" value="heal">
     <button type="submit">Use Field Patch Kit (+<?= HEAL_PER_KIT ?> Integrity)</button>

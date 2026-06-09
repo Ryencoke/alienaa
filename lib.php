@@ -83,7 +83,7 @@ function card_svg($rank, $suit) {
   $glyphs = ['S'=>'&#9824;', 'H'=>'&#9829;', 'D'=>'&#9830;', 'C'=>'&#9827;'];
   $g   = $glyphs[$suit] ?? '?';
   $col = ($suit === 'H' || $suit === 'D') ? '#d23b3b' : '#1a1a1a';
-  return '<svg viewBox="0 0 60 84" style="width:46px;height:64px;display:inline-block;vertical-align:middle;margin:1px" xmlns="http://www.w3.org/2000/svg">'
+  return '<svg class="pcard" viewBox="0 0 60 84" style="width:46px;height:64px;display:inline-block;vertical-align:middle;margin:1px" xmlns="http://www.w3.org/2000/svg">'
     . '<rect x="1" y="1" width="58" height="82" rx="6" fill="#f4f4f0" stroke="#999"/>'
     . '<text x="6" y="18" font-family="Verdana,Arial,sans-serif" font-size="14" font-weight="bold" fill="'.$col.'">'.e($rank).'</text>'
     . '<text x="30" y="52" text-anchor="middle" font-size="26" fill="'.$col.'">'.$g.'</text>'
@@ -92,7 +92,7 @@ function card_svg($rank, $suit) {
 }
 
 function card_back_svg() {
-  return '<svg viewBox="0 0 60 84" style="width:46px;height:64px;display:inline-block;vertical-align:middle;margin:1px" xmlns="http://www.w3.org/2000/svg">'
+  return '<svg class="pcardback" viewBox="0 0 60 84" style="width:46px;height:64px;display:inline-block;vertical-align:middle;margin:1px" xmlns="http://www.w3.org/2000/svg">'
     . '<rect x="1" y="1" width="58" height="82" rx="6" fill="#12121f" stroke="var(--accent)"/>'
     . '<rect x="7" y="7" width="46" height="70" rx="3" fill="none" stroke="var(--accent)" stroke-dasharray="3 3"/>'
     . '<text x="30" y="50" text-anchor="middle" font-size="22" fill="var(--accent)">&#9760;</text>'
