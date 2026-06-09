@@ -1,75 +1,61 @@
-<?php /* pages/account.php — settings hub: appearance + chat */
+<?php /* pages/account.php — settings hub (tabbed sections) */
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
-$all_themes = themes();
+$all_themes    = themes();
+$all_countries = countries();
+
+$secs = ['profile'=>'Member Profile','schemes'=>'Schemes & Styles','chat'=>'Chat Settings','boards'=>'Board Settings','account'=>'Account'];
+$sec = $_GET['sec'] ?? 'profile';
+if (!isset($secs[$sec])) $sec = 'profile';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = $_POST['action'] ?? '';
+  try {
 
-  if ($action === 'theme') {
-    $theme = $_POST['theme'] ?? 'neon';
-    if (!isset($all_themes[$theme])) $theme = 'neon';
-    $accent = '';
-    if (isset($_POST['use_accent']) && preg_match('/^#[0-9a-fA-F]{6}$/', $_POST['accent_color'] ?? '')) {
-      $accent = $_POST['accent_color'];
+    if ($action === 'profile') {
+      $bio = trim($_POST['bio'] ?? ''); if (mb_strlen($bio) > 200) $bio = mb_substr($bio, 0, 200);
+      $country = strtoupper(trim($_POST['country'] ?? '')); if (!isset($all_countries[$country])) $country = '';
+      $pdo->prepare('UPDATE players SET bio = ?, country = ? WHERE id = ?')->execute([$bio, $country, $pid]);
+      $msg = 'Profile saved.'; $player = current_player();
     }
-    $pdo->prepare('UPDATE players SET theme = ?, accent_color = ? WHERE id = ?')->execute([$theme, $accent, $pid]);
-    // Reload via GET so index.php re-renders the <head> with the new theme immediately.
-    echo '<script>location.replace("index.php?p=account&saved=theme");</script>';
-    return;
-  }
-
-  elseif ($action === 'chatcolor') {
-    $c = $_POST['chat_color'] ?? '';
-    if (preg_match('/^#[0-9a-fA-F]{6}$/', $c)) {
-      $pdo->prepare('UPDATE players SET chat_color = ? WHERE id = ?')->execute([$c, $pid]);
-      $msg = 'Chat color updated.';
-      $player = current_player();
-    } else {
-      $msg = 'Pick a valid color.';
+    elseif ($action === 'theme') {
+      $theme = $_POST['theme'] ?? 'neon'; if (!isset($all_themes[$theme])) $theme = 'neon';
+      $accent = '';
+      if (isset($_POST['use_accent']) && preg_match('/^#[0-9a-fA-F]{6}$/', $_POST['accent_color'] ?? '')) $accent = $_POST['accent_color'];
+      $pdo->prepare('UPDATE players SET theme = ?, accent_color = ? WHERE id = ?')->execute([$theme, $accent, $pid]);
+      echo '<script>location.replace("index.php?p=account&sec=schemes&saved=1");</script>'; return;
     }
-  }
-
-  elseif ($action === 'bio') {
-    $bio = trim($_POST['bio'] ?? '');
-    if (mb_strlen($bio) > 200) $bio = mb_substr($bio, 0, 200);
-    $pdo->prepare('UPDATE players SET bio = ? WHERE id = ?')->execute([$bio, $pid]);
-    $msg = 'Profile updated.';
-    $player = current_player();
-  }
-
-  elseif ($action === 'handle') {
-    $newu = trim($_POST['new_username'] ?? '');
-    $cur  = $_POST['current_password'] ?? '';
-    if (!password_verify($cur, $player['pass_hash']))            $msg = 'Current passkey is wrong.';
-    elseif (!preg_match('/^[A-Za-z0-9_]{3,32}$/', $newu))        $msg = 'Handle must be 3-32 letters, numbers, or underscore.';
-    else {
-      try {
-        $pdo->prepare('UPDATE players SET username = ? WHERE id = ?')->execute([$newu, $pid]);
-        $msg = 'Handle changed to ' . $newu . '.';
-        $player = current_player();
-      } catch (PDOException $e) { $msg = 'That handle is taken.'; }
+    elseif ($action === 'chatcolor') {
+      $c = $_POST['chat_color'] ?? '';
+      if (preg_match('/^#[0-9a-fA-F]{6}$/', $c)) { $pdo->prepare('UPDATE players SET chat_color = ? WHERE id = ?')->execute([$c, $pid]); $msg = 'Chat color updated.'; $player = current_player(); }
+      else $msg = 'Pick a valid color.';
     }
-  }
-
-  elseif ($action === 'password') {
-    $cur = $_POST['current_password'] ?? '';
-    $n1  = $_POST['new_password'] ?? '';
-    $n2  = $_POST['new_password2'] ?? '';
-    if (!password_verify($cur, $player['pass_hash'])) $msg = 'Current passkey is wrong.';
-    elseif (strlen($n1) < 8)                          $msg = 'New passkey must be at least 8 characters.';
-    elseif ($n1 !== $n2)                              $msg = 'New passkeys do not match.';
-    else {
-      $pdo->prepare('UPDATE players SET pass_hash = ? WHERE id = ?')
-          ->execute([password_hash($n1, PASSWORD_DEFAULT), $pid]);
-      $msg = 'Passkey changed.';
-      $player = current_player();
+    elseif ($action === 'boards') {
+      $sig = trim($_POST['signature'] ?? ''); if (mb_strlen($sig) > 255) $sig = mb_substr($sig, 0, 255);
+      $pdo->prepare('UPDATE players SET signature = ? WHERE id = ?')->execute([$sig, $pid]);
+      $msg = 'Board settings saved.'; $player = current_player();
     }
-  }
+    elseif ($action === 'handle') {
+      $newu = trim($_POST['new_username'] ?? ''); $cur = $_POST['current_password'] ?? '';
+      if (!password_verify($cur, $player['pass_hash']))     $msg = 'Current passkey is wrong.';
+      elseif (!preg_match('/^[A-Za-z0-9_]{3,32}$/', $newu)) $msg = 'Handle must be 3-32 letters, numbers, or underscore.';
+      else {
+        try { $pdo->prepare('UPDATE players SET username = ? WHERE id = ?')->execute([$newu, $pid]); $msg = 'Handle changed to ' . $newu . '.'; $player = current_player(); }
+        catch (PDOException $e) { $msg = 'That handle is taken.'; }
+      }
+    }
+    elseif ($action === 'password') {
+      $cur = $_POST['current_password'] ?? ''; $n1 = $_POST['new_password'] ?? ''; $n2 = $_POST['new_password2'] ?? '';
+      if (!password_verify($cur, $player['pass_hash'])) $msg = 'Current passkey is wrong.';
+      elseif (strlen($n1) < 8)                          $msg = 'New passkey must be at least 8 characters.';
+      elseif ($n1 !== $n2)                              $msg = 'New passkeys do not match.';
+      else { $pdo->prepare('UPDATE players SET pass_hash = ? WHERE id = ?')->execute([password_hash($n1, PASSWORD_DEFAULT), $pid]); $msg = 'Passkey changed.'; $player = current_player(); }
+    }
+
+  } catch (Throwable $ex) { $msg = $ex->getMessage(); }
 }
-
-if (($_GET['saved'] ?? '') === 'theme' && $msg === '') $msg = 'Appearance saved.';
+if (($_GET['saved'] ?? '') === '1' && $msg === '') $msg = 'Appearance saved.';
 
 $role      = $player['role'] ?? 'member';
 $curTheme  = $player['theme'] ?? 'neon';
@@ -77,24 +63,38 @@ $curAccent = $player['accent_color'] ?? '';
 ?>
 <div class="panel">
   <h2>Account Settings</h2>
+  <p class="muted" style="font-size:12px">
+    <?php $i = 0; foreach ($secs as $k => $lbl): if ($i++) echo ' &middot; ';
+      if ($k === $sec) echo '<b style="color:var(--accent)">' . e($lbl) . '</b>';
+      else echo '<a href="index.php?p=account&sec=' . $k . '">' . e($lbl) . '</a>';
+    endforeach; ?>
+  </p>
   <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
-  <p class="muted">Tune how Sprawl-9 looks and how you show up in chat. Your stats live on the
-    <a href="index.php?p=home">Hideout</a>.</p>
 </div>
 
+<?php if ($sec === 'profile'): ?>
 <div class="panel">
-  <h3>Profile</h3>
+  <h3>Member Profile</h3>
   <form method="post">
-    <input type="hidden" name="action" value="bio">
-    <label>Tagline / bio &mdash; shown on your public profile (200 max)</label>
+    <input type="hidden" name="action" value="profile">
+    <label>Country</label>
+    <p><select name="country" style="max-width:240px">
+      <option value="">&mdash; none &mdash;</option>
+      <?php foreach ($all_countries as $code => $cn): ?>
+        <option value="<?= $code ?>" <?= ($player['country'] ?? '') === $code ? 'selected' : '' ?>><?= e($cn) ?></option>
+      <?php endforeach; ?>
+    </select></p>
+    <p class="muted" style="font-size:11px">Your flag shows next to your name on your Hideout and profile (not in chat).</p>
+    <label>Tagline / bio (200 max)</label>
     <p><textarea name="bio" maxlength="200" style="min-height:60px"><?= e($player['bio'] ?? '') ?></textarea></p>
     <p><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>">View my profile &raquo;</a></p>
     <p><button type="submit">Save Profile</button></p>
   </form>
 </div>
 
+<?php elseif ($sec === 'schemes'): ?>
 <div class="panel">
-  <h3>Appearance</h3>
+  <h3>Schemes &amp; Styles</h3>
   <form method="post">
     <input type="hidden" name="action" value="theme">
     <label>Theme</label>
@@ -103,35 +103,41 @@ $curAccent = $player['accent_color'] ?? '';
         <option value="<?= e($key) ?>" <?= $key === $curTheme ? 'selected' : '' ?>><?= e($t['name']) ?></option>
       <?php endforeach; ?>
     </select></p>
-    <label style="display:inline-block">
-      <input type="checkbox" name="use_accent" value="1" <?= $curAccent ? 'checked' : '' ?> style="width:auto">
-      Custom accent color (overrides the theme's)
-    </label>
-    <p><input type="color" name="accent_color" value="<?= e($curAccent ?: '#19f0c7') ?>"
-       style="width:64px;height:34px;padding:2px"></p>
+    <label style="display:inline-block"><input type="checkbox" name="use_accent" value="1" <?= $curAccent ? 'checked' : '' ?> style="width:auto"> Custom accent color (overrides the theme's)</label>
+    <p><input type="color" name="accent_color" value="<?= e($curAccent ?: '#19f0c7') ?>" style="width:64px;height:34px;padding:2px"></p>
     <p><button type="submit">Save Appearance</button></p>
   </form>
 </div>
 
+<?php elseif ($sec === 'chat'): ?>
 <div class="panel">
   <h3>Chat Settings</h3>
   <?php if ($role !== 'member'): ?>
-    <p>Your name shows in
-      <b style="color:<?= e(chat_color($role, '')) ?>"><?= e(role_label($role)) ?></b>
-      staff color &mdash; it overrides any personal color.</p>
+    <p>Your name shows in <b style="color:<?= e(chat_color($role, '')) ?>"><?= e(role_label($role)) ?></b> staff color &mdash; it overrides any personal color.</p>
     <p class="muted"><b style="color:<?= e(chat_color($role, '')) ?>"><?= e($player['username']) ?>:</b> sample message</p>
   <?php else: ?>
     <form method="post">
       <input type="hidden" name="action" value="chatcolor">
       <label>Your chat name color</label>
-      <p><input type="color" name="chat_color" value="<?= e($player['chat_color'] ?? '#c9d1e0') ?>"
-         style="width:64px;height:34px;padding:2px"></p>
+      <p><input type="color" name="chat_color" value="<?= e($player['chat_color'] ?? '#c9d1e0') ?>" style="width:64px;height:34px;padding:2px"></p>
       <p class="muted"><b style="color:<?= e(chat_color('member', $player['chat_color'] ?? '')) ?>"><?= e($player['username']) ?>:</b> sample message</p>
       <p><button type="submit">Save Color</button></p>
     </form>
   <?php endif; ?>
 </div>
 
+<?php elseif ($sec === 'boards'): ?>
+<div class="panel">
+  <h3>Message Board Settings</h3>
+  <form method="post">
+    <input type="hidden" name="action" value="boards">
+    <label>Signature &mdash; shown under your board posts (255 max, BBCode ok)</label>
+    <p><textarea name="signature" maxlength="255" style="min-height:60px"><?= e($player['signature'] ?? '') ?></textarea></p>
+    <p><button type="submit">Save Board Settings</button></p>
+  </form>
+</div>
+
+<?php elseif ($sec === 'account'): ?>
 <div class="panel">
   <h3>Account Credentials</h3>
   <form method="post" style="margin-bottom:16px">
@@ -153,3 +159,4 @@ $curAccent = $player['accent_color'] ?? '';
     <p><button type="submit">Change Passkey</button></p>
   </form>
 </div>
+<?php endif; ?>

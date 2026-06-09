@@ -107,7 +107,7 @@ function bar($label, $val, $max, $key = '') {
           var t=document.createElement('span');
           t.textContent=m.time+' '; t.style.color='#5d6680'; t.style.fontSize='10px';
           var who=document.createElement('a'); who.href='index.php?p=profile&id='+m.id;
-          who.textContent=(m.sub?'★ ':'')+m.username+': '; who.style.color=m.color; who.style.fontWeight='bold';
+          who.textContent=m.username+': '; who.style.color=m.color; who.style.fontWeight='bold';
           var body=document.createElement('span');
           body.style.color=m.color; body.innerHTML=m.html;   // server-sanitized (escaped + whitelisted BBCode)
           line.appendChild(t); line.appendChild(who); line.appendChild(body);

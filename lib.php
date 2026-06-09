@@ -24,6 +24,23 @@ function is_subscribed($row) {
   return !empty($row['sub_until']) && $row['sub_until'] >= date('Y-m-d');
 }
 
+// Flag emoji from a 2-letter country code ('' if none/invalid).
+function country_flag($code) {
+  $code = strtoupper(trim((string)$code));
+  if (!preg_match('/^[A-Z]{2}$/', $code)) return '';
+  return mb_chr(127397 + ord($code[0]), 'UTF-8') . mb_chr(127397 + ord($code[1]), 'UTF-8');
+}
+
+function countries() {
+  return ['US'=>'United States','CA'=>'Canada','GB'=>'United Kingdom','IE'=>'Ireland','AU'=>'Australia','NZ'=>'New Zealand',
+    'DE'=>'Germany','FR'=>'France','ES'=>'Spain','IT'=>'Italy','PT'=>'Portugal','NL'=>'Netherlands','BE'=>'Belgium',
+    'SE'=>'Sweden','NO'=>'Norway','DK'=>'Denmark','FI'=>'Finland','PL'=>'Poland','CZ'=>'Czechia','AT'=>'Austria',
+    'CH'=>'Switzerland','GR'=>'Greece','RU'=>'Russia','UA'=>'Ukraine','TR'=>'Turkey','BR'=>'Brazil','MX'=>'Mexico',
+    'AR'=>'Argentina','CL'=>'Chile','CO'=>'Colombia','JP'=>'Japan','KR'=>'South Korea','CN'=>'China','IN'=>'India',
+    'ID'=>'Indonesia','PH'=>'Philippines','TH'=>'Thailand','VN'=>'Vietnam','ZA'=>'South Africa','EG'=>'Egypt',
+    'NG'=>'Nigeria','SA'=>'Saudi Arabia','AE'=>'UAE','IL'=>'Israel'];
+}
+
 // Render user text safely: escape EVERYTHING first, then convert a tiny BBCode
 // whitelist. Because we escape before converting, no raw HTML can ever slip in.
 function bbcode($text) {

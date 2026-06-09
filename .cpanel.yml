@@ -9,6 +9,6 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home/ixv3yw83owgs/public_html/
-    - /bin/cp -R index.php chat_api.php state_api.php lib.php config.sample.php style.css .user.ini $DEPLOYPATH
+    - /bin/cp -R index.php chat_api.php state_api.php admin_api.php lib.php config.sample.php style.css .user.ini $DEPLOYPATH
     - /bin/cp -R pages $DEPLOYPATH
     - /bin/cp -R *.sql $DEPLOYPATH

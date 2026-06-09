@@ -44,7 +44,9 @@ if (!function_exists('render_post')) {
     if ($p['role'] !== 'member') echo ' <span class="muted">[' . e(role_label($p['role'])) . ']</span>';
     echo ' <span class="muted">' . e($p['created_at']) . '</span>';
     echo ' &middot; <a href="index.php?p=boards&t=' . (int)$tid . '&reply=' . (int)$p['id'] . '#replyform">Reply</a>';
-    echo '</div><div>' . bbcode($p['body']) . '</div></div></div>';
+    echo '</div><div>' . bbcode($p['body']) . '</div>';
+    if (!empty($p['signature'])) echo '<div class="muted" style="border-top:1px solid var(--line);margin-top:6px;padding-top:4px;font-size:11px">' . bbcode($p['signature']) . '</div>';
+    echo '</div></div>';
     if (!empty($children[$p['id']])) {
       foreach ($children[$p['id']] as $c) render_post($c, $children, $scores, $tid, $depth + 1);
     }
@@ -133,7 +135,7 @@ if ($tid) {
   $pdo->prepare('UPDATE topics SET views = views + 1 WHERE id = ?')->execute([$tid]);
 
   $pq = $pdo->prepare('SELECT p.id, p.parent_id, p.body, p.created_at, p.author_id,
-                         pl.username AS author, pl.role, pl.chat_color
+                         pl.username AS author, pl.role, pl.chat_color, pl.signature
                        FROM posts p JOIN players pl ON pl.id = p.author_id
                        WHERE p.topic_id = ? ORDER BY p.id ASC');
   $pq->execute([$tid]);
@@ -178,6 +180,7 @@ if ($tid) {
             &middot; <a href="index.php?p=boards&t=<?= (int)$tid ?>&reply=<?= (int)$op['id'] ?>#replyform">Reply</a></span>
         </div>
         <div><?= bbcode($op['body']) ?></div>
+        <?php if (!empty($op['signature'])): ?><div class="muted" style="border-top:1px solid var(--line);margin-top:6px;padding-top:4px;font-size:11px"><?= bbcode($op['signature']) ?></div><?php endif; ?>
       </div>
     </div>
     <?php endif; ?>

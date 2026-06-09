@@ -8,7 +8,9 @@ $role = $player['role'] ?? 'member';
 
   <h3>Personal Stats</h3>
   <table>
-    <tr><th>Handle</th><td><?= e($player['username']) ?></td>
+    <tr><th>Handle</th><td><?= e($player['username']) ?>
+        <?php $fl = country_flag($player['country'] ?? ''); if ($fl) echo ' ' . $fl; ?>
+        <?php if (is_subscribed($player)) echo ' <span title="Subscriber" style="color:#e8d44d">&#9733;</span>'; ?></td>
         <th>Role</th><td><?= $role === 'member' ? 'Member' : e(role_label($role)) ?></td></tr>
     <tr><th>Level</th><td><?= (int)$player['level'] ?></td>
         <th>XP</th><td><?= number_format($player['xp']) ?> / <?= number_format($player['xp_next']) ?></td></tr>

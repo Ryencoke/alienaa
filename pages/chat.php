@@ -22,7 +22,7 @@ $rows = array_reverse($pdo->query(
     <?php if ($rows): foreach ($rows as $r): $col = chat_color($r['role'], $r['chat_color']); ?>
       <div class="chatline">
         <span class="chattime"><?= e(date('H:i:s', strtotime($r['created_at']))) ?></span>
-<?php if (!empty($r['sub_until']) && $r['sub_until'] >= date('Y-m-d')): ?><span style="color:#e8d44d">&#9733;</span> <?php endif; ?><a style="color:<?= e($col) ?>;font-weight:bold" href="index.php?p=profile&id=<?= (int)$r['uid'] ?>"><?= e($r['username']) ?></a>:
+<a style="color:<?= e($col) ?>;font-weight:bold" href="index.php?p=profile&id=<?= (int)$r['uid'] ?>"><?= e($r['username']) ?></a>:
         <span style="color:<?= e($col) ?>"><?= bbcode($r['body']) ?></span>
       </div>
     <?php endforeach; else: ?>
@@ -49,7 +49,7 @@ $rows = array_reverse($pdo->query(
     msgs.forEach(function(m){
       var line=document.createElement('div'); line.className='chatline';
       var t=document.createElement('span'); t.className='chattime'; t.textContent=m.time;
-      var who=document.createElement('a'); who.href='index.php?p=profile&id='+m.id; who.textContent=' '+(m.sub?'★ ':'')+m.username+': '; who.style.color=m.color; who.style.fontWeight='bold';
+      var who=document.createElement('a'); who.href='index.php?p=profile&id='+m.id; who.textContent=' '+m.username+': '; who.style.color=m.color; who.style.fontWeight='bold';
       var body=document.createElement('span'); body.style.color=m.color; body.innerHTML=m.html; // server-sanitized
       line.appendChild(t); line.appendChild(who); line.appendChild(body);
       room.appendChild(line);
