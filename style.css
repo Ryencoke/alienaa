@@ -155,3 +155,43 @@ code{color:var(--neon2);font-size:11px}
 .upddate{width:150px;flex:none;font-weight:bold;font-size:11px;color:var(--accent)}
 .updbody{flex:1;min-width:0;font-size:12px}
 .updvote{width:64px;flex:none;text-align:center;font-size:12px}
+
+/* ============================ polish pass ============================ */
+html{scroll-behavior:smooth}
+body{background-image:
+  radial-gradient(circle at 50% -8%, rgba(255,255,255,.035), transparent 55%),
+  repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px);
+  background-attachment:fixed}
+a{transition:color .12s ease}
+.topbar a:hover{text-shadow:0 0 8px rgba(25,240,199,.5)}
+
+.panel{box-shadow:0 1px 0 rgba(255,255,255,.02), 0 6px 18px rgba(0,0,0,.35);transition:border-color .15s ease}
+
+button,input[type=submit]{transition:transform .06s ease, background .12s ease, box-shadow .12s ease}
+button:hover,input[type=submit]:hover{box-shadow:0 0 12px rgba(255,45,149,.4)}
+button:active,input[type=submit]:active{transform:translateY(1px)}
+
+input[type=text]:focus,input[type=password]:focus,input[type=number]:focus,select:focus,textarea:focus{
+  outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(255,255,255,.06)}
+
+table tr{transition:background .1s ease}
+table tr:not(:first-child):nth-child(even){background:rgba(255,255,255,.015)}
+table tr:not(:first-child):hover{background:rgba(255,255,255,.05)}
+
+.menu a{transition:background .12s ease, color .12s ease, padding-left .12s ease}
+.menu a:hover{padding-left:16px}
+
+.fill{transition:width .5s ease}
+main.center{transition:opacity .12s ease}
+
+.flash{animation:flashin .25s ease}
+@keyframes flashin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+.land-card{transition:border-color .15s ease, transform .12s ease, box-shadow .15s ease}
+.land-card:hover{box-shadow:0 0 16px rgba(25,240,199,.18)}
+.post{transition:border-color .12s ease, background .12s ease}
+
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-track{background:var(--bg)}
+*::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+*::-webkit-scrollbar-thumb:hover{background:var(--accent)}

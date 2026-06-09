@@ -184,7 +184,36 @@ function bar($label, $val, $max, $key = '') {
           if(d.online) renderOnline(d.online);
         }).catch(function(){});
     }
-    refresh(); setInterval(refresh, 3000);
+    window.refreshState = refresh; refresh(); setInterval(refresh, 3000);
+  })();
+  </script>
+
+  <script>
+  /* AJAX: submit center-column forms in place instead of a full page reload. */
+  (function(){
+    function runScripts(c){ c.querySelectorAll('script').forEach(function(o){
+      var s=document.createElement('script'); if(o.src)s.src=o.src; else s.textContent=o.textContent;
+      o.parentNode.replaceChild(s,o); }); }
+    document.addEventListener('submit', function(ev){
+      var form=ev.target;
+      if(!form || (form.getAttribute('method')||'get').toLowerCase()!=='post') return;
+      if(form.getAttribute('action')) return;                 // only forms that post to the current page
+      var main=document.querySelector('main.center');
+      if(!main || !main.contains(form)) return;
+      ev.preventDefault();
+      var fd=new FormData(form);
+      if(ev.submitter && ev.submitter.name) fd.append(ev.submitter.name, ev.submitter.value||'');
+      main.style.opacity='0.45';
+      fetch(window.location.href,{method:'POST',body:fd,credentials:'same-origin'})
+        .then(function(r){return r.text();})
+        .then(function(html){
+          var nm=new DOMParser().parseFromString(html,'text/html').querySelector('main.center');
+          if(!nm){ window.location.reload(); return; }
+          main.innerHTML=nm.innerHTML; runScripts(main); main.style.opacity='';
+          if(window.refreshState) window.refreshState();
+        })
+        .catch(function(){ main.style.opacity=''; form.submit(); });
+    });
   })();
   </script>
 </div>

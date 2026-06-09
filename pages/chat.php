@@ -62,6 +62,8 @@ $rows = array_reverse($pdo->query(
       .catch(function(){});
   }
   room.scrollTop=room.scrollHeight;
-  load(); setInterval(load,4000);
+  load();
+  if(window.__chatInterval) clearInterval(window.__chatInterval);
+  window.__chatInterval=setInterval(load,4000);
 })();
 </script>
