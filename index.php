@@ -71,7 +71,10 @@ function bar($label, $val, $max, $key = '') {
 <?php
   $file = __DIR__ . "/pages/{$p}.php";
   if (preg_match('/^[a-z]+$/', $p) && file_exists($file)) {
-    require $file;
+    try { require $file; }
+    catch (Throwable $ex) {
+      echo '<div class="panel"><h2>Glitch in the Grid</h2><p class="muted">'.e($ex->getMessage()).'</p></div>';
+    }
   } else {
     echo '<div class="panel"><h2>Signal Lost</h2><p>That node doesn\'t exist on the Sprawl.</p></div>';
   }
