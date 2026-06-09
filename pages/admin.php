@@ -228,13 +228,97 @@ if ($sec === 'moderation') {
   <?php return;
 }
 
-/* ============================ IP LOG (stub) ============================ */
+/* ============================ IP LOG ============================ */
 if ($sec === 'iplog') {
+  $filterIp     = trim($_GET['ip'] ?? '');
+  $filterPlayer = trim($_GET['player'] ?? '');
+  $filterAction = $_GET['act'] ?? '';
+  $page = max(1, (int)($_GET['pg'] ?? 1));
+  $perPage = 50;
+  $offset = ($page - 1) * $perPage;
+
+  $where = []; $params = [];
+  if ($filterIp !== '')     { $where[] = 'l.ip LIKE ?';              $params[] = '%'.$filterIp.'%'; }
+  if ($filterPlayer !== '') { $where[] = 'p.username LIKE ?';        $params[] = '%'.$filterPlayer.'%'; }
+  if ($filterAction !== '') { $where[] = 'l.action = ?';             $params[] = $filterAction; }
+  $wq = $where ? ('WHERE '.implode(' AND ', $where)) : '';
+
+  $rows = []; $total = 0;
+  try {
+    $countParams = $params;
+    $total = (int)$pdo->prepare("SELECT COUNT(*) FROM ip_log l LEFT JOIN players p ON p.id=l.player_id $wq")->execute($countParams) ? $pdo->prepare("SELECT COUNT(*) FROM ip_log l LEFT JOIN players p ON p.id=l.player_id $wq")->execute($countParams) : 0;
+    $cq = $pdo->prepare("SELECT COUNT(*) FROM ip_log l LEFT JOIN players p ON p.id=l.player_id $wq");
+    $cq->execute($params); $total = (int)$cq->fetchColumn();
+    $lq = $pdo->prepare("SELECT l.*, p.username FROM ip_log l LEFT JOIN players p ON p.id=l.player_id $wq ORDER BY l.id DESC LIMIT $perPage OFFSET $offset");
+    $lq->execute($params); $rows = $lq->fetchAll();
+  } catch (Throwable $e) {
+    echo '<div class="panel"><h2>&#127758; IP &amp; Access Log</h2>'.$back.'<p class="muted">Run <code>schema_iplog.sql</code> to enable this feature.</p></div>';
+    return;
+  }
+
+  $pages = max(1, (int)ceil($total / $perPage));
+  $qBase = 'index.php?p=admin&sec=iplog'.($filterIp?'&ip='.urlencode($filterIp):'').($filterPlayer?'&player='.urlencode($filterPlayer):'').($filterAction?'&act='.urlencode($filterAction):'');
+
+  $actionColors = ['login'=>'#3bcf63','fail'=>'#ff2d95','register'=>'#19f0c7','logout'=>'#8a8fa8'];
   ?>
   <div class="panel">
     <h2>&#127758; IP &amp; Access Log</h2>
-    <?= $back ?>
-    <p class="muted">Login tracking will appear here once the ip_log table is seeded. Run <code>schema_iplog.sql</code> to enable.</p>
+    <?= $back ?><?= $flash ?>
+
+    <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end">
+      <input type="hidden" name="p" value="admin">
+      <input type="hidden" name="sec" value="iplog">
+      <div><label style="font-size:11px">Filter IP</label><br><input type="text" name="ip" value="<?= e($filterIp) ?>" placeholder="e.g. 192.168." style="width:140px"></div>
+      <div><label style="font-size:11px">Filter Player</label><br><input type="text" name="player" value="<?= e($filterPlayer) ?>" placeholder="username..." style="width:140px"></div>
+      <div><label style="font-size:11px">Action</label><br>
+        <select name="act">
+          <option value="">All</option>
+          <?php foreach (['login','fail','register','logout'] as $a): ?>
+            <option value="<?= $a ?>" <?= $filterAction===$a?'selected':'' ?>><?= ucfirst($a) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div><button type="submit">Filter</button> <?php if ($filterIp||$filterPlayer||$filterAction): ?><a href="index.php?p=admin&sec=iplog" class="btn btn-ghost btn-sm">Clear</a><?php endif; ?></div>
+    </form>
+
+    <div class="muted" style="font-size:11px;margin-bottom:8px"><?= number_format($total) ?> entr<?= $total===1?'y':'ies' ?> &middot; page <?= $page ?> of <?= $pages ?></div>
+
+    <?php if ($rows): ?>
+    <div style="overflow-x:auto">
+    <table>
+      <tr><th>When</th><th>Action</th><th>Player</th><th>IP</th><th>User Agent</th></tr>
+      <?php foreach ($rows as $r):
+        $acol = $actionColors[$r['action']] ?? '#8a8fa8';
+      ?>
+      <tr>
+        <td class="muted" style="font-size:11px;white-space:nowrap"><?= e($r['created_at']) ?></td>
+        <td><span style="color:<?= $acol ?>;font-weight:600;font-size:12px"><?= e(strtoupper($r['action'])) ?></span></td>
+        <td><?php if ($r['player_id']): ?>
+          <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$r['player_id'] ?>" style="font-size:12px"><?= e($r['username'] ?? '#'.(int)$r['player_id']) ?></a>
+        <?php else: ?><span class="muted">—</span><?php endif; ?></td>
+        <td style="font-family:monospace;font-size:12px">
+          <a href="index.php?p=admin&sec=iplog&ip=<?= urlencode($r['ip']) ?>" style="color:var(--text)"><?= e($r['ip']) ?></a>
+        </td>
+        <td class="muted" style="font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?= e($r['user_agent']) ?>"><?= e(mb_substr($r['user_agent'],0,80)) ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </table>
+    </div>
+
+    <?php if ($pages > 1): ?>
+    <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
+      <?php for ($i = max(1,$page-3); $i <= min($pages,$page+3); $i++): ?>
+        <a href="<?= $qBase ?>&pg=<?= $i ?>" class="btn btn-ghost btn-sm" <?= $i===$page?'style="color:var(--accent);font-weight:700"':'' ?>><?= $i ?></a>
+      <?php endfor; ?>
+      <?php if ($page < $pages): ?>
+        <a href="<?= $qBase ?>&pg=<?= $pages ?>" class="btn btn-ghost btn-sm">Last &raquo;</a>
+      <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    <?php else: ?>
+    <p class="muted" style="text-align:center;padding:24px 0">No log entries yet. Entries appear after players log in.</p>
+    <?php endif; ?>
   </div>
   <?php return;
 }

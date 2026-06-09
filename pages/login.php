@@ -10,9 +10,14 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     $stmt=$pdo->prepare('SELECT * FROM players WHERE username=?');
     $stmt->execute([$em]); $row=$stmt->fetch();
   }
+  $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+  $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
   if ($row && password_verify($pw,$row['pass_hash'])) {
-    $_SESSION['pid']=$row['id']; header('Location: index.php?p=home'); exit;
+    $_SESSION['pid']=$row['id'];
+    try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id'],$ip,$ua,'login']); } catch(Throwable $e){}
+    header('Location: index.php?p=home'); exit;
   }
+  try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id']??null,$ip,$ua,'fail']); } catch(Throwable $e){}
   $err='Bad credentials. The Grid does not know you.';
 }
 ?>

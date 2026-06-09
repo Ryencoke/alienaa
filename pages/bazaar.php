@@ -112,7 +112,7 @@ function bsort_link($key, $label, $cur, $tab, $cat) {
   $active = $cur === $key;
   $cls = $active ? ' style="color:var(--accent);font-weight:600"' : '';
   $catq = $cat !== '' ? '&cat='.urlencode($cat) : '';
-  return '<a href="index.php?p=bazaar&tab='.$tab.'&sort='.$key.$catq.'"'.$cls.'>'.e($label).($active?' &#9662;':'').'</a>';
+  return '<a href="index.php?p=bazaar&tab='.$tab.'&sort='.$key.$catq.'"'.$cls.'>'.$label.($active?' &#9662;':'').'</a>';
 }
 ?>
 

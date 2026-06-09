@@ -16,6 +16,9 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     try {
       $pdo->prepare('INSERT INTO players (username,email,pass_hash) VALUES (?,?,?)')
           ->execute([$u,$em,password_hash($pw,PASSWORD_DEFAULT)]);
+      $newId = (int)$pdo->lastInsertId();
+      $ip = $_SERVER['REMOTE_ADDR'] ?? ''; $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
+      try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$newId,$ip,$ua,'register']); } catch(Throwable $e){}
       $ok='Ghost created. You can jack in now.';
     } catch (PDOException $ex) {
       if ($ex->getCode() === '23000') $err='That handle or email is already registered.';
