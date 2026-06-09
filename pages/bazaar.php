@@ -16,6 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($item_id <= 0 || $qty <= 0)  throw new RuntimeException('Pick an item and a quantity.');
       if ($price <= 0)                 throw new RuntimeException('Set a price above zero.');
       if ($price > 1000000000000)      throw new RuntimeException('That price is delusional.');
+      $fee = (int)ceil($qty * $price * 0.02);   // 2% listing fee on total asking price
 
       $pdo->beginTransaction();
       // Pull from inventory into escrow — conditional UPDATE blocks overselling.
@@ -24,12 +25,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pull->execute([$qty, $pid, $item_id, $qty]);
       if ($pull->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException("You don't have that many to list."); }
 
+      // Charge the listing fee from pocket.
+      if ($fee > 0) {
+        $cf = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
+        $cf->execute([$fee, $pid, $fee]);
+        if ($cf->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException("You can't cover the " . number_format($fee) . " creds listing fee."); }
+      }
+
       $pdo->prepare('DELETE FROM player_items WHERE player_id = ? AND item_id = ? AND qty = 0')
           ->execute([$pid, $item_id]);
       $pdo->prepare('INSERT INTO market_listings (seller_id, item_id, qty, unit_price)
                      VALUES (?,?,?,?)')->execute([$pid, $item_id, $qty, $price]);
       $pdo->commit();
-      $msg = "Listed {$qty} unit(s) at " . number_format($price) . " creds each.";
+      $msg = "Listed {$qty} unit(s) at " . number_format($price) . " creds each (fee: " . number_format($fee) . ").";
     }
 
     elseif ($action === 'buy') {
@@ -116,17 +124,24 @@ $sort  = $_GET['sort'] ?? 'price_asc';
 if (!isset($sorts[$sort])) $sort = 'price_asc';
 $order = $sorts[$sort];
 
+/* ---------- category filter ---------- */
+$cats = $pdo->query("SELECT DISTINCT i.category FROM market_listings l JOIN items i ON i.id = l.item_id ORDER BY i.category")->fetchAll(PDO::FETCH_COLUMN);
+$cat  = $_GET['cat'] ?? '';
+$where = ''; $params = [];
+if ($cat !== '' && in_array($cat, $cats, true)) { $where = 'WHERE i.category = ?'; $params[] = $cat; }
+
 /* ---------- data for rendering ---------- */
-$listings = $pdo->query(
+$lq = $pdo->prepare(
   'SELECT l.id, l.qty, l.unit_price, l.seller_id,
-          i.id AS item_id, i.name AS item_name,
+          i.id AS item_id, i.name AS item_name, i.category,
           p.username AS seller,
           (SELECT ROUND(AVG(unit_price)) FROM market_sales s WHERE s.item_id = i.id) AS avg_sale
    FROM market_listings l
    JOIN items   i ON i.id = l.item_id
    JOIN players p ON p.id = l.seller_id
-   ORDER BY ' . $order
-)->fetchAll();
+   ' . $where . ' ORDER BY ' . $order);
+$lq->execute($params);
+$listings = $lq->fetchAll();
 
 $mine = $pdo->prepare(
   'SELECT l.id, l.qty, l.unit_price, i.name AS item_name
@@ -142,9 +157,10 @@ $inv = $pdo->prepare(
 $inv->execute([$pid]);
 $inv = $inv->fetchAll();
 
-function sort_link($key, $label, $cur) {
+function sort_link($key, $label, $cur, $cat = '') {
   $mark = ($cur === $key) ? ' &#9662;' : '';
-  return '<a href="index.php?p=bazaar&sort=' . $key . '">' . e($label) . $mark . '</a>';
+  $catq = $cat !== '' ? '&cat=' . urlencode($cat) : '';
+  return '<a href="index.php?p=bazaar&sort=' . $key . $catq . '">' . e($label) . $mark . '</a>';
 }
 ?>
 <div class="panel">
@@ -155,20 +171,31 @@ function sort_link($key, $label, $cur) {
 </div>
 
 <div class="panel">
-  <h3>List an Item</h3>
+  <h3>Sell Items</h3>
   <?php if ($inv): ?>
+  <p class="muted">List an item for other ghosts to buy. There's a <b>2%</b> fee on the total asking price, charged when you place the ad.</p>
   <form method="post">
     <input type="hidden" name="action" value="list">
-    <p><label>Item</label>
+    <p><label>Item to sell</label>
       <select name="item_id" style="width:100%;background:#080812;border:1px solid var(--line);color:var(--text);padding:6px;border-radius:3px">
         <?php foreach ($inv as $it): ?>
           <option value="<?= (int)$it['item_id'] ?>"><?= e($it['name']) ?> (have <?= (int)$it['qty'] ?>)</option>
         <?php endforeach; ?>
       </select></p>
-    <p><label>Quantity</label><input type="number" name="qty" min="1" value="1"></p>
-    <p><label>Price per unit (creds)</label><input type="number" name="unit_price" min="1" value="100"></p>
-    <p><button type="submit">List for Sale</button></p>
+    <p><label>Sell quantity</label><input type="number" name="qty" id="sellQty" min="1" value="1"></p>
+    <p><label>Asking price per unit (creds)</label><input type="number" name="unit_price" id="sellPrice" min="1" value="100"></p>
+    <p class="muted">Total asking price: <b id="sellTotal">&mdash;</b> creds &middot; Listing fee (2%): <b id="sellFee">&mdash;</b> creds</p>
+    <p><button type="submit">Place Ad</button></p>
   </form>
+  <script>
+  (function(){
+    var q=document.getElementById('sellQty'), p=document.getElementById('sellPrice'),
+        t=document.getElementById('sellTotal'), f=document.getElementById('sellFee');
+    function upd(){ var tot=Math.max(0,(parseInt(q.value,10)||0)*(parseInt(p.value,10)||0));
+      t.textContent=tot.toLocaleString('en-US'); f.textContent=Math.ceil(tot*0.02).toLocaleString('en-US'); }
+    q.addEventListener('input',upd); p.addEventListener('input',upd); upd();
+  })();
+  </script>
   <?php else: ?>
     <p class="muted">Your stash is empty &mdash; nothing to sell. Go scavenge or craft something first.</p>
   <?php endif; ?>
@@ -176,12 +203,21 @@ function sort_link($key, $label, $cur) {
 
 <div class="panel">
   <h3>Market</h3>
+  <form method="get" style="margin-bottom:6px">
+    <input type="hidden" name="p" value="bazaar">
+    <input type="hidden" name="sort" value="<?= e($sort) ?>">
+    <label style="display:inline">Only show category</label>
+    <select name="cat" onchange="this.form.submit()" style="background:#080812;border:1px solid var(--line);color:var(--text);padding:5px;border-radius:3px">
+      <option value="">All</option>
+      <?php foreach ($cats as $c): ?><option value="<?= e($c) ?>" <?= $cat === $c ? 'selected' : '' ?>><?= e(ucfirst($c)) ?></option><?php endforeach; ?>
+    </select>
+  </form>
   <p class="muted">Sort:
-    <?= sort_link('item_asc',   'Item',     $sort) ?> &middot;
-    <?= sort_link('price_asc',  'Price low',$sort) ?> &middot;
-    <?= sort_link('price_desc', 'Price high',$sort) ?> &middot;
-    <?= sort_link('qty_desc',   'Qty',      $sort) ?> &middot;
-    <?= sort_link('new',        'Newest',   $sort) ?>
+    <?= sort_link('item_asc',   'Item',      $sort, $cat) ?> &middot;
+    <?= sort_link('price_asc',  'Price low', $sort, $cat) ?> &middot;
+    <?= sort_link('price_desc', 'Price high',$sort, $cat) ?> &middot;
+    <?= sort_link('qty_desc',   'Qty',       $sort, $cat) ?> &middot;
+    <?= sort_link('new',        'Newest',    $sort, $cat) ?>
   </p>
   <?php if ($listings): ?>
   <table>
