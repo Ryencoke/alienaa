@@ -2,6 +2,7 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
+$canModB = in_array($player['role'] ?? 'member', ['moderator','admin','manager'], true);
 
 const TOPICS_PER_PAGE = 20;
 const BODY_MAX        = 8000;
@@ -35,7 +36,7 @@ function votebox_html($postId, $score) {
 
 // Recursively render a reply and its children.
 if (!function_exists('render_post')) {
-  function render_post($p, $children, $scores, $tid, $depth) {
+  function render_post($p, $children, $scores, $tid, $depth, $canModB = false) {
     $col = chat_color($p['role'], $p['chat_color']);
     echo '<div class="post" style="margin-left:' . ($depth * 22) . 'px">';
     echo votebox_html($p['id'], $scores[$p['id']] ?? 0);
@@ -44,11 +45,12 @@ if (!function_exists('render_post')) {
     if ($p['role'] !== 'member') echo ' <span class="muted">[' . e(role_label($p['role'])) . ']</span>';
     echo ' <span class="muted">' . e($p['created_at']) . '</span>';
     echo ' &middot; <a href="index.php?p=boards&t=' . (int)$tid . '&reply=' . (int)$p['id'] . '#replyform">Reply</a>';
+    if ($canModB) echo ' &middot; <form method="post" style="display:inline;margin:0"><input type="hidden" name="action" value="modkill"><input type="hidden" name="post_id" value="' . (int)$p['id'] . '"><button class="vote" style="color:var(--neon2)">delete</button></form>';
     echo '</div><div>' . bbcode($p['body']) . '</div>';
     if (!empty($p['signature'])) echo '<div class="muted" style="border-top:1px solid var(--line);margin-top:6px;padding-top:4px;font-size:11px">' . bbcode($p['signature']) . '</div>';
     echo '</div></div>';
     if (!empty($children[$p['id']])) {
-      foreach ($children[$p['id']] as $c) render_post($c, $children, $scores, $tid, $depth + 1);
+      foreach ($children[$p['id']] as $c) render_post($c, $children, $scores, $tid, $depth + 1, $canModB);
     }
   }
 }
@@ -110,6 +112,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare('INSERT INTO post_votes (post_id, player_id, value) VALUES (?,?,?)
                        ON DUPLICATE KEY UPDATE value = VALUES(value)')->execute([$post_id, $pid, $dir]);
         $tid = (int)$owner_topic;
+      }
+    }
+
+    elseif ($action === 'modkill') {
+      if (!$canModB) throw new RuntimeException('Not allowed.');
+      $post_id = (int)($_POST['post_id'] ?? 0);
+      $q = $pdo->prepare('SELECT topic_id FROM posts WHERE id = ?'); $q->execute([$post_id]);
+      $tp = $q->fetchColumn();
+      if ($tp) {
+        $opq = $pdo->prepare('SELECT MIN(id) FROM posts WHERE topic_id = ?'); $opq->execute([$tp]);
+        if ($post_id === (int)$opq->fetchColumn()) {
+          $pdo->prepare('DELETE FROM posts WHERE topic_id = ?')->execute([$tp]);
+          $pdo->prepare('DELETE FROM topics WHERE id = ?')->execute([$tp]);
+          $tid = 0; $msg = 'Topic deleted.';
+        } else {
+          $pdo->prepare('DELETE FROM posts WHERE id = ?')->execute([$post_id]);
+          $tid = (int)$tp; $msg = 'Post deleted.';
+        }
       }
     }
 
@@ -177,7 +197,7 @@ if ($tid) {
           <?php if ($op['role'] !== 'member'): ?> <span class="muted">[<?= e(role_label($op['role'])) ?>]</span><?php endif; ?>
           <span class="muted">&middot; #<?= (int)$op['id'] ?> &middot; <?= $opc ?> posts
             &middot; <?= e($op['created_at']) ?> &middot; <?= (int)$topic['views'] ?> views
-            &middot; <a href="index.php?p=boards&t=<?= (int)$tid ?>&reply=<?= (int)$op['id'] ?>#replyform">Reply</a></span>
+            &middot; <a href="index.php?p=boards&t=<?= (int)$tid ?>&reply=<?= (int)$op['id'] ?>#replyform">Reply</a><?php if ($canModB): ?> &middot; <form method="post" style="display:inline;margin:0"><input type="hidden" name="action" value="modkill"><input type="hidden" name="post_id" value="<?= (int)$op['id'] ?>"><button class="vote" style="color:var(--neon2)">delete</button></form><?php endif; ?></span>
         </div>
         <div><?= bbcode($op['body']) ?></div>
         <?php if (!empty($op['signature'])): ?><div class="muted" style="border-top:1px solid var(--line);margin-top:6px;padding-top:4px;font-size:11px"><?= bbcode($op['signature']) ?></div><?php endif; ?>
@@ -188,7 +208,7 @@ if ($tid) {
 
   <div class="bar">Replies To This Message</div>
   <?php
-    if (!empty($children[$opId])) { foreach ($children[$opId] as $c) render_post($c, $children, $scores, $tid, 0); }
+    if (!empty($children[$opId])) { foreach ($children[$opId] as $c) render_post($c, $children, $scores, $tid, 0, $canModB); }
     else { echo '<p class="muted">No replies yet.</p>'; }
   ?>
 
