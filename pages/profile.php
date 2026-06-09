@@ -45,6 +45,8 @@ try {
   <?php endif; ?>
   <?php if ($isMe): ?>
     <p style="text-align:center"><a href="index.php?p=account">Edit your profile &amp; settings</a></p>
+  <?php else: ?>
+    <p style="text-align:center"><a href="index.php?p=messages&u=<?= (int)$prof['id'] ?>">Send Message</a></p>
   <?php endif; ?>
 
   <h3>General</h3>

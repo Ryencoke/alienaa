@@ -5,6 +5,7 @@ $p   = $_GET['p']   ?? 'home';
 $act = $_GET['act'] ?? '';
 $player = current_player();
 if ($player) db()->prepare('UPDATE players SET last_seen = NOW() WHERE id = ?')->execute([$player['id']]);
+$isStaff = $player && in_array($player['role'] ?? 'member', ['chatmod','moderator','admin','manager'], true);
 
 function bar($label, $val, $max, $key = '') {
   $pct = $max > 0 ? min(100, round($val / $max * 100)) : 0;
@@ -30,10 +31,11 @@ function bar($label, $val, $max, $key = '') {
   <a href="index.php?p=city">The Sprawl</a>
   <a href="index.php?p=bazaar">Bazaar</a>
   <a href="index.php?p=boards">Boards</a>
-  <a href="index.php?p=datacore&act=lab">Datacore</a>
+  <a href="index.php?p=messages">Messages</a>
   <a href="index.php?p=account">Account</a>
   <a href="index.php?p=updates">Updates</a>
-  <a href="index.php?p=logout">Jack Out</a>
+  <?php if ($isStaff): ?><a href="index.php?p=admin">Admin</a><?php endif; ?>
+  <a href="index.php?p=logout">Logout</a>
 </nav>
 
 <div class="shell">
@@ -61,9 +63,10 @@ function bar($label, $val, $max, $key = '') {
       <li><a href="index.php?p=city">The Sprawl</a></li>
       <li><a href="index.php?p=bazaar">Bazaar</a></li>
       <li><a href="index.php?p=boards">Message Boards</a></li>
-      <li><a href="index.php?p=datacore&act=lab">Datacore</a></li>
+      <li><a href="index.php?p=messages">Messages</a></li>
       <li><a href="index.php?p=account">Account</a></li>
       <li><a href="index.php?p=updates">Updates</a></li>
+      <?php if ($isStaff): ?><li><a href="index.php?p=admin">Admin</a></li><?php endif; ?>
     </ul>
   </aside>
 
@@ -131,7 +134,7 @@ function bar($label, $val, $max, $key = '') {
     })();
     </script>
     <div class="panel">
-      <h3>Jacked In</h3>
+      <h3>Online</h3>
       <?php
         $online = db()->query("SELECT id, username, role, chat_color FROM players
                                WHERE last_seen >= (NOW() - INTERVAL 5 MINUTE)
@@ -142,7 +145,7 @@ function bar($label, $val, $max, $key = '') {
           <div style="font-size:12px;padding:1px 0"><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a></div>
         <?php endforeach; ?>
       </div>
-      <p class="muted" style="font-size:10px;margin-top:6px"><span id="jackedin-count"><?= count($online) ?></span> jacked in</p>
+      <p class="muted" style="font-size:10px;margin-top:6px"><span id="jackedin-count"><?= count($online) ?></span> online</p>
     </div>
   </aside>
 

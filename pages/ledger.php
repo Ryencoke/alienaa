@@ -45,6 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough creds in pocket.'); }
       $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$amt, $toId]);
       $pdo->commit();
+      try { $pdo->prepare('INSERT INTO tx_log (from_id, to_id, kind, amount, note) VALUES (?,?,?,?,?)')
+                ->execute([$pid, $toId, 'transfer', $amt, $to]); } catch (Throwable $e) {}
       $msg = 'Sent ' . number_format($amt) . ' creds to ' . $to . '.';
     }
 
