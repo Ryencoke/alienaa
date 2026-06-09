@@ -198,7 +198,9 @@ label{display:block;color:var(--muted);font-size:11px;font-weight:bold;
 
 /* ============================================================ Tabs */
 .tabs{display:flex;gap:3px;border-bottom:1px solid var(--line);
-  margin-bottom:20px;overflow-x:auto;flex-wrap:nowrap}
+  margin-bottom:20px;overflow-x:auto;flex-wrap:nowrap;
+  scrollbar-width:none;-ms-overflow-style:none}
+.tabs::-webkit-scrollbar{display:none}
 .tab{padding:9px 16px;color:var(--muted);font-size:12px;font-weight:bold;
   border-bottom:2px solid transparent;margin-bottom:-1px;
   transition:all var(--t);white-space:nowrap;cursor:pointer}
@@ -314,6 +316,72 @@ code{color:var(--neon2);font-size:12px}
   0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}
   40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
 .flash.combat{animation:flashin .25s ease, shake .42s ease}
+
+/* ============================================================ Daemon casino */
+.daemon-header{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.daemon-balance{text-align:right;flex:none}
+.daemon-balance-label,.daemon-balance-unit{font-size:10px;text-transform:uppercase;
+  letter-spacing:.5px;color:var(--muted)}
+.daemon-balance-val{font-size:1.6rem;font-weight:bold;color:var(--accent);
+  font-family:'Orbitron',sans-serif;line-height:1.1}
+
+.daemon-tabs{display:flex;gap:6px;justify-content:center;margin-bottom:14px;flex-wrap:wrap}
+.daemon-tab{padding:8px 20px;border-radius:999px;border:1px solid var(--line);
+  color:var(--muted);font-size:13px;font-weight:bold;cursor:pointer;
+  background:var(--panel);transition:all var(--t)}
+.daemon-tab:hover{border-color:var(--accent);color:var(--text);background:var(--panel2);box-shadow:none}
+.daemon-tab.active{background:rgba(25,240,199,.1);border-color:var(--accent);
+  color:var(--accent);box-shadow:0 0 10px rgba(25,240,199,.15)}
+
+.game-pane{display:none}
+.game-pane.active{display:block}
+
+.dice-display{display:flex;align-items:center;justify-content:center;gap:14px;padding:16px 0 6px}
+.dice-box{width:70px;height:70px;border:2px solid var(--line);border-radius:12px;
+  background:#05050d;display:flex;align-items:center;justify-content:center;
+  font-size:42px;transition:all .3s ease}
+.dice-box.win{border-color:var(--accent);box-shadow:0 0 18px rgba(25,240,199,.35)}
+.dice-box.lose{border-color:var(--neon2);box-shadow:0 0 14px rgba(255,45,149,.25)}
+.dice-box.idle{opacity:.3}
+.dice-plus{font-size:20px;color:var(--muted)}
+.dice-sum{text-align:center;font-size:14px;margin:6px 0 0;color:var(--text)}
+
+.reel-display{display:flex;align-items:center;justify-content:center;gap:12px;padding:16px 0}
+.reel-box{width:76px;height:84px;border:2px solid var(--line);border-radius:12px;
+  background:#05050d;display:flex;align-items:center;justify-content:center;
+  font-size:38px;transition:border-color .3s ease,box-shadow .3s ease}
+.reel-box.idle{opacity:.25;border-style:dashed}
+.reel-box.reel-win{border-color:var(--accent);box-shadow:0 0 16px rgba(25,240,199,.3)}
+.reel-box.reel-lose{border-color:var(--neon2);box-shadow:0 0 12px rgba(255,45,149,.2)}
+.reel-box.spinning{animation:reel-bounce .12s ease infinite}
+@keyframes reel-bounce{0%,100%{transform:translateY(-3px)}50%{transform:translateY(3px)}}
+
+.dchoice-row{display:flex;gap:8px;justify-content:center;margin:14px 0;flex-wrap:wrap}
+.dchoice{cursor:pointer;padding:10px 16px;border:2px solid var(--line);border-radius:10px;
+  color:var(--muted);font-weight:bold;font-size:13px;text-align:center;
+  transition:all var(--t);display:inline-flex;flex-direction:column;align-items:center;gap:2px}
+.dchoice small{font-size:10px;font-weight:normal;color:var(--muted)}
+.dchoice input{display:none}
+.dchoice:has(input:checked){border-color:var(--accent);background:rgba(25,240,199,.08);color:var(--accent)}
+.dchoice:hover{border-color:var(--accent);color:var(--text)}
+
+.quickbets{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:12px}
+.bet-chip{padding:6px 13px;border:1px solid var(--line);border-radius:999px;
+  color:var(--muted);font-size:12px;font-weight:bold;cursor:pointer;
+  background:var(--panel2);transition:all var(--t)}
+.bet-chip:hover,.bet-chip.active{border-color:var(--accent);color:var(--accent);
+  background:rgba(25,240,199,.06);box-shadow:none}
+.bet-chip:disabled{opacity:.35;cursor:not-allowed}
+
+.bet-input-row{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:14px}
+.bet-input{width:120px!important;text-align:center}
+.daemon-go-btn{padding:12px;font-size:14px;letter-spacing:.5px;margin-top:2px}
+
+.daemon-pays{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;
+  font-size:11px;color:var(--muted);margin-top:14px;padding-top:12px;
+  border-top:1px solid var(--line)}
+.net-win{color:var(--accent);font-weight:bold}
+.net-lose{color:var(--neon2);font-weight:bold}
 
 /* ============================================================ Toasts */
 #toasts{position:fixed;bottom:16px;right:16px;z-index:200;
