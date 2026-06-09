@@ -54,7 +54,7 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
 ?>
 <div class="panel">
   <h2>&#9876; Inventory</h2>
-  <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
+  <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
   <p class="muted">Everything you're carrying. Listed items are in Bazaar escrow.</p>
 </div>
 

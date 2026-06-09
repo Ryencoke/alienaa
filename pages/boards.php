@@ -139,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
-$flash = $msg ? '<div class="flash">' . e($msg) . '</div>' : '';
+$flash = $msg ? '<div class="flash flash-ok">' . e($msg) . '</div>' : '';
 
 /* ============================ TOPIC VIEW ============================ */
 if ($tid) {
@@ -218,9 +218,11 @@ if ($tid) {
       <input type="hidden" name="action" value="reply">
       <input type="hidden" name="topic_id" value="<?= (int)$tid ?>">
       <input type="hidden" name="parent_id" value="<?= (int)$replyParent ?>">
-      <p><textarea name="body" maxlength="<?= BODY_MAX ?>" style="min-height:110px"></textarea></p>
-      <p class="muted" style="font-size:11px">Formatting: <code>[b]bold[/b] [i]italics[/i] [u]underline[/u]</code></p>
-      <p><button type="submit">Transmit</button></p>
+      <div class="field">
+        <textarea name="body" maxlength="<?= BODY_MAX ?>" style="min-height:110px"></textarea>
+        <span class="muted" style="font-size:11px;text-transform:none;letter-spacing:0">Formatting: <code>[b]bold[/b] [i]italics[/i] [u]underline[/u]</code></span>
+      </div>
+      <button type="submit">Transmit</button>
     </form>
   </div>
   <?php
@@ -283,9 +285,15 @@ if ($bid) {
     <form method="post">
       <input type="hidden" name="action" value="new_topic">
       <input type="hidden" name="board_id" value="<?= (int)$bid ?>">
-      <p><label>Title</label><input type="text" name="title" maxlength="160"></p>
-      <p><label>Body</label><textarea name="body" maxlength="<?= BODY_MAX ?>" style="min-height:130px"></textarea></p>
-      <p><button type="submit">Post Topic</button></p>
+      <div class="field">
+        <span>Title</span>
+        <input type="text" name="title" maxlength="160">
+      </div>
+      <div class="field">
+        <span>Body</span>
+        <textarea name="body" maxlength="<?= BODY_MAX ?>" style="min-height:130px"></textarea>
+      </div>
+      <button type="submit">Post Topic</button>
     </form>
   </div>
   <?php

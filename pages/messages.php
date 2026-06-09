@@ -24,13 +24,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send'
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
 }
 
-$flash = $msg ? '<div class="flash">'.e($msg).'</div>' : '';
+$flash = $msg ? '<div class="flash flash-ok">'.e($msg).'</div>' : '';
 
 /* ---------- conversation thread ---------- */
 if ($with) {
   $oq = $pdo->prepare('SELECT id, username, role, chat_color FROM players WHERE id = ?');
   $oq->execute([$with]); $other = $oq->fetch();
-  if (!$other) { echo '<div class="panel"><h2>Messages</h2>'.$flash.'<p class="muted">No such ghost.</p></div>'; return; }
+  if (!$other) {
+    echo '<div class="panel"><h2>Messages</h2>'.$flash.'<p class="muted">No such ghost.</p></div>';
+    return;
+  }
 
   $pdo->prepare('UPDATE messages SET is_read = 1 WHERE to_id = ? AND from_id = ? AND is_read = 0')->execute([$pid, $with]);
 
@@ -44,24 +47,33 @@ if ($with) {
   ?>
   <div class="panel">
     <h2>Messages</h2>
-    <p class="muted"><a href="index.php?p=messages">Inbox</a> &raquo; with
-      <a href="index.php?p=profile&id=<?= (int)$with ?>" style="color:<?= e($ocol) ?>;font-weight:bold"><?= e($other['username']) ?></a></p>
+    <p class="muted" style="margin-bottom:12px">
+      <a href="index.php?p=messages">&larr; Inbox</a>
+      &nbsp;&middot;&nbsp;
+      Conversation with <a href="index.php?p=profile&id=<?= (int)$with ?>" style="color:<?= e($ocol) ?>;font-weight:bold"><?= e($other['username']) ?></a>
+    </p>
     <?= $flash ?>
-    <?php foreach ($thread as $m): $c = chat_color($m['role'], $m['chat_color']); ?>
-      <div class="post" style="<?= $m['from_id'] == $pid ? 'border-color:var(--accent)' : '' ?>">
-        <div class="postbody">
-          <div class="posthead"><b style="color:<?= e($c) ?>"><?= e($m['from_name']) ?></b>
-            <span class="muted"><?= e($m['created_at']) ?></span></div>
-          <div><?= bbcode($m['body']) ?></div>
+    <?php foreach ($thread as $m):
+      $c = chat_color($m['role'], $m['chat_color']);
+      $isMine = ($m['from_id'] == $pid);
+    ?>
+      <div class="msg-bubble<?= $isMine ? ' mine' : '' ?>">
+        <div class="msg-meta">
+          <b style="color:<?= e($c) ?>"><?= e($m['from_name']) ?></b>
+          <span style="margin-left:8px"><?= e($m['created_at']) ?></span>
         </div>
+        <div class="msg-body"><?= bbcode($m['body']) ?></div>
       </div>
     <?php endforeach; ?>
     <?php if (!$thread): ?><p class="muted">No messages yet. Say something.</p><?php endif; ?>
-    <form method="post" style="margin-top:10px">
+    <form method="post" style="margin-top:14px">
       <input type="hidden" name="action" value="send">
       <input type="hidden" name="to_id" value="<?= (int)$with ?>">
-      <p><textarea name="body" maxlength="4000" style="min-height:90px"></textarea></p>
-      <p><button type="submit">Send</button></p>
+      <div class="field">
+        <span>Reply</span>
+        <textarea name="body" maxlength="4000" style="min-height:80px"></textarea>
+      </div>
+      <button type="submit">Send</button>
     </form>
   </div>
   <?php
@@ -89,11 +101,15 @@ if ($convos) {
   <h3>New Message</h3>
   <form method="post">
     <input type="hidden" name="action" value="send">
-    <label>To (handle)</label>
-    <p><input type="text" name="to_name" maxlength="32" style="max-width:220px"></p>
-    <label>Message</label>
-    <p><textarea name="body" maxlength="4000" style="min-height:80px"></textarea></p>
-    <p><button type="submit">Send</button></p>
+    <div class="field">
+      <span>To (handle)</span>
+      <input type="text" name="to_name" maxlength="32" style="max-width:280px">
+    </div>
+    <div class="field">
+      <span>Message</span>
+      <textarea name="body" maxlength="4000" style="min-height:80px"></textarea>
+    </div>
+    <button type="submit">Send</button>
   </form>
 </div>
 
@@ -107,9 +123,13 @@ if ($convos) {
       $ncol = chat_color($nm['role'], $nm['chat_color']);
       $snippet = mb_substr(trim(preg_replace('/\s+/', ' ', $c['last']['body'])), 0, 60); ?>
     <tr>
-      <td><a href="index.php?p=messages&u=<?= (int)$oid ?>" style="color:<?= e($ncol) ?>;font-weight:bold"><?= e($nm['username']) ?></a>
-          <?php if ($c['unread']): ?> <span style="color:var(--neon2)">(<?= (int)$c['unread'] ?>)</span><?php endif; ?></td>
-      <td><?= e($snippet) ?></td>
+      <td>
+        <a href="index.php?p=messages&u=<?= (int)$oid ?>" style="color:<?= e($ncol) ?>;font-weight:bold"><?= e($nm['username']) ?></a>
+        <?php if ($c['unread']): ?>
+          <span style="color:var(--neon2);font-size:12px;margin-left:4px">(<?= (int)$c['unread'] ?> new)</span>
+        <?php endif; ?>
+      </td>
+      <td class="muted"><?= e($snippet) ?></td>
       <td class="muted"><?= e($c['last']['created_at']) ?></td>
     </tr>
     <?php endforeach; ?>

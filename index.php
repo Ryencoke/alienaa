@@ -7,18 +7,22 @@ $act = $_GET['act'] ?? '';
 $player = current_player();
 if ($player) db()->prepare('UPDATE players SET last_seen = NOW() WHERE id = ?')->execute([$player['id']]);
 $isStaff = $player && in_array($player['role'] ?? 'member', ['chatmod','moderator','admin','manager'], true);
+// Per-page staff note key: includes numeric 'id' param so profile/thread notes are isolated
+$noteKey = 'staff_note:' . $p . (isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? ':' . (int)$_GET['id'] : '');
 if ($isStaff && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['__staffnote'])) {
   $sn = trim($_POST['staffnote'] ?? ''); if (mb_strlen($sn) > 2000) $sn = mb_substr($sn, 0, 2000);
-  try { db()->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['staff_note', $sn]); } catch (Throwable $e) {}
+  try { db()->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute([$noteKey, $sn]); } catch (Throwable $e) {}
 }
 
 function bar($label, $val, $max, $key = '') {
   $pct = $max > 0 ? min(100, round($val / $max * 100)) : 0;
   $df  = $key ? ' data-fill="'.$key.'"' : '';
   $de  = $key ? ' data-em="'.$key.'"' : '';
-  echo '<div class="meter"><span>'.e($label).'</span>'
+  echo '<div class="meter">'
+     . '<div class="meter-head"><span>'.e($label).'</span>'
+     . '<em'.$de.'>'.number_format($val).' / '.number_format($max).'</em></div>'
      . '<div class="track"><div class="fill"'.$df.' style="width:'.$pct.'%"></div></div>'
-     . '<em'.$de.'>'.number_format($val).' / '.number_format($max).'</em></div>';
+     . '</div>';
 }
 ?>
 <!DOCTYPE html>
@@ -31,27 +35,31 @@ function bar($label, $val, $max, $key = '') {
 
 <?php if ($player): ?>
 <nav class="topbar">
-  <a href="index.php?p=home">Hideout</a>
-  <a href="index.php?p=stash">Stash</a>
-  <a href="index.php?p=city">The Sprawl</a>
-  <a href="index.php?p=bazaar">Bazaar</a>
-  <a href="index.php?p=boards">Boards</a>
-  <a href="index.php?p=messages">Messages</a>
-  <a href="index.php?p=account">Account</a>
-  <a href="index.php?p=updates">Updates</a>
-  <?php if ($isStaff): ?><a href="index.php?p=admin">Admin</a><?php endif; ?>
+  <a href="index.php?p=home" class="<?= $p==='home'?'active':'' ?>">Hideout</a>
+  <a href="index.php?p=stash" class="<?= $p==='stash'?'active':'' ?>">Stash</a>
+  <a href="index.php?p=city" class="<?= $p==='city'?'active':'' ?>">The Sprawl</a>
+  <a href="index.php?p=bazaar" class="<?= $p==='bazaar'?'active':'' ?>">Bazaar</a>
+  <a href="index.php?p=boards" class="<?= $p==='boards'?'active':'' ?>">Boards</a>
+  <a href="index.php?p=messages" class="<?= $p==='messages'?'active':'' ?>">Messages</a>
+  <a href="index.php?p=account" class="<?= $p==='account'?'active':'' ?>">Account</a>
+  <a href="index.php?p=updates" class="<?= $p==='updates'?'active':'' ?>">Updates</a>
+  <?php if ($isStaff): ?><a href="index.php?p=admin" class="<?= $p==='admin'?'active':'' ?>">Admin</a><?php endif; ?>
   <a href="index.php?p=logout">Logout</a>
 </nav>
 
 <div class="shell">
   <aside class="left">
     <div class="card">
-      <div class="avatar"></div>
-      <div class="name"><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>" style="color:inherit"><?= e($player['username']) ?></a></div>
-      <div class="stat"><span>Level</span><b id="st-level"><?= (int)$player['level'] ?></b></div>
-      <div class="stat"><span>Creds</span><b id="st-pocket"><?= number_format($player['creds_pocket']) ?></b></div>
-      <div class="stat"><span>Bank</span><b id="st-bank"><?= number_format($player['creds_bank']) ?></b></div>
-      <div class="stat"><span>Shards</span><b id="st-shards"><?= number_format($player['shards']) ?></b></div>
+      <div class="pcard-row">
+        <div class="avatar"></div>
+        <div class="pcard-info">
+          <div class="name"><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>" style="color:inherit"><?= e($player['username']) ?></a></div>
+          <div class="pcard-stat"><span>Lv</span><b id="st-level"><?= (int)$player['level'] ?></b></div>
+          <div class="pcard-stat"><span>Creds</span><b id="st-pocket"><?= number_format($player['creds_pocket']) ?></b></div>
+          <div class="pcard-stat"><span>Bank</span><b id="st-bank"><?= number_format($player['creds_bank']) ?></b></div>
+          <div class="pcard-stat"><span>Shards</span><b id="st-shards"><?= number_format($player['shards']) ?></b></div>
+        </div>
+      </div>
     </div>
     <div class="meters">
       <?php
@@ -62,23 +70,29 @@ function bar($label, $val, $max, $key = '') {
       ?>
     </div>
     <ul class="menu">
-      <?php $nl = nav_links(); foreach (player_sidebar($player) as $k): ?>
-        <li><a href="<?= $nl[$k][1] ?>"><?= e($nl[$k][0]) ?></a></li>
+      <?php $nl = nav_links(); foreach (player_sidebar($player) as $k):
+        $isActive = (strpos($nl[$k][1], 'p='.$p) !== false); ?>
+        <li<?= $isActive ? ' class="active"' : '' ?>><a href="<?= $nl[$k][1] ?>"><?= e($nl[$k][0]) ?></a></li>
       <?php endforeach; ?>
-      <?php if ($isStaff): ?><li><a href="index.php?p=admin">Admin</a></li><?php endif; ?>
+      <?php if ($isStaff): ?><li<?= $p==='admin'?' class="active"':'' ?>><a href="index.php?p=admin">Admin</a></li><?php endif; ?>
     </ul>
+    <div class="sidebar-cta">
+      <a href="index.php?p=account&sec=premium" class="cta-btn cta-sub">&#9733; Subscribe</a>
+      <a href="index.php?p=account&sec=shards" class="cta-btn cta-shards">&#9670; Buy Shards</a>
+    </div>
   </aside>
 
   <main class="center">
 <?php
   if ($isStaff) {
     $snote = '';
-    try { $s = db()->prepare('SELECT v FROM settings WHERE k=?'); $s->execute(['staff_note']); $snote = (string)$s->fetchColumn(); } catch (Throwable $e) {}
-    echo '<div class="staffnote"><div class="staffnote-head">&#128204; <b>Staff Note:</b>'
+    try { $s = db()->prepare('SELECT v FROM settings WHERE k=?'); $s->execute([$noteKey]); $snote = (string)$s->fetchColumn(); } catch (Throwable $e) {}
+    $noteLabel = e($noteKey);
+    echo '<div class="staffnote"><div class="staffnote-head">&#128204; <b>Staff Note</b> <span style="color:var(--muted);font-size:10px;font-weight:normal">[' . $noteLabel . ']</span>'
        . '<a href="#" onclick="var n=this.closest(\'.staffnote\');n.querySelector(\'.staffnote-edit\').style.display=\'block\';n.querySelector(\'.staffnote-view\').style.display=\'none\';return false;" style="float:right;font-size:11px">[Edit]</a></div>'
-       . '<div class="staffnote-view">' . ($snote !== '' ? nl2br(e($snote)) : '<span class="muted">+ Add staff comment</span>') . '</div>'
+       . '<div class="staffnote-view">' . ($snote !== '' ? nl2br(e($snote)) : '<span class="muted">+ Add note for this page</span>') . '</div>'
        . '<form class="staffnote-edit" method="post" style="display:none;margin-top:6px"><input type="hidden" name="__staffnote" value="1">'
-       . '<textarea name="staffnote" style="width:100%;min-height:50px">' . e($snote) . '</textarea>'
+       . '<textarea name="staffnote" style="width:100%;min-height:50px" placeholder="Leave empty to clear...">' . e($snote) . '</textarea>'
        . '<p style="margin:6px 0 0"><button type="submit">Save Note</button></p></form></div>';
   }
   $file = __DIR__ . "/pages/{$p}.php";
@@ -153,7 +167,7 @@ function bar($label, $val, $max, $key = '') {
       ?>
       <div id="jackedin">
         <?php foreach ($online as $o): $oc = chat_color($o['role'], $o['chat_color']); ?>
-          <div style="font-size:12px;padding:1px 0"><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a></div>
+          <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a></div>
         <?php endforeach; ?>
       </div>
       <p class="muted" style="font-size:10px;margin-top:6px"><span id="jackedin-count"><?= count($online) ?></span> online</p>
@@ -174,10 +188,11 @@ function bar($label, $val, $max, $key = '') {
       var box=document.getElementById('jackedin'); if(!box) return;
       box.innerHTML='';
       list.forEach(function(o){
-        var d=document.createElement('div'); d.style.fontSize='12px'; d.style.padding='1px 0';
+        var d=document.createElement('div'); d.className='online-player';
+        var dot=document.createElement('span'); dot.className='online-dot';
         var a=document.createElement('a'); a.href='index.php?p=profile&id='+o.id;
         a.textContent=o.name; a.style.color=o.color; a.style.fontWeight='bold';
-        d.appendChild(a); box.appendChild(d);
+        d.appendChild(dot); d.appendChild(a); box.appendChild(d);
       });
       var c=document.getElementById('jackedin-count'); if(c) c.textContent=list.length;
     }

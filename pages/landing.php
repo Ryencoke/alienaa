@@ -74,19 +74,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'signu
 
 <div class="modal-bg<?= $openModal ? ' show' : '' ?>" id="signupModal">
   <div class="modal">
-    <a class="x" onclick="closeSignup()">&times;</a>
+    <span class="x" onclick="closeSignup()">&times;</span>
     <h3>Jack in for free</h3>
-    <p class="muted" style="margin-top:-4px">All you need is a handle and a passkey.</p>
-    <?php if ($err): ?><div class="flash"><?= e($err) ?></div><?php endif; ?>
+    <p class="muted" style="margin-top:-8px;margin-bottom:18px">All you need is a handle and a passkey.</p>
+    <?php if ($err): ?><div class="flash flash-err"><?= e($err) ?></div><?php endif; ?>
     <form method="post" action="index.php?p=landing">
       <input type="hidden" name="action" value="signup">
       <input type="hidden" name="avatar" id="signupAvatar" value="<?= (int)$av ?>">
-      <label>Handle</label>
-      <p><input type="text" name="username" maxlength="32"></p>
-      <label>Passkey (8+ chars)</label>
-      <p><input type="password" name="password"></p>
-      <p><button type="submit">Start Playing</button></p>
-      <p class="muted" style="font-size:11px">Already have a ghost? <a href="index.php?p=login">Log in</a>.</p>
+      <div class="field">
+        <span>Handle</span>
+        <input type="text" name="username" maxlength="32" autocomplete="username">
+      </div>
+      <div class="field">
+        <span>Passkey <span class="muted" style="text-transform:none;letter-spacing:0">(8+ chars)</span></span>
+        <input type="password" name="password" autocomplete="new-password">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Start Playing</button>
+      <p class="muted" style="text-align:center;margin-top:14px;font-size:12px">Already have a ghost? <a href="index.php?p=login">Log in</a>.</p>
     </form>
   </div>
 </div>

@@ -5,7 +5,7 @@ $msg = '';
 $all_themes    = themes();
 $all_countries = countries();
 
-$secs = ['profile'=>'Member Profile','sidebar'=>'Sidebar','schemes'=>'Schemes & Styles','chat'=>'Chat Settings','boards'=>'Board Settings','account'=>'Account'];
+$secs = ['profile'=>'Profile','sidebar'=>'Sidebar','schemes'=>'Appearance','chat'=>'Chat','boards'=>'Boards','account'=>'Credentials'];
 $sec = $_GET['sec'] ?? 'profile';
 if (!isset($secs[$sec])) $sec = 'profile';
 
@@ -28,8 +28,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($action === 'chatcolor') {
       $c = $_POST['chat_color'] ?? '';
-      if (preg_match('/^#[0-9a-fA-F]{6}$/', $c)) { $pdo->prepare('UPDATE players SET chat_color = ? WHERE id = ?')->execute([$c, $pid]); $msg = 'Chat color updated.'; $player = current_player(); }
-      else $msg = 'Pick a valid color.';
+      if (preg_match('/^#[0-9a-fA-F]{6}$/', $c)) {
+        $pdo->prepare('UPDATE players SET chat_color = ? WHERE id = ?')->execute([$c, $pid]);
+        $msg = 'Chat color updated.'; $player = current_player();
+      } else $msg = 'Pick a valid color.';
     }
     elseif ($action === 'boards') {
       $sig = trim($_POST['signature'] ?? ''); if (mb_strlen($sig) > 255) $sig = mb_substr($sig, 0, 255);
@@ -48,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($action === 'handle') {
       $newu = trim($_POST['new_username'] ?? ''); $cur = $_POST['current_password'] ?? '';
-      if (!password_verify($cur, $player['pass_hash']))     $msg = 'Current passkey is wrong.';
+      if (!password_verify($cur, $player['pass_hash']))      $msg = 'Current passkey is wrong.';
       elseif (!preg_match('/^[A-Za-z0-9_]{3,32}$/', $newu)) $msg = 'Handle must be 3-32 letters, numbers, or underscore.';
       else {
         try { $pdo->prepare('UPDATE players SET username = ? WHERE id = ?')->execute([$newu, $pid]); $msg = 'Handle changed to ' . $newu . '.'; $player = current_player(); }
@@ -73,46 +75,45 @@ $curAccent = $player['accent_color'] ?? '';
 ?>
 <div class="panel">
   <h2>Account Settings</h2>
-  <p class="muted" style="font-size:12px">
-    <?php $i = 0; foreach ($secs as $k => $lbl): if ($i++) echo ' &middot; ';
-      if ($k === $sec) echo '<b style="color:var(--accent)">' . e($lbl) . '</b>';
-      else echo '<a href="index.php?p=account&sec=' . $k . '">' . e($lbl) . '</a>';
-    endforeach; ?>
-  </p>
-  <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
-</div>
+  <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
+  <div class="tabs">
+    <?php foreach ($secs as $k => $lbl): ?>
+      <a class="tab <?= $k === $sec ? 'is-active' : '' ?>" href="index.php?p=account&sec=<?= $k ?>"><?= e($lbl) ?></a>
+    <?php endforeach; ?>
+  </div>
 
 <?php if ($sec === 'profile'): ?>
-<div class="panel">
   <h3>Member Profile</h3>
   <form method="post">
     <input type="hidden" name="action" value="profile">
-    <label>Country</label>
-    <p><select name="country" style="max-width:240px">
-      <option value="">&mdash; none &mdash;</option>
-      <?php foreach ($all_countries as $code => $cn): ?>
-        <option value="<?= $code ?>" <?= ($player['country'] ?? '') === $code ? 'selected' : '' ?>><?= e($cn) ?></option>
-      <?php endforeach; ?>
-    </select></p>
-    <p class="muted" style="font-size:11px">Your flag shows next to your name on your Hideout and profile (not in chat).</p>
-    <label>Tagline / bio (200 max)</label>
-    <p><textarea name="bio" maxlength="200" style="min-height:60px"><?= e($player['bio'] ?? '') ?></textarea></p>
-    <p><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>">View my profile &raquo;</a></p>
-    <p><button type="submit">Save Profile</button></p>
+    <div class="field">
+      <span>Country</span>
+      <select name="country" style="max-width:280px">
+        <option value="">&mdash; none &mdash;</option>
+        <?php foreach ($all_countries as $code => $cn): ?>
+          <option value="<?= $code ?>" <?= ($player['country'] ?? '') === $code ? 'selected' : '' ?>><?= e($cn) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <span class="muted" style="font-size:11px;text-transform:none;letter-spacing:0">Your flag shows on your Hideout and profile (not in chat).</span>
+    </div>
+    <div class="field">
+      <span>Bio / Tagline <span class="muted" style="text-transform:none;letter-spacing:0">(200 max)</span></span>
+      <textarea name="bio" maxlength="200" style="min-height:60px"><?= e($player['bio'] ?? '') ?></textarea>
+    </div>
+    <p style="margin-bottom:12px"><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>">View my profile &rarr;</a></p>
+    <button type="submit">Save Profile</button>
   </form>
-</div>
 
 <?php elseif ($sec === 'sidebar'):
   $current = player_sidebar($player);
   $nl = nav_links();
 ?>
-<div class="panel">
   <h3>Sidebar Quick Links</h3>
   <p class="muted">Reorder, add, or remove links from your sidebar navigation.</p>
   <form method="post" action="index.php?p=account&sec=sidebar" id="sbform">
     <input type="hidden" name="action" value="sidebar">
     <input type="hidden" name="order" id="sborder">
-    <div id="sblist">
+    <div id="sblist" style="margin-bottom:12px">
       <?php foreach ($current as $k): ?>
         <div class="sbrow" data-key="<?= e($k) ?>">
           <span class="sbmove" data-dir="up">&#9650;</span>
@@ -122,15 +123,20 @@ $curAccent = $player['accent_color'] ?? '';
         </div>
       <?php endforeach; ?>
     </div>
-    <p style="margin-top:8px"><select id="sbadd" style="max-width:240px">
-      <option value="">+ Add link&hellip;</option>
-      <?php foreach ($nl as $k => $v): if (!in_array($k, $current, true)): ?><option value="<?= e($k) ?>"><?= e($v[0]) ?></option><?php endif; endforeach; ?>
-    </select></p>
-    <p><button type="submit">Save Sidebar</button></p>
+    <div class="field" style="max-width:280px">
+      <span>Add link</span>
+      <select id="sbadd">
+        <option value="">+ Add link&hellip;</option>
+        <?php foreach ($nl as $k => $v): if (!in_array($k, $current, true)): ?>
+          <option value="<?= e($k) ?>"><?= e($v[0]) ?></option>
+        <?php endif; endforeach; ?>
+      </select>
+    </div>
+    <button type="submit">Save Sidebar</button>
   </form>
-  <form method="post" action="index.php?p=account&sec=sidebar">
+  <form method="post" action="index.php?p=account&sec=sidebar" style="margin-top:8px">
     <input type="hidden" name="action" value="sidebar_reset">
-    <button type="submit" style="background:none;color:var(--muted);box-shadow:none;padding:0;font-size:12px">Reset to defaults</button>
+    <button type="submit" class="btn btn-ghost btn-sm">Reset to defaults</button>
   </form>
   <script>
   (function(){
@@ -162,53 +168,67 @@ $curAccent = $player['accent_color'] ?? '';
     });
   })();
   </script>
-</div>
 
 <?php elseif ($sec === 'schemes'): ?>
-<div class="panel">
-  <h3>Schemes &amp; Styles</h3>
+  <h3>Appearance &amp; Themes</h3>
   <form method="post">
     <input type="hidden" name="action" value="theme">
-    <label>Theme</label>
-    <p><select name="theme">
-      <?php foreach ($all_themes as $key => $t): ?>
-        <option value="<?= e($key) ?>" <?= $key === $curTheme ? 'selected' : '' ?>><?= e($t['name']) ?></option>
-      <?php endforeach; ?>
-    </select></p>
-    <label style="display:inline-block"><input type="checkbox" name="use_accent" value="1" <?= $curAccent ? 'checked' : '' ?> style="width:auto"> Custom accent color (overrides the theme's)</label>
-    <p><input type="color" name="accent_color" value="<?= e($curAccent ?: '#19f0c7') ?>" style="width:64px;height:34px;padding:2px"></p>
-    <p><button type="submit">Save Appearance</button></p>
+    <div class="field" style="max-width:280px">
+      <span>Theme</span>
+      <select name="theme">
+        <?php foreach ($all_themes as $key => $t): ?>
+          <option value="<?= e($key) ?>" <?= $key === $curTheme ? 'selected' : '' ?>><?= e($t['name']) ?></option>
+        <?php endforeach; ?>
+      </select>
+    </div>
+    <div class="field">
+      <label style="display:inline-flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13px;cursor:pointer">
+        <input type="checkbox" name="use_accent" value="1" <?= $curAccent ? 'checked' : '' ?> style="width:auto;accent-color:var(--accent)">
+        Custom accent color (overrides the theme)
+      </label>
+      <input type="color" name="accent_color" value="<?= e($curAccent ?: '#19f0c7') ?>" style="width:64px;height:36px;padding:2px;margin-top:4px">
+    </div>
+    <button type="submit">Save Appearance</button>
   </form>
-</div>
 
 <?php elseif ($sec === 'chat'):
   $cur = $player['chat_color'] ?? '#c9d1e0';
   if (!preg_match('/^#[0-9a-fA-F]{6}$/', $cur)) $cur = '#c9d1e0';
   $presets = ['#b8a472','#ffffff','#e23b3b','#3bcf63','#4d6be8','#5fe0e0','#ffe14d','#e8a33d','#ff2d95','#9bff3d'];
 ?>
-<div class="panel">
-  <h3>Chat Options</h3>
+  <h3>Chat Color</h3>
   <?php if ($role !== 'member'): ?>
-    <p class="muted">Note: in chat your name shows in <b style="color:<?= e(chat_color($role, '')) ?>"><?= e(role_label($role)) ?></b> staff color, which overrides your personal pick. You can still set one for when you're off staff.</p>
+    <p class="muted">Staff roles use fixed role colors in chat. You can still set a personal color for when you're off-staff.</p>
   <?php endif; ?>
   <form method="post">
     <input type="hidden" name="action" value="chatcolor">
-    <label>Chat text color</label>
-    <div id="swatches" style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">
-      <?php foreach ($presets as $pc): ?><span class="swatch" data-color="<?= $pc ?>" style="background:<?= $pc ?>"></span><?php endforeach; ?>
+    <div class="field">
+      <span>Pick a preset</span>
+      <div id="swatches" style="display:flex;gap:6px;flex-wrap:wrap">
+        <?php foreach ($presets as $pc): ?>
+          <span class="swatch" data-color="<?= $pc ?>" style="background:<?= $pc ?>"></span>
+        <?php endforeach; ?>
+      </div>
     </div>
-    <p style="display:flex;gap:8px;align-items:center">
-      <span class="muted">Custom</span>
-      <input type="color" id="ccPick" name="chat_color" value="<?= e($cur) ?>" style="width:48px;height:34px;padding:2px">
-      <input type="text" id="ccHex" value="<?= e($cur) ?>" maxlength="7" style="width:96px">
-    </p>
-    <div class="panel" style="background:#080812;margin-bottom:10px">
-      <div class="muted" style="font-size:11px;margin-bottom:4px">Preview:</div>
-      <div style="font-size:13px"><span class="muted">00:00:00</span>
+    <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+      <div>
+        <span>Custom color</span>
+        <input type="color" id="ccPick" name="chat_color" value="<?= e($cur) ?>" style="width:52px;height:36px;padding:2px">
+      </div>
+      <div>
+        <span>Hex value</span>
+        <input type="text" id="ccHex" value="<?= e($cur) ?>" maxlength="7" style="width:100px">
+      </div>
+    </div>
+    <div class="panel" style="background:#080812;margin-bottom:14px">
+      <div class="muted" style="font-size:11px;margin-bottom:6px">Preview</div>
+      <div style="font-size:13px">
+        <span class="muted">00:00:00</span>
         <b id="ccName" style="color:<?= e($cur) ?>"><?= e($player['username']) ?>:</b>
-        <span id="ccMsg" style="color:<?= e($cur) ?>">This is what your chat messages will look like!</span></div>
+        <span id="ccMsg" style="color:<?= e($cur) ?>">This is what your chat messages will look like!</span>
+      </div>
     </div>
-    <p><button type="submit">Save Chat Settings</button></p>
+    <button type="submit">Save Chat Color</button>
   </form>
   <script>
   (function(){
@@ -221,39 +241,49 @@ $curAccent = $player['accent_color'] ?? '';
     hex.addEventListener('input',function(){ set(hex.value); });
   })();
   </script>
-</div>
 
 <?php elseif ($sec === 'boards'): ?>
-<div class="panel">
-  <h3>Message Board Settings</h3>
+  <h3>Board Settings</h3>
   <form method="post">
     <input type="hidden" name="action" value="boards">
-    <label>Signature &mdash; shown under your board posts (255 max, BBCode ok)</label>
-    <p><textarea name="signature" maxlength="255" style="min-height:60px"><?= e($player['signature'] ?? '') ?></textarea></p>
-    <p><button type="submit">Save Board Settings</button></p>
+    <div class="field">
+      <span>Signature <span class="muted" style="text-transform:none;letter-spacing:0">(255 max, BBCode ok)</span></span>
+      <textarea name="signature" maxlength="255" style="min-height:60px"><?= e($player['signature'] ?? '') ?></textarea>
+    </div>
+    <button type="submit">Save Board Settings</button>
   </form>
-</div>
 
 <?php elseif ($sec === 'account'): ?>
-<div class="panel">
-  <h3>Account Credentials</h3>
-  <form method="post" style="margin-bottom:16px">
+  <h3>Change Handle</h3>
+  <form method="post" style="margin-bottom:24px">
     <input type="hidden" name="action" value="handle">
-    <label>Change handle</label>
-    <p><input type="text" name="new_username" value="<?= e($player['username']) ?>" maxlength="32"></p>
-    <label>Current passkey (to confirm)</label>
-    <p><input type="password" name="current_password" autocomplete="current-password"></p>
-    <p><button type="submit">Change Handle</button></p>
+    <div class="field">
+      <span>New handle</span>
+      <input type="text" name="new_username" value="<?= e($player['username']) ?>" maxlength="32" style="max-width:280px">
+    </div>
+    <div class="field">
+      <span>Current passkey (to confirm)</span>
+      <input type="password" name="current_password" autocomplete="current-password" style="max-width:280px">
+    </div>
+    <button type="submit">Change Handle</button>
   </form>
+
+  <h3>Change Passkey</h3>
   <form method="post">
     <input type="hidden" name="action" value="password">
-    <label>Current passkey</label>
-    <p><input type="password" name="current_password" autocomplete="current-password"></p>
-    <label>New passkey (8+ chars)</label>
-    <p><input type="password" name="new_password" autocomplete="new-password"></p>
-    <label>New passkey again</label>
-    <p><input type="password" name="new_password2" autocomplete="new-password"></p>
-    <p><button type="submit">Change Passkey</button></p>
+    <div class="field">
+      <span>Current passkey</span>
+      <input type="password" name="current_password" autocomplete="current-password" style="max-width:280px">
+    </div>
+    <div class="field">
+      <span>New passkey <span class="muted" style="text-transform:none;letter-spacing:0">(8+ chars)</span></span>
+      <input type="password" name="new_password" autocomplete="new-password" style="max-width:280px">
+    </div>
+    <div class="field">
+      <span>New passkey again</span>
+      <input type="password" name="new_password2" autocomplete="new-password" style="max-width:280px">
+    </div>
+    <button type="submit">Change Passkey</button>
   </form>
-</div>
 <?php endif; ?>
+</div>

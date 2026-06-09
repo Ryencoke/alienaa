@@ -166,26 +166,36 @@ function sort_link($key, $label, $cur, $cat = '') {
 <div class="panel">
   <h2>The Bazaar &mdash; Open Market</h2>
   <p class="muted">No refunds, no questions. The Grid takes its cut in silence.</p>
-  <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
-  <p>Pocket: <b><?= number_format($player['creds_pocket']) ?></b> creds</p>
+  <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
+  <p>Pocket: <b style="color:var(--accent)"><?= number_format($player['creds_pocket']) ?></b> creds</p>
 </div>
 
 <div class="panel">
   <h3>Sell Items</h3>
   <?php if ($inv): ?>
-  <p class="muted">List an item for other ghosts to buy. There's a <b>2%</b> fee on the total asking price, charged when you place the ad.</p>
+  <p class="muted">List an item for other ghosts to buy. There&rsquo;s a <b>2%</b> fee on the total asking price, charged when you place the ad.</p>
   <form method="post">
     <input type="hidden" name="action" value="list">
-    <p><label>Item to sell</label>
-      <select name="item_id" style="width:100%;background:#080812;border:1px solid var(--line);color:var(--text);padding:6px;border-radius:3px">
+    <div class="field">
+      <span>Item to sell</span>
+      <select name="item_id">
         <?php foreach ($inv as $it): ?>
           <option value="<?= (int)$it['item_id'] ?>"><?= e($it['name']) ?> (have <?= (int)$it['qty'] ?>)</option>
         <?php endforeach; ?>
-      </select></p>
-    <p><label>Sell quantity</label><input type="number" name="qty" id="sellQty" min="1" value="1"></p>
-    <p><label>Asking price per unit (creds)</label><input type="number" name="unit_price" id="sellPrice" min="1" value="100"></p>
-    <p class="muted">Total asking price: <b id="sellTotal">&mdash;</b> creds &middot; Listing fee (2%): <b id="sellFee">&mdash;</b> creds</p>
-    <p><button type="submit">Place Ad</button></p>
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field">
+        <span>Sell quantity</span>
+        <input type="number" name="qty" id="sellQty" min="1" value="1">
+      </div>
+      <div class="field">
+        <span>Price per unit (creds)</span>
+        <input type="number" name="unit_price" id="sellPrice" min="1" value="100">
+      </div>
+    </div>
+    <p class="muted" style="margin-bottom:12px">Total: <b id="sellTotal">&mdash;</b> creds &nbsp;&middot;&nbsp; Fee (2%): <b id="sellFee">&mdash;</b> creds</p>
+    <button type="submit">Place Ad</button>
   </form>
   <script>
   (function(){

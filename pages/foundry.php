@@ -117,7 +117,7 @@ foreach ($im as $row) $invMap[(int)$row['item_id']] = (int)$row['qty'];
 <div class="panel">
   <h2>Foundry Sector &mdash; Fabrication Bay</h2>
   <p class="muted">Pull raw stock out of the Sprawl, then bolt it into something worth creds.</p>
-  <?php if ($msg): ?><div class="flash"><?= $msg /* pre-built, already escaped/entity-safe */ ?></div><?php endif; ?>
+  <?php if ($msg): ?><div class="flash flash-ok"><?= $msg /* pre-built, already escaped/entity-safe */ ?></div><?php endif; ?>
   <p class="muted">Your skills &mdash;
     Scavenging: <b><?= (int)($skillPts['scav'] ?? 0) ?></b> &middot;
     Hydroponics: <b><?= (int)($skillPts['hydro'] ?? 0) ?></b> &middot;

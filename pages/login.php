@@ -10,13 +10,22 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
   $err='Bad credentials. The Grid does not know you.';
 }
 ?>
-<div class="panel">
-  <h2>Jack In — Sprawl-9</h2>
-  <?php if($err):?><div class="flash"><?= e($err) ?></div><?php endif;?>
-  <form method="post">
-    <p><label>Handle</label><input type="text" name="username"></p>
-    <p><label>Passkey</label><input type="password" name="password"></p>
-    <p><button type="submit">Jack In</button></p>
-  </form>
-  <p class="muted">No handle yet? <a href="index.php?p=register">Register a ghost.</a></p>
+<div class="auth-shell">
+  <div class="auth-card">
+    <h2>Jack In</h2>
+    <p class="auth-sub">Sprawl-9 &mdash; sign in to your ghost.</p>
+    <?php if($err):?><div class="flash flash-err"><?= e($err) ?></div><?php endif;?>
+    <form method="post">
+      <div class="field">
+        <span>Handle</span>
+        <input type="text" name="username" autocomplete="username" autofocus>
+      </div>
+      <div class="field">
+        <span>Passkey</span>
+        <input type="password" name="password" autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Jack In</button>
+    </form>
+    <p class="auth-foot">No handle yet? <a href="index.php?p=register">Register a ghost.</a></p>
+  </div>
 </div>

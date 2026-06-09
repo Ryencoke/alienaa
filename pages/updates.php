@@ -58,16 +58,20 @@ function uvote($uid, $dir, $glyph) {
 <div class="panel">
   <h2>Game Updates</h2>
   <p class="muted" style="text-align:center;margin-top:-8px">Patch notes from the people who keep the Sprawl running.</p>
-  <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
+  <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
 
   <?php if ($isManager): ?>
-  <form method="post" style="border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:6px">
+  <form method="post" style="border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:6px">
     <input type="hidden" name="action" value="post">
-    <label>New update</label>
-    <p><textarea name="body" maxlength="4000" style="min-height:80px"></textarea></p>
-    <label>Thanks to (optional handle)</label>
-    <p><input type="text" name="credit" maxlength="64" style="max-width:220px"></p>
-    <p><button type="submit">Post Update</button></p>
+    <div class="field">
+      <span>New update</span>
+      <textarea name="body" maxlength="4000" style="min-height:80px"></textarea>
+    </div>
+    <div class="field" style="max-width:280px">
+      <span>Thanks to <span class="muted" style="text-transform:none;letter-spacing:0">(optional handle)</span></span>
+      <input type="text" name="credit" maxlength="64">
+    </div>
+    <button type="submit">Post Update</button>
   </form>
   <?php endif; ?>
 </div>

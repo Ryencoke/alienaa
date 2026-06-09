@@ -142,7 +142,7 @@ $avail = max(0, $loanCap - $loan);
   </div>
   <p class="muted" style="text-align:center;font-style:italic;font-size:11px;margin:0 0 8px">A typical day at the Bank.</p>
 
-  <?php if ($msg): ?><div class="flash"><?= e($msg) ?></div><?php endif; ?>
+  <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
   <p><b>Teller:</b> You have <b><?= number_format($player['creds_bank']) ?></b> creds in the bank and
      <b><?= number_format($player['creds_pocket']) ?></b> in pocket.
      <?php if ($loan > 0): ?> You owe the bank <b style="color:var(--neon2)"><?= number_format($loan) ?></b> creds.<?php endif; ?></p>
@@ -177,11 +177,15 @@ $avail = max(0, $loanCap - $loan);
     <p class="muted">Send creds to another ghost (from your pocket).</p>
     <form method="post">
       <input type="hidden" name="action" value="transfer">
-      <label>To (handle)</label>
-      <p><input type="text" name="to" maxlength="32"></p>
-      <label>Amount</label>
-      <p><input type="number" name="amount" min="1" max="<?= $player['creds_pocket'] ?>"></p>
-      <p><button type="submit">Transfer</button></p>
+      <div class="field">
+        <span>To (handle)</span>
+        <input type="text" name="to" maxlength="32">
+      </div>
+      <div class="field">
+        <span>Amount</span>
+        <input type="number" name="amount" min="1" max="<?= $player['creds_pocket'] ?>">
+      </div>
+      <button type="submit">Transfer</button>
     </form>
   </div>
 
@@ -228,11 +232,11 @@ $avail = max(0, $loanCap - $loan);
       'Subscribers'         => number_format($subs),
     ];
   ?>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+  <div class="stat-grid">
     <?php foreach ($tiles as $lbl => $val): ?>
-      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:12px;text-align:center">
-        <div class="muted" style="font-size:11px"><?= e($lbl) ?></div>
-        <div style="font-size:18px;font-weight:bold;color:var(--accent);margin-top:3px"><?= $val ?></div>
+      <div class="stat-card">
+        <div class="val"><?= $val ?></div>
+        <div class="lbl"><?= e($lbl) ?></div>
       </div>
     <?php endforeach; ?>
   </div>

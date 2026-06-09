@@ -103,7 +103,7 @@ $drone = (int)($skillPts['drone'] ?? 0);
 <div class="panel">
   <h2>Transit Hub <span class="muted">&mdash; The Loading Docks</span></h2>
   <p class="muted">Run cargo for creds, or send a rig into the tunnels for ore. Both bite back.</p>
-  <?php if ($msg): ?><div class="flash"><?= $msg /* may contain entities; only dynamic parts are admin item names */ ?></div><?php endif; ?>
+  <?php if ($msg): ?><div class="flash flash-ok"><?= $msg /* may contain entities; only dynamic parts are admin item names */ ?></div><?php endif; ?>
   <p>
     Integrity: <b><?= (int)$player['integrity'] ?> / <?= (int)$player['integrity_max'] ?></b> &middot;
     Drone Piloting: <b><?= $drone ?></b>

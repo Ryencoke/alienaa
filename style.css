@@ -1,263 +1,386 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&display=swap');
+
 /* ============================================================
-   Sprawl-9 theme. Colors are driven by CSS variables so the
-   Account Options theme switcher (Phase 2) can override them.
+   Sprawl-9 · CSS
+   Colors driven by CSS variables — Account Options theme
+   switcher overrides them per player.
    ============================================================ */
 :root{
   --bg:#0a0a12; --panel:#12121f; --panel2:#181828; --line:#241f3a;
   --neon:#19f0c7; --neon2:#ff2d95; --text:#c9d1e0; --muted:#5d6680;
-  --accent:#19f0c7;                 /* themeable accent */
-  --bar1:#2b2b3d; --bar2:#13131d;   /* grey gradient pill */
+  --accent:#19f0c7;
+  --bar1:#2b2b3d; --bar2:#13131d;
+  --radius:7px; --t:150ms ease;
 }
 *{box-sizing:border-box}
+html{scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--text);
-  font:12px/1.5 Verdana,Tahoma,Geneva,sans-serif}
-a{color:var(--accent);text-decoration:none}
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(1100px 500px at 15% -5%, rgba(25,240,199,.07), transparent 55%),
+    radial-gradient(900px 400px at 92% 0%, rgba(255,45,149,.07), transparent 55%),
+    radial-gradient(circle at 50% -8%, rgba(255,255,255,.035), transparent 55%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px);
+  background-attachment:fixed}
+a{color:var(--accent);text-decoration:none;transition:color var(--t)}
 a:hover{color:var(--neon2)}
+h1,h2,h3,h4{margin:0 0 .4em;line-height:1.2;font-family:'Orbitron',sans-serif;letter-spacing:.5px}
+p{margin:0 0 1em}
+img{max-width:100%;display:block}
 
-/* ---- top nav ---- */
-.topbar{display:flex;gap:16px;justify-content:center;padding:10px;
-  background:#06060d;border-bottom:1px solid var(--line);flex-wrap:wrap;
-  letter-spacing:.5px}
-.topbar a{color:var(--text)}
-.topbar a:hover{color:var(--accent)}
+/* ============================================================ Topbar */
+.topbar{display:flex;gap:16px;justify-content:center;align-items:center;
+  padding:0 16px;height:52px;flex-wrap:wrap;letter-spacing:.5px;
+  background:rgba(6,6,13,.88);border-bottom:1px solid var(--line);
+  position:sticky;top:0;z-index:100;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.topbar a{color:var(--text);font-size:13px}
+.topbar a:hover{color:var(--accent);text-shadow:0 0 8px rgba(25,240,199,.5)}
+.topbar a.active{color:var(--accent);font-weight:bold;
+  text-shadow:0 0 10px rgba(25,240,199,.6);
+  border-bottom:2px solid var(--accent);padding-bottom:2px}
 
-/* ---- layout shell ---- */
+/* ============================================================ Layout shell */
 .shell{display:grid;grid-template-columns:215px 1fr 230px;gap:14px;
-  max-width:1180px;margin:14px auto;padding:0 12px}
+  max-width:1200px;margin:16px auto;padding:0 14px}
 .shell.solo{grid-template-columns:1fr;max-width:440px}
 
-/* ---- left character card ---- */
+/* ============================================================ Left character card */
 .left .card{background:var(--panel);border:1px solid var(--line);
-  padding:12px;border-radius:6px;text-align:center}
-.avatar{width:80px;height:80px;margin:0 auto 8px;border:1px solid var(--accent);
-  background:radial-gradient(circle,#1c2540,#0a0a12);border-radius:4px}
+  padding:14px;border-radius:var(--radius)}
+.avatar{width:56px;height:56px;flex:none;border:1px solid var(--accent);
+  background:radial-gradient(circle,#1c2540,#0a0a12);border-radius:5px}
 .name{color:var(--accent);font-weight:bold;letter-spacing:1px;
-  border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:6px}
+  font-family:'Orbitron',sans-serif;font-size:11px;
+  border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:5px}
 .left .card .stat{display:flex;justify-content:space-between;
-  font-size:12px;color:var(--muted);padding:1px 0}
+  font-size:12px;color:var(--muted);padding:2px 0}
 .left .card .stat b{color:var(--text);font-weight:bold}
 
-/* ---- meter bars: label | bar | value ---- */
-.meters{margin:12px 0}
-.meter{display:flex;align-items:center;gap:6px;margin-bottom:6px}
-.meter span{color:var(--muted);width:56px;flex:none;font-size:10px}
-.meter .track{flex:1;height:12px;background:#080812;border:1px solid var(--line);
-  border-radius:2px;overflow:hidden}
-.meter .fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--neon2))}
-.meter em{font-style:normal;color:var(--muted);font-size:9px;width:66px;
-  text-align:right;flex:none}
+/* pirateaa-style avatar + stats side-by-side */
+.pcard-row{display:flex;gap:10px;align-items:flex-start}
+.pcard-info{flex:1;min-width:0}
+.pcard-info .name{font-size:11px;margin-bottom:4px}
+.pcard-stat{display:flex;justify-content:space-between;align-items:center;
+  font-size:11px;color:var(--muted);padding:2px 0}
+.pcard-stat b{color:var(--text);font-weight:bold}
 
-/* ---- left menu ---- */
+/* ============================================================ Meter bars */
+.meters{margin:12px 0}
+.meter{margin-bottom:9px}
+.meter-head{display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:3px}
+.meter-head span{color:var(--muted);font-size:10px;text-transform:uppercase;
+  letter-spacing:.5px}
+.meter-head em{font-style:normal;color:var(--muted);font-size:10px}
+.meter .track{width:100%;height:6px;background:#080812;
+  border-radius:999px;overflow:hidden}
+.meter .fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--neon2));
+  transition:width .5s ease;border-radius:999px}
+
+/* ============================================================ Left menu */
 .menu{list-style:none;padding:0;margin:12px 0;background:var(--panel);
-  border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
 .menu li{border-bottom:1px solid var(--line)}
 .menu li:last-child{border-bottom:0}
-.menu a{display:block;padding:7px 12px;color:var(--text)}
-.menu a:hover{background:var(--panel2);color:var(--accent)}
+.menu a{display:block;padding:8px 14px;color:var(--text);font-size:13px;
+  transition:background var(--t),color var(--t),padding-left var(--t)}
+.menu a:hover{background:var(--panel2);color:var(--accent);padding-left:18px}
+.menu li.active a{color:var(--accent);background:var(--panel2);
+  padding-left:18px;border-left:2px solid var(--accent)}
 
-/* ---- panels ---- */
-.panel{background:var(--panel);border:1px solid var(--line);padding:14px;
-  margin-bottom:14px;border-radius:6px}
-/* page-title pill (A3 grey gradient bar) */
-.panel h2{margin:-14px -14px 14px;padding:9px 14px;text-align:center;
+/* ============================================================ Sidebar CTA buttons */
+.sidebar-cta{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.cta-btn{display:block;text-align:center;padding:8px 12px;border-radius:var(--radius);
+  font-size:12px;font-weight:bold;letter-spacing:.5px;
+  transition:all var(--t);cursor:pointer}
+.cta-sub{background:linear-gradient(135deg,rgba(25,240,199,.12),rgba(25,240,199,.04));
+  border:1px solid rgba(25,240,199,.35);color:var(--accent)}
+.cta-sub:hover{background:rgba(25,240,199,.2);border-color:var(--accent);
+  box-shadow:0 0 14px rgba(25,240,199,.2);color:var(--accent)}
+.cta-shards{background:linear-gradient(135deg,rgba(255,45,149,.12),rgba(255,45,149,.04));
+  border:1px solid rgba(255,45,149,.35);color:var(--neon2)}
+.cta-shards:hover{background:rgba(255,45,149,.2);border-color:var(--neon2);
+  box-shadow:0 0 14px rgba(255,45,149,.2);color:var(--neon2)}
+
+/* ============================================================ Panels */
+.panel{background:var(--panel);border:1px solid var(--line);padding:16px;
+  margin-bottom:14px;border-radius:var(--radius);
+  box-shadow:0 1px 0 rgba(255,255,255,.02),0 4px 16px rgba(0,0,0,.3);
+  transition:border-color var(--t)}
+.panel h2{margin:-16px -16px 16px;padding:10px 16px;text-align:center;
   background:linear-gradient(180deg,var(--bar1),var(--bar2));
-  border-bottom:1px solid var(--line);border-radius:6px 6px 0 0;
+  border-bottom:1px solid var(--line);border-radius:var(--radius) var(--radius) 0 0;
   color:var(--accent);font-size:15px;letter-spacing:1px;
   text-shadow:0 0 6px rgba(255,255,255,.12)}
-/* underlined section header */
-.panel h3{margin:16px 0 8px;padding-bottom:4px;color:var(--neon2);
+.panel h3{margin:18px 0 10px;padding-bottom:5px;color:var(--neon2);
   border-bottom:1px solid var(--line);font-size:13px;letter-spacing:.5px}
-.panel > h3:first-child{margin-top:0}
+.panel>h3:first-child{margin-top:0}
 
-/* reusable grey pill bar (boards section dividers, etc.) */
 .bar{background:linear-gradient(180deg,var(--bar1),var(--bar2));
-  border:1px solid var(--line);border-radius:6px;text-align:center;
+  border:1px solid var(--line);border-radius:var(--radius);text-align:center;
   padding:9px;color:var(--accent);font-weight:bold;letter-spacing:1px;
-  margin-bottom:12px}
+  margin-bottom:12px;font-size:13px;font-family:'Orbitron',sans-serif}
 
 .muted{color:var(--muted)}
 
-/* ---- district map ---- */
-.districts{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px}
-.district h4{color:var(--neon2);border-bottom:1px solid var(--line);
-  padding-bottom:4px;margin:0 0 6px}
-.district ul{list-style:none;padding:0;margin:0}
-.district li{padding:2px 0}
-
-/* ---- forms ---- */
-input[type=text],input[type=password],input[type=number],select,textarea{
-  background:#080812;border:1px solid var(--line);color:var(--text);
-  padding:6px;border-radius:3px;width:100%;font-family:inherit;font-size:12px}
+/* ============================================================ Buttons */
 button,input[type=submit]{background:var(--accent);color:#04040a;border:0;
-  padding:7px 14px;font-weight:bold;border-radius:3px;cursor:pointer;
-  font-family:inherit;font-size:12px}
-button:hover,input[type=submit]:hover{background:var(--neon2);color:#fff}
-label{display:block;color:var(--muted);font-size:11px;margin-bottom:2px}
+  padding:7px 16px;font-weight:bold;border-radius:4px;cursor:pointer;
+  font-family:inherit;font-size:13px;
+  transition:transform .06s ease,background var(--t),box-shadow var(--t)}
+button:hover,input[type=submit]:hover{background:var(--neon2);color:#fff;
+  box-shadow:0 0 12px rgba(255,45,149,.4)}
+button:active,input[type=submit]:active{transform:translateY(1px)}
 
-/* ---- tables ---- */
-table{width:100%;border-collapse:collapse;font-size:12px}
-th,td{text-align:left;padding:6px;border-bottom:1px solid var(--line)}
+/* Named button classes */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:8px 18px;border-radius:5px;border:1px solid transparent;
+  font-weight:bold;font-size:13px;cursor:pointer;font-family:inherit;
+  transition:all var(--t);background:var(--panel2);color:var(--text)}
+.btn:hover{transform:translateY(-1px)}
+.btn-primary{background:linear-gradient(180deg,var(--accent),#0ab58a);color:#04040a;
+  border-color:var(--accent);box-shadow:0 0 0 1px rgba(25,240,199,.15)}
+.btn-primary:hover{background:var(--neon2);border-color:var(--neon2);color:#fff;
+  box-shadow:0 0 16px rgba(255,45,149,.4)}
+.btn-ghost{background:transparent;color:var(--muted);border-color:var(--line)}
+.btn-ghost:hover{color:var(--text);border-color:var(--accent)}
+.btn-danger{background:transparent;color:#e23b3b;border-color:rgba(226,59,59,.4)}
+.btn-danger:hover{background:rgba(226,59,59,.1);border-color:#e23b3b;color:#ff6b6b}
+.btn-block{width:100%}
+.btn-sm{padding:5px 12px;font-size:12px}
+
+/* ============================================================ Forms */
+input[type=text],input[type=password],input[type=number],input[type=email],select,textarea{
+  background:#080812;border:1px solid var(--line);color:var(--text);
+  padding:8px 10px;border-radius:4px;width:100%;font-family:inherit;font-size:13px}
+input[type=text]:focus,input[type=password]:focus,input[type=number]:focus,
+input[type=email]:focus,select:focus,textarea:focus{
+  outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(25,240,199,.08)}
+label{display:block;color:var(--muted);font-size:11px;font-weight:bold;
+  text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+
+/* Field wrapper */
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:16px}
+.field>span,.field>label{color:var(--muted);font-size:11px;font-weight:bold;
+  text-transform:uppercase;letter-spacing:.5px;margin-bottom:0}
+
+/* ============================================================ Flash messages */
+.flash{border:1px solid var(--accent);background:rgba(25,240,199,.06);
+  padding:9px 13px;margin:0 0 14px;border-radius:5px;font-size:13px;
+  animation:flashin .25s ease}
+.flash-ok{border-color:rgba(25,240,199,.5);background:rgba(25,240,199,.08);color:var(--accent)}
+.flash-err{border-color:rgba(255,45,149,.5);background:rgba(255,45,149,.08);color:var(--neon2)}
+@keyframes flashin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+/* ============================================================ Auth shell/card */
+.auth-shell{min-height:72vh;display:flex;align-items:center;
+  justify-content:center;padding:40px 14px}
+.auth-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:32px;width:100%;max-width:420px;
+  box-shadow:0 0 0 1px rgba(25,240,199,.06),0 8px 32px rgba(0,0,0,.45)}
+.auth-card h2{text-align:center;margin-bottom:4px;color:var(--accent);letter-spacing:1px}
+.auth-sub{text-align:center;color:var(--muted);margin-bottom:24px;font-size:13px}
+.auth-foot{text-align:center;margin-top:18px;color:var(--muted);font-size:13px}
+.auth-foot a{color:var(--accent)}
+
+/* ============================================================ Stat cards (dashboard) */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));
+  gap:12px;margin:16px 0}
+.stat-card{background:var(--panel2);border:1px solid var(--line);
+  border-radius:var(--radius);padding:14px 16px;
+  transition:border-color var(--t),transform var(--t)}
+.stat-card:hover{border-color:rgba(25,240,199,.3);transform:translateY(-1px)}
+.stat-card .val{font-size:1.4rem;font-weight:bold;letter-spacing:-.02em;color:var(--accent)}
+.stat-card .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;
+  letter-spacing:.5px;margin-top:2px}
+
+/* ============================================================ Tabs */
+.tabs{display:flex;gap:3px;border-bottom:1px solid var(--line);
+  margin-bottom:20px;overflow-x:auto;flex-wrap:nowrap}
+.tab{padding:9px 16px;color:var(--muted);font-size:12px;font-weight:bold;
+  border-bottom:2px solid transparent;margin-bottom:-1px;
+  transition:all var(--t);white-space:nowrap;cursor:pointer}
+.tab:hover{color:var(--text)}
+.tab.active,.tab.is-active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ============================================================ Tables */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
 th{color:var(--neon2);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+table tr{transition:background var(--t)}
+table tr:not(:first-child):nth-child(even){background:rgba(255,255,255,.015)}
+table tr:not(:first-child):hover{background:rgba(255,255,255,.05)}
 
-/* ---- right column ---- */
-.right .panel h3{margin-top:0;color:var(--accent);border-bottom:1px solid var(--line)}
+/* ============================================================ Districts */
+.districts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.district h4{color:var(--neon2);border-bottom:1px solid var(--line);
+  padding-bottom:5px;margin:0 0 8px}
+.district ul{list-style:none;padding:0;margin:0}
+.district li{padding:3px 0}
 
-/* ---- flash / messages ---- */
-.flash{border:1px solid var(--accent);background:rgba(255,255,255,.04);
-  padding:8px;margin:0 0 12px;border-radius:4px;font-size:12px}
-
-/* ---- chat (Town Hall) ---- */
+/* ============================================================ Chat (full page) */
 .chatroom{height:430px;overflow-y:auto;border:1px solid var(--line);
-  background:#080812;padding:8px;border-radius:4px;margin-bottom:10px;font-size:12px}
-.chatline{margin-bottom:3px;line-height:1.45}
+  background:#080812;padding:8px;border-radius:4px;margin-bottom:10px;font-size:13px}
+.chatline{margin-bottom:3px;line-height:1.5}
 .chattime{color:var(--muted);font-size:10px;margin-right:4px}
 .chatsay{display:flex;gap:6px}
 .chatsay input[type=text]{flex:1}
-code{color:var(--neon2);font-size:11px}
+code{color:var(--neon2);font-size:12px}
 
-/* ---- threaded board posts ---- */
+/* ============================================================ Board posts */
 .post{display:flex;gap:10px;border:1px solid var(--line);background:var(--panel2);
-  padding:8px;border-radius:4px;margin-bottom:8px}
+  padding:10px;border-radius:var(--radius);margin-bottom:8px;transition:border-color var(--t)}
+.post:hover{border-color:rgba(25,240,199,.2)}
 .votebox{display:flex;flex-direction:column;align-items:center;width:30px;flex:none}
 .vote{background:none;color:var(--muted);border:0;cursor:pointer;padding:0;
   font-size:13px;line-height:1.1}
 .vote:hover{color:var(--accent);background:none}
 .score{font-weight:bold;color:var(--text);font-size:12px;padding:1px 0}
 .postbody{flex:1;min-width:0}
-.posthead{font-size:11px;margin-bottom:5px;border-bottom:1px solid var(--line);padding-bottom:3px}
+.posthead{font-size:12px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px}
 
-/* ---- landing / splash ---- */
-.land{max-width:1080px;margin:0 auto;padding:18px 14px}
+/* ============================================================ Messages */
+.msg-bubble{background:var(--panel2);border:1px solid var(--line);
+  border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;
+  transition:border-color var(--t)}
+.msg-bubble.mine{border-color:rgba(25,240,199,.25);background:rgba(25,240,199,.04)}
+.msg-meta{font-size:11px;color:var(--muted);margin-bottom:4px}
+.msg-body{font-size:13px}
+
+/* ============================================================ Profile */
+.profile-hero{text-align:center;padding:10px 0 16px}
+.profile-name{font-size:1.4rem;font-weight:bold;letter-spacing:.5px}
+.profile-bio{color:var(--muted);font-style:italic;margin:8px 0;font-size:13px}
+
+/* ============================================================ Landing / splash */
+.land{max-width:1080px;margin:0 auto;padding:24px 16px}
 .land-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
-  margin-bottom:20px;border-bottom:1px solid var(--line);padding-bottom:12px}
-.land-logo{color:var(--accent);font-weight:bold;font-size:22px;letter-spacing:3px;
-  text-shadow:0 0 8px rgba(255,255,255,.12)}
+  margin-bottom:24px;border-bottom:1px solid var(--line);padding-bottom:14px}
+.land-logo{color:var(--accent);font-weight:bold;font-size:24px;letter-spacing:4px;
+  text-shadow:0 0 12px rgba(25,240,199,.35);font-family:'Orbitron',sans-serif}
 .land-login{display:flex;gap:6px;align-items:center}
 .land-login input{width:auto}
-.land-hero{display:grid;grid-template-columns:1.25fr 1fr;gap:18px;align-items:start}
+.land-hero{display:grid;grid-template-columns:1.25fr 1fr;gap:20px;align-items:start}
 .land-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.land-card{cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:6px;
-  padding:16px 10px;text-align:center;transition:border-color .15s,transform .1s}
-.land-card:hover{border-color:var(--accent);transform:translateY(-2px)}
-.land-card .cap{margin-top:8px;font-weight:bold;color:var(--accent);letter-spacing:1px}
-.land-card .sub{font-size:11px;color:var(--muted)}
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:flex-start;
-  justify-content:center;z-index:50;padding:48px 12px;overflow:auto}
+.land-card{cursor:pointer;border:1px solid var(--line);background:var(--panel);
+  border-radius:var(--radius);padding:18px 12px;text-align:center;
+  transition:border-color var(--t),transform .12s ease,box-shadow var(--t)}
+.land-card:hover{border-color:var(--accent);transform:translateY(-3px);
+  box-shadow:0 0 20px rgba(25,240,199,.15)}
+.land-card .cap{margin-top:10px;font-weight:bold;color:var(--accent);letter-spacing:1px}
+.land-card .sub{font-size:12px;color:var(--muted);margin-top:4px}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;
+  align-items:flex-start;justify-content:center;z-index:50;padding:48px 12px;overflow:auto}
 .modal-bg.show{display:flex}
-.modal{background:var(--panel);border:1px solid var(--accent);border-radius:8px;max-width:380px;
-  width:100%;padding:18px;position:relative}
-.modal .x{position:absolute;top:6px;right:11px;color:var(--muted);cursor:pointer;font-size:20px}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  max-width:400px;width:100%;padding:24px;position:relative;
+  box-shadow:0 0 0 1px rgba(25,240,199,.08),0 16px 48px rgba(0,0,0,.6)}
+.modal h3{color:var(--accent);margin-bottom:16px}
+.modal .x{position:absolute;top:10px;right:14px;color:var(--muted);cursor:pointer;
+  font-size:22px;line-height:1;transition:color var(--t)}
+.modal .x:hover{color:var(--neon2)}
 @media(max-width:760px){.land-hero{grid-template-columns:1fr}}
 
-/* ---- game updates ---- */
-.updrow{display:flex;gap:10px;align-items:flex-start;padding:8px 12px;border-bottom:1px solid var(--line)}
+/* ============================================================ Game updates */
+.updrow{display:flex;gap:10px;align-items:flex-start;padding:9px 14px;
+  border-bottom:1px solid var(--line)}
 .updrow:nth-child(even){background:var(--panel2)}
-.upddate{width:150px;flex:none;font-weight:bold;font-size:11px;color:var(--accent)}
-.updbody{flex:1;min-width:0;font-size:12px}
+.upddate{width:150px;flex:none;font-weight:bold;font-size:12px;color:var(--accent)}
+.updbody{flex:1;min-width:0;font-size:13px}
 .updvote{width:64px;flex:none;text-align:center;font-size:12px}
 
-/* ============================ polish pass ============================ */
-html{scroll-behavior:smooth}
-body{background-image:
-  radial-gradient(circle at 50% -8%, rgba(255,255,255,.035), transparent 55%),
-  repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px);
-  background-attachment:fixed}
-a{transition:color .12s ease}
-.topbar a:hover{text-shadow:0 0 8px rgba(25,240,199,.5)}
-
-.panel{box-shadow:0 1px 0 rgba(255,255,255,.02), 0 6px 18px rgba(0,0,0,.35);transition:border-color .15s ease}
-
-button,input[type=submit]{transition:transform .06s ease, background .12s ease, box-shadow .12s ease}
-button:hover,input[type=submit]:hover{box-shadow:0 0 12px rgba(255,45,149,.4)}
-button:active,input[type=submit]:active{transform:translateY(1px)}
-
-input[type=text]:focus,input[type=password]:focus,input[type=number]:focus,select:focus,textarea:focus{
-  outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(255,255,255,.06)}
-
-table tr{transition:background .1s ease}
-table tr:not(:first-child):nth-child(even){background:rgba(255,255,255,.015)}
-table tr:not(:first-child):hover{background:rgba(255,255,255,.05)}
-
-.menu a{transition:background .12s ease, color .12s ease, padding-left .12s ease}
-.menu a:hover{padding-left:16px}
-
-.fill{transition:width .5s ease}
-main.center{transition:opacity .12s ease}
-
-.flash{animation:flashin .25s ease}
-@keyframes flashin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
-
-.land-card{transition:border-color .15s ease, transform .12s ease, box-shadow .15s ease}
-.land-card:hover{box-shadow:0 0 16px rgba(25,240,199,.18)}
-.post{transition:border-color .12s ease, background .12s ease}
-
-*::-webkit-scrollbar{width:10px;height:10px}
-*::-webkit-scrollbar-track{background:var(--bg)}
-*::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
-*::-webkit-scrollbar-thumb:hover{background:var(--accent)}
-
-/* ============================ casino + combat ============================ */
-/* card deal/flip */
+/* ============================================================ Casino + combat */
 .pcard{animation:dealflip .5s cubic-bezier(.2,.7,.3,1) both}
 .pcardback{animation:dealin .35s ease both}
-@keyframes dealflip{0%{transform:perspective(520px) rotateY(-105deg) translateY(-6px);opacity:0}
-  60%{opacity:1}100%{transform:perspective(520px) rotateY(0) translateY(0);opacity:1}}
+@keyframes dealflip{
+  0%{transform:perspective(520px) rotateY(-105deg) translateY(-6px);opacity:0}
+  60%{opacity:1}
+  100%{transform:perspective(520px) rotateY(0) translateY(0);opacity:1}}
 @keyframes dealin{from{transform:translateY(-8px) scale(.96);opacity:0}to{transform:none;opacity:1}}
 
-/* green felt table */
 .felt{background:radial-gradient(circle at 50% 30%, #18432e, #0b2118 72%);
   border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px;
-  box-shadow:inset 0 0 46px rgba(0,0,0,.55), 0 0 0 4px rgba(25,240,199,.06), 0 6px 18px rgba(0,0,0,.4)}
+  box-shadow:inset 0 0 46px rgba(0,0,0,.55),0 0 0 4px rgba(25,240,199,.06),0 6px 18px rgba(0,0,0,.4)}
 .felt .label{color:#9fd9c0;font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px}
 
-/* combat status bar + hit shake */
-.statbar{height:20px;background:#080812;border:1px solid var(--line);border-radius:5px;overflow:hidden;position:relative;margin:8px 0}
+.statbar{height:20px;background:#080812;border:1px solid var(--line);border-radius:5px;
+  overflow:hidden;position:relative;margin:8px 0}
 .statbar .sfill{height:100%;background:linear-gradient(90deg,#3bcf63,#19f0c7);transition:width .6s ease}
-.statbar .stxt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;color:#fff;text-shadow:0 0 3px #000}
-@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+.statbar .stxt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:bold;color:#fff;text-shadow:0 0 3px #000}
+@keyframes shake{
+  0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}
+  40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
 .flash.combat{animation:flashin .25s ease, shake .42s ease}
 
-/* toast notifications */
-#toasts{position:fixed;bottom:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:8px;max-width:320px}
-.toast{background:var(--panel);border:1px solid var(--accent);border-left:4px solid var(--accent);border-radius:6px;
-  padding:10px 14px;font-size:12px;color:var(--text);box-shadow:0 6px 20px rgba(0,0,0,.55);
-  opacity:0;transform:translateX(24px);transition:opacity .25s ease, transform .25s ease}
+/* ============================================================ Toasts */
+#toasts{position:fixed;bottom:16px;right:16px;z-index:200;
+  display:flex;flex-direction:column;gap:8px;max-width:320px}
+.toast{background:var(--panel);border:1px solid var(--accent);border-left:4px solid var(--accent);
+  border-radius:6px;padding:10px 14px;font-size:13px;color:var(--text);
+  box-shadow:0 6px 20px rgba(0,0,0,.55);
+  opacity:0;transform:translateX(24px);transition:opacity .25s ease,transform .25s ease}
 .toast.show{opacity:1;transform:none}
 
-/* ---- staff note bar ---- */
-.staffnote{background:rgba(226,59,59,.08);border:1px solid rgba(226,59,59,.35);border-radius:6px;padding:9px 13px;margin-bottom:14px}
+/* ============================================================ Staff note */
+.staffnote{background:rgba(226,59,59,.08);border:1px solid rgba(226,59,59,.35);
+  border-radius:var(--radius);padding:10px 14px;margin-bottom:14px}
 .staffnote-head{color:#e26b6b;font-size:13px}
-.staffnote-view{font-size:12px;margin-top:3px}
+.staffnote-view{font-size:13px;margin-top:3px}
 
-/* ---- staff panel cards ---- */
+/* ============================================================ Staff panel cards */
 .staffgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
-.staffcard{display:block;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:16px;color:var(--text);
-  transition:border-color .15s ease, transform .1s ease}
+.staffcard{display:block;background:var(--panel2);border:1px solid var(--line);
+  border-radius:var(--radius);padding:16px;color:var(--text);
+  transition:border-color var(--t),transform .1s ease}
 .staffcard:hover{border-color:var(--accent);transform:translateY(-2px)}
 .staffcard .ic{font-size:22px;margin-right:10px}
 .staffcard h4{display:inline;color:var(--accent);letter-spacing:.5px}
 .staffcard p{margin:6px 0 0;color:var(--muted);font-size:12px}
-.staffcard .req{display:block;margin-top:8px;font-size:10px;color:var(--neon2);text-transform:uppercase;letter-spacing:.5px}
+.staffcard .req{display:block;margin-top:8px;font-size:10px;color:var(--neon2);
+  text-transform:uppercase;letter-spacing:.5px}
 
-/* ---- inventory tabs + item cards ---- */
-.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-.tab{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:5px 12px;font-size:12px;cursor:pointer;color:var(--muted)}
-.tab:hover{color:var(--text)}
-.tab.active{border-color:var(--accent);color:var(--accent)}
-.itemcard{display:flex;gap:12px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:8px}
+/* ============================================================ Inventory item cards */
+.itemcard{display:flex;gap:12px;align-items:center;background:var(--panel2);
+  border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:8px;
+  transition:border-color var(--t)}
+.itemcard:hover{border-color:rgba(25,240,199,.3)}
 .itemcard .ic{font-size:24px;flex:none;width:32px;text-align:center}
 .itemcard .body{flex:1;min-width:0}
-.itemcard .nm{font-weight:bold}
-.itemcard .st{font-size:11px;color:var(--neon2);margin-top:2px}
+.itemcard .nm{font-weight:bold;font-size:13px}
+.itemcard .st{font-size:12px;color:var(--neon2);margin-top:2px}
 .itemcard .act{flex:none}
 
-/* ---- chat color swatches ---- */
-.swatch{width:28px;height:28px;border-radius:4px;cursor:pointer;border:2px solid var(--line);transition:border-color .12s ease,transform .08s ease}
-.swatch:hover{border-color:var(--accent);transform:scale(1.08)}
+/* ============================================================ Chat color swatches */
+.swatch{width:28px;height:28px;border-radius:4px;cursor:pointer;
+  border:2px solid var(--line);transition:border-color var(--t),transform .08s ease}
+.swatch:hover{border-color:var(--accent);transform:scale(1.1)}
 
-/* ---- sidebar quick links editor ---- */
-.sbrow{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 10px;margin-bottom:6px}
-.sbrow .sblabel{flex:1}
-.sbmove,.sbdel{cursor:pointer;user-select:none;color:var(--muted)}
+/* ============================================================ Sidebar editor */
+.sbrow{display:flex;align-items:center;gap:10px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:5px;padding:8px 12px;margin-bottom:6px;
+  transition:border-color var(--t)}
+.sbrow:hover{border-color:rgba(25,240,199,.25)}
+.sbrow .sblabel{flex:1;font-size:13px}
+.sbmove,.sbdel{cursor:pointer;user-select:none;color:var(--muted);transition:color var(--t)}
 .sbmove:hover{color:var(--accent)}
-.sbdel{color:var(--neon2)} .sbdel:hover{color:#fff}
+.sbdel{color:var(--neon2)}.sbdel:hover{color:#fff}
+
+/* ============================================================ Scrollbar */
+*::-webkit-scrollbar{width:8px;height:8px}
+*::-webkit-scrollbar-track{background:var(--bg)}
+*::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+*::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+
+/* ============================================================ Right column */
+.right .panel h3{margin-top:0;color:var(--accent);border-bottom:1px solid var(--line)}
+
+/* Online players list */
+.online-player{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px}
+.online-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);
+  flex:none;box-shadow:0 0 5px rgba(25,240,199,.7)}
+
+/* ============================================================ AJAX transitions */
+main.center{transition:opacity .12s ease}
