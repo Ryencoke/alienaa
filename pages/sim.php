@@ -50,6 +50,19 @@ $cs = $pdo->prepare("SELECT ps.points FROM player_skills ps
 $cs->execute([$pid]);
 $combat = (int)($cs->fetchColumn() ?: 0);
 
+// Equipped gear bonuses (only count if the player still owns the item).
+$gearAtk = 0; $gearDef = 0;
+try {
+  if (!empty($player['equipped_weapon'])) {
+    $gq = $pdo->prepare('SELECT i.atk FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0');
+    $gq->execute([$pid, $player['equipped_weapon']]); $gearAtk = (int)$gq->fetchColumn();
+  }
+  if (!empty($player['equipped_armor'])) {
+    $gq = $pdo->prepare('SELECT i.def FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0');
+    $gq->execute([$pid, $player['equipped_armor']]); $gearDef = (int)$gq->fetchColumn();
+  }
+} catch (Throwable $e) { $gearAtk = 0; $gearDef = 0; }
+
 /* ---------- action handling (inline, no redirect) ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = $_POST['action'] ?? '';
@@ -65,8 +78,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ((int)$player['level'] < (int)$e['level_req'])
         throw new RuntimeException("You're not jacked up enough for that — needs level {$e['level_req']}.");
 
-      $pAtk = ATK_BASE + (int)$player['level'] * ATK_PER_LVL + intdiv($combat, ATK_PER_SKILL);
-      $pDef = intdiv($combat, DEF_PER_SKILL);
+      $pAtk = ATK_BASE + (int)$player['level'] * ATK_PER_LVL + intdiv($combat, ATK_PER_SKILL) + $gearAtk;
+      $pDef = intdiv($combat, DEF_PER_SKILL) + $gearDef;
       [$outcome, $dealt, $taken, $endHp] = sim_fight((int)$player['integrity'], $pAtk, $pDef, $e);
 
       $credsWon = 0; $xpWon = 0; $lootMsg = '';
@@ -122,8 +135,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 /* ---------- data for rendering ---------- */
-$pAtk = ATK_BASE + (int)$player['level'] * ATK_PER_LVL + intdiv($combat, ATK_PER_SKILL);
-$pDef = intdiv($combat, DEF_PER_SKILL);
+$pAtk = ATK_BASE + (int)$player['level'] * ATK_PER_LVL + intdiv($combat, ATK_PER_SKILL) + $gearAtk;
+$pDef = intdiv($combat, DEF_PER_SKILL) + $gearDef;
 
 $enemies = $pdo->query('SELECT e.*, i.name AS loot_name
                         FROM enemies e LEFT JOIN items i ON i.id = e.loot_item_id
@@ -146,7 +159,8 @@ $recent = $rl->fetchAll();
     Integrity: <b><?= (int)$player['integrity'] ?> / <?= (int)$player['integrity_max'] ?></b> &middot;
     Attack: <b><?= (int)$pAtk ?></b> &middot; Defense: <b><?= (int)$pDef ?></b> &middot;
     Combat skill: <b><?= (int)$combat ?></b>
-    <span class="muted">(train it at the <a href="index.php?p=datacore&act=lab">Datacore</a>)</span>
+    <?php if ($gearAtk || $gearDef): ?>&middot; Gear: <b>+<?= (int)$gearAtk ?> ATK / +<?= (int)$gearDef ?> DEF</b><?php endif; ?>
+    <span class="muted">(<a href="index.php?p=stash">loadout</a> &middot; train at the <a href="index.php?p=datacore&act=lab">Datacore</a>)</span>
   </p>
   <form method="post" style="margin:0">
     <input type="hidden" name="action" value="heal">
