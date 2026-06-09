@@ -7,6 +7,10 @@ $act = $_GET['act'] ?? '';
 $player = current_player();
 if ($player) db()->prepare('UPDATE players SET last_seen = NOW() WHERE id = ?')->execute([$player['id']]);
 $isStaff = $player && in_array($player['role'] ?? 'member', ['chatmod','moderator','admin','manager'], true);
+if ($isStaff && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['__staffnote'])) {
+  $sn = trim($_POST['staffnote'] ?? ''); if (mb_strlen($sn) > 2000) $sn = mb_substr($sn, 0, 2000);
+  try { db()->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['staff_note', $sn]); } catch (Throwable $e) {}
+}
 
 function bar($label, $val, $max, $key = '') {
   $pct = $max > 0 ? min(100, round($val / $max * 100)) : 0;
@@ -73,6 +77,16 @@ function bar($label, $val, $max, $key = '') {
 
   <main class="center">
 <?php
+  if ($isStaff) {
+    $snote = '';
+    try { $s = db()->prepare('SELECT v FROM settings WHERE k=?'); $s->execute(['staff_note']); $snote = (string)$s->fetchColumn(); } catch (Throwable $e) {}
+    echo '<div class="staffnote"><div class="staffnote-head">&#128204; <b>Staff Note:</b>'
+       . '<a href="#" onclick="var n=this.closest(\'.staffnote\');n.querySelector(\'.staffnote-edit\').style.display=\'block\';n.querySelector(\'.staffnote-view\').style.display=\'none\';return false;" style="float:right;font-size:11px">[Edit]</a></div>'
+       . '<div class="staffnote-view">' . ($snote !== '' ? nl2br(e($snote)) : '<span class="muted">+ Add staff comment</span>') . '</div>'
+       . '<form class="staffnote-edit" method="post" style="display:none;margin-top:6px"><input type="hidden" name="__staffnote" value="1">'
+       . '<textarea name="staffnote" style="width:100%;min-height:50px">' . e($snote) . '</textarea>'
+       . '<p style="margin:6px 0 0"><button type="submit">Save Note</button></p></form></div>';
+  }
   $file = __DIR__ . "/pages/{$p}.php";
   if (preg_match('/^[a-z]+$/', $p) && file_exists($file)) {
     try { require $file; }

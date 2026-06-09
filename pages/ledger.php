@@ -210,3 +210,30 @@ $avail = max(0, $loanCap - $loan);
   </div>
 
 </div>
+
+<div class="panel">
+  <h3>Economic Data</h3>
+  <?php
+    $ec = $pdo->query("SELECT COUNT(*) players, COALESCE(SUM(creds_pocket),0) pocket, COALESCE(SUM(creds_bank),0) bank, COALESCE(AVG(level),0) avglvl FROM players")->fetch();
+    $subs = 0; try { $subs = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE sub_until >= CURDATE()")->fetchColumn(); } catch (Throwable $e) {}
+    $totalW = (int)$ec['pocket'] + (int)$ec['bank'];
+    $avgW = $ec['players'] > 0 ? round($totalW / $ec['players']) : 0;
+    $tiles = [
+      'Total Players'       => number_format($ec['players']),
+      'Total Pocket Creds'  => number_format($ec['pocket']),
+      'Total Bank Creds'    => number_format($ec['bank']),
+      'Total Wealth'        => number_format($totalW),
+      'Avg Wealth / Player' => number_format($avgW),
+      'Avg Level'           => number_format(round($ec['avglvl'])),
+      'Subscribers'         => number_format($subs),
+    ];
+  ?>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+    <?php foreach ($tiles as $lbl => $val): ?>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:12px;text-align:center">
+        <div class="muted" style="font-size:11px"><?= e($lbl) ?></div>
+        <div style="font-size:18px;font-weight:bold;color:var(--accent);margin-top:3px"><?= $val ?></div>
+      </div>
+    <?php endforeach; ?>
+  </div>
+</div>

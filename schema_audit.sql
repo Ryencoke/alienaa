@@ -158,6 +158,8 @@ CREATE TABLE IF NOT EXISTS admin_log (
   field VARCHAR(32) NOT NULL, old_value VARCHAR(255) NOT NULL DEFAULT '', new_value VARCHAR(255) NOT NULL DEFAULT '',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_target (target_id, created_at)) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS settings (k VARCHAR(48) PRIMARY KEY, v TEXT) ENGINE=InnoDB;
+
 -- ---------- seed catalogs (INSERT IGNORE = no duplicates) ----------
 INSERT IGNORE INTO skills (code, name) VALUES
   ('netrun','Netrunning 101'),('hydro','Hydroponics 101'),('scav','Scavenging 101'),('combat','Combat Sim 101'),

@@ -253,20 +253,16 @@ if ($sec === 'updates' && $canAdmin) {
 /* ============================ HUB ============================ */
 ?>
 <div class="panel">
-  <h2>Staff Admin</h2>
-  <p class="muted">Signed in as <b><?= e(role_label($role) ?: 'Member') ?></b>. Pick a tool.</p>
+  <h2>&#128737; Staff Panel</h2>
+  <p class="muted">Role: <b style="color:var(--accent)"><?= e(role_label($role) ?: 'Member') ?></b></p>
   <?= $flash ?>
 </div>
-<div class="districts">
+<div class="staffgrid">
   <?php if ($canAdmin): ?>
-  <div class="district panel"><h4>Players</h4><ul>
-    <li><a href="index.php?p=admin&sec=editplayer">Edit Players</a> <span class="muted">&mdash; stats, role, subscription</span></li>
-    <li><a href="index.php?p=admin&sec=editlog">Player Edit Log</a> <span class="muted">&mdash; who changed what</span></li>
-    <li><a href="index.php?p=admin&sec=txlog">Transaction Log</a> <span class="muted">&mdash; cred transfers</span></li>
-  </ul></div>
+  <a class="staffcard" href="index.php?p=admin&sec=editplayer"><span class="ic">&#128101;</span><h4>Players</h4><p>Search and edit player accounts &mdash; stats, role &amp; subscription.</p><span class="req">Requires: Admin+</span></a>
+  <a class="staffcard" href="index.php?p=admin&sec=editlog"><span class="ic">&#128220;</span><h4>Player Edit Log</h4><p>Audit trail of who changed what, old &rarr; new.</p><span class="req">Requires: Admin+</span></a>
+  <a class="staffcard" href="index.php?p=admin&sec=txlog"><span class="ic">&#128202;</span><h4>Transaction Log</h4><p>Cred transfers between players.</p><span class="req">Requires: Admin+</span></a>
+  <a class="staffcard" href="index.php?p=admin&sec=updates"><span class="ic">&#128226;</span><h4>Manage Updates</h4><p>Post, edit, and delete game updates.</p><span class="req">Requires: Admin+</span></a>
   <?php endif; ?>
-  <div class="district panel"><h4>Content</h4><ul>
-    <li><a href="index.php?p=admin&sec=moderation">Moderation Tools</a> <span class="muted">&mdash; chat / boards</span></li>
-    <?php if ($canAdmin): ?><li><a href="index.php?p=admin&sec=updates">Manage Updates</a> <span class="muted">&mdash; edit / delete</span></li><?php endif; ?>
-  </ul></div>
+  <a class="staffcard" href="index.php?p=admin&sec=moderation"><span class="ic">&#128737;</span><h4>Moderation</h4><p>Delete chat messages, board posts &amp; topics.</p><span class="req">Requires: Mod+</span></a>
 </div>
