@@ -11,12 +11,13 @@ if (!$prof) {
   return;
 }
 
-$role = $prof['role'] ?? 'member';
-$ccol = $prof['chat_color'] ?? '#c9d1e0';
-$bio  = $prof['bio'] ?? '';
-$col  = chat_color($role, $ccol);
-$rlbl = role_label($role);
-$isMe = ((int)$prof['id'] === (int)($_SESSION['pid'] ?? 0));
+$role  = $prof['role'] ?? 'member';
+$ccol  = $prof['chat_color'] ?? '#c9d1e0';
+$bio   = trim($prof['bio'] ?? '');
+$col   = chat_color($role, $ccol);
+$rlbl  = role_label($role);
+$isMe  = ((int)$prof['id'] === (int)($_SESSION['pid'] ?? 0));
+$country = strtolower(trim($prof['country'] ?? ''));
 
 $rec = ['win' => 0, 'loss' => 0];
 try {
@@ -26,73 +27,149 @@ try {
 } catch (Throwable $e) {}
 
 $postCount = 0;
+try { $pc = $pdo->prepare('SELECT COUNT(*) FROM posts WHERE author_id = ?'); $pc->execute([$id]); $postCount = (int)$pc->fetchColumn(); } catch (Throwable $e) {}
+
+$msgCount = 0;
+try { $mc = $pdo->prepare('SELECT COUNT(*) FROM messages WHERE from_id = ?'); $mc->execute([$id]); $msgCount = (int)$mc->fetchColumn(); } catch (Throwable $e) {}
+
+$casinoStats = ['games' => 0, 'net' => 0];
 try {
-  $pc = $pdo->prepare('SELECT COUNT(*) FROM posts WHERE author_id = ?');
-  $pc->execute([$id]);
-  $postCount = (int)$pc->fetchColumn();
+  $cq = $pdo->prepare('SELECT COUNT(*) games, COALESCE(SUM(net),0) net FROM casino_log WHERE player_id = ?');
+  $cq->execute([$id]); $csRow = $cq->fetch();
+  if ($csRow) $casinoStats = ['games'=>(int)$csRow['games'],'net'=>(int)$csRow['net']];
 } catch (Throwable $e) {}
+
+$isFriend = false;
+try {
+  $fq = $pdo->prepare('SELECT 1 FROM friends WHERE player_id = ? AND friend_id = ?');
+  $fq->execute([(int)($_SESSION['pid']??0), $id]); $isFriend = (bool)$fq->fetchColumn();
+} catch (Throwable $e) {}
+
+$isOnline  = !empty($prof['last_seen']) && strtotime($prof['last_seen']) >= time() - 300;
+$isBanned  = $role === 'banned';
+$isSub     = is_subscribed($prof);
+$totalWins = $rec['win'];
+$totalLoss = $rec['loss'];
+$winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $totalLoss) * 100) : 0;
 ?>
+
 <div class="panel">
-  <h2>Profile</h2>
-  <div class="profile-hero">
-    <div class="profile-name" style="color:<?= e($col) ?>">
-      <?= e($prof['username']) ?>
-      <?php $fl = country_flag($prof['country'] ?? ''); if ($fl): ?>
-        <span style="font-size:16px" title="<?= e($prof['country']) ?>"><?= $fl ?></span>
+  <div class="prof-hero">
+    <div class="prof-avatar"><?= mb_strtoupper(mb_substr($prof['username'],0,1)) ?></div>
+    <div class="prof-main">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div class="prof-username" style="color:<?= e($col) ?>"><?= e($prof['username']) ?></div>
+        <?php echo flag_img($country); ?>
+        <?php if ($isOnline && !$isBanned): ?><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3bcf63;box-shadow:0 0 6px #3bcf63" title="Online"></span><?php endif; ?>
+      </div>
+
+      <div class="prof-meta">
+        <?php if ($role !== 'member'): ?>
+          <span class="prof-meta-item" style="color:<?= e($col) ?>">&#128737; <?= e($rlbl) ?></span>
+        <?php endif; ?>
+        <?php if ($isSub): ?>
+          <span class="prof-meta-item" style="color:#e8d44d">&#9733; Subscriber</span>
+        <?php endif; ?>
+        <span class="prof-meta-item">&#127381; Level <?= (int)$prof['level'] ?></span>
+        <?php if (!empty($prof['created_at'])): ?>
+          <span class="prof-meta-item">&#128197; Joined <?= e(date('M Y', strtotime($prof['created_at']))) ?></span>
+        <?php endif; ?>
+        <span class="prof-meta-item">&#128465; Ghost #<?= (int)$prof['id'] ?></span>
+      </div>
+
+      <?php if ($bio !== ''): ?>
+        <div class="prof-bio"><?= e($bio) ?></div>
       <?php endif; ?>
-      <?php if (is_subscribed($prof)): ?>
-        <span title="Subscriber" style="color:#e8d44d">&#9733;</span>
-      <?php endif; ?>
-    </div>
-    <?php if ($role !== 'member'): ?>
-      <div style="margin-top:4px"><span class="muted">[<?= e($rlbl) ?>]</span></div>
-    <?php endif; ?>
-    <?php if (trim($bio) !== ''): ?>
-      <p class="profile-bio">&ldquo;<?= e($bio) ?>&rdquo;</p>
-    <?php endif; ?>
-    <div style="margin-top:12px">
-      <?php if ($isMe): ?>
-        <a href="index.php?p=account" class="btn btn-ghost btn-sm">Edit Profile &amp; Settings</a>
-      <?php else: ?>
-        <a href="index.php?p=messages&u=<?= (int)$prof['id'] ?>" class="btn btn-ghost btn-sm">Send Message</a>
-      <?php endif; ?>
+
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <?php if ($isMe): ?>
+          <a href="index.php?p=account" class="btn btn-ghost btn-sm">&#9998; Edit Profile</a>
+        <?php else: ?>
+          <a href="index.php?p=messages&u=<?= (int)$prof['id'] ?>" class="btn btn-ghost btn-sm">&#9993; Message</a>
+          <?php if (!$isFriend): ?>
+            <a href="index.php?p=friends&add=<?= (int)$prof['id'] ?>" class="btn btn-ghost btn-sm">&#43; Add Friend</a>
+          <?php endif; ?>
+        <?php endif; ?>
+      </div>
     </div>
   </div>
 </div>
 
 <div class="panel">
-  <h3>General</h3>
-  <div class="stat-grid">
-    <div class="stat-card">
-      <div class="val"><?= (int)$prof['level'] ?></div>
+  <h3 style="margin-bottom:12px">&#128202; Stats</h3>
+  <div class="prof-grid">
+    <div class="prof-stat">
+      <div class="val" style="color:var(--accent)"><?= (int)$prof['level'] ?></div>
       <div class="lbl">Level</div>
     </div>
-    <div class="stat-card">
+    <div class="prof-stat">
       <div class="val"><?= number_format($prof['xp']) ?></div>
       <div class="lbl">XP</div>
     </div>
-    <div class="stat-card">
-      <div class="val"><?= $role === 'member' ? 'Member' : e($rlbl) ?></div>
-      <div class="lbl">Role</div>
+    <div class="prof-stat">
+      <div class="val"><?= (int)$prof['integrity'] ?><span style="font-size:12px;color:var(--muted)"> / <?= (int)$prof['integrity_max'] ?></span></div>
+      <div class="lbl">Integrity</div>
     </div>
-    <div class="stat-card">
+    <div class="prof-stat">
+      <div class="val"><?= (int)$prof['signal'] ?><span style="font-size:12px;color:var(--muted)"> / <?= (int)$prof['signal_max'] ?></span></div>
+      <div class="lbl">Signal</div>
+    </div>
+    <div class="prof-stat">
+      <div class="val"><?= (int)$prof['cycles'] ?><span style="font-size:12px;color:var(--muted)"> / <?= (int)$prof['cycles_max'] ?></span></div>
+      <div class="lbl">Cycles</div>
+    </div>
+    <div class="prof-stat">
       <div class="val"><?= number_format($postCount) ?></div>
       <div class="lbl">Board Posts</div>
     </div>
   </div>
-  <p class="muted" style="font-size:12px;margin:0">Ghost ID #<?= (int)$prof['id'] ?> &middot; Jacked in since <?= e($prof['created_at']) ?></p>
 </div>
 
 <div class="panel">
-  <h3>Combat Record</h3>
-  <div class="stat-grid">
-    <div class="stat-card">
-      <div class="val" style="color:var(--accent)"><?= (int)$rec['win'] ?></div>
+  <h3 style="margin-bottom:12px">&#9876; Combat Record</h3>
+  <div class="prof-grid">
+    <div class="prof-stat">
+      <div class="val" style="color:var(--accent)"><?= $totalWins ?></div>
       <div class="lbl">Wins</div>
     </div>
-    <div class="stat-card">
-      <div class="val" style="color:var(--neon2)"><?= (int)$rec['loss'] ?></div>
+    <div class="prof-stat">
+      <div class="val" style="color:var(--neon2)"><?= $totalLoss ?></div>
       <div class="lbl">Losses</div>
     </div>
+    <div class="prof-stat">
+      <div class="val" style="color:<?= $winRate >= 50 ? 'var(--accent)' : 'var(--neon2)' ?>"><?= $winRate ?>%</div>
+      <div class="lbl">Win Rate</div>
+    </div>
+    <?php if ($casinoStats['games'] > 0): ?>
+    <div class="prof-stat">
+      <div class="val"><?= $casinoStats['games'] ?></div>
+      <div class="lbl">Casino Games</div>
+    </div>
+    <div class="prof-stat">
+      <div class="val" style="color:<?= $casinoStats['net'] >= 0 ? 'var(--accent)' : 'var(--neon2)' ?>"><?= ($casinoStats['net'] >= 0 ? '+' : '') . number_format($casinoStats['net']) ?></div>
+      <div class="lbl">Casino Net</div>
+    </div>
+    <?php endif; ?>
   </div>
 </div>
+
+<?php
+$badges = [];
+if ($isSub) $badges[] = ['&#9733; Subscriber', 'gold'];
+if ($role !== 'member') $badges[] = [e($rlbl), 'pink'];
+if ($totalWins >= 100) $badges[] = ['&#9876; Centurion', 'teal'];
+if ($totalWins >= 50)  $badges[] = ['&#9876; Fighter', 'teal'];
+if ($postCount >= 100) $badges[] = ['&#128172; Forum Regular', 'teal'];
+if ((int)$prof['level'] >= 10) $badges[] = ['&#127381; Veteran', 'teal'];
+if ($casinoStats['net'] >= 10000) $badges[] = ['&#127920; High Roller', 'gold'];
+if ($badges):
+?>
+<div class="panel">
+  <h3 style="margin-bottom:8px">&#127942; Badges</h3>
+  <div class="prof-badges">
+    <?php foreach ($badges as [$label, $type]): ?>
+      <span class="prof-badge <?= $type ?>"><?= $label ?></span>
+    <?php endforeach; ?>
+  </div>
+</div>
+<?php endif; ?>

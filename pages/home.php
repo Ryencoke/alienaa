@@ -33,7 +33,7 @@ $role = $player['role'] ?? 'member';
     <div class="stat-card">
       <div class="val" style="font-size:1rem"><?= $role === 'member' ? 'Member' : e(role_label($role)) ?></div>
       <div class="lbl">Role
-        <?php $fl = country_flag($player['country'] ?? ''); if ($fl) echo ' &nbsp;' . $fl; ?>
+        <?php $fl = flag_img($player['country'] ?? ''); if ($fl) echo ' &nbsp;' . $fl; ?>
         <?php if (is_subscribed($player)) echo ' <span title="Subscriber" style="color:#e8d44d">&#9733;</span>'; ?>
       </div>
     </div>

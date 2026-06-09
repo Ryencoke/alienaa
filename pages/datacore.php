@@ -66,7 +66,6 @@ $skills = $rows->fetchAll();
     <span class="sk-ic"><?= $meta['icon'] ?></span>
     <div style="flex:1;min-width:0">
       <div class="sk-name"><?= e($meta['name']) ?></div>
-      <div class="sk-desc"><?= e($sk['name']) ?></div>
     </div>
     <?php if ($mastered): ?><span class="skill-mastered-badge">MASTERED</span><?php endif; ?>
   </div>

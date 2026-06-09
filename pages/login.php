@@ -1,9 +1,15 @@
 <?php /* pages/login.php */
 $err='';
 if ($_SERVER['REQUEST_METHOD']==='POST') {
-  $u=trim($_POST['username']??''); $pw=$_POST['password']??'';
-  $stmt=db()->prepare('SELECT * FROM players WHERE username=?');
-  $stmt->execute([$u]); $row=$stmt->fetch();
+  $em=strtolower(trim($_POST['email']??'')); $pw=$_POST['password']??'';
+  $pdo=db();
+  // Try by email first; fall back to username so existing accounts still work
+  $stmt=$pdo->prepare('SELECT * FROM players WHERE email=?');
+  $stmt->execute([$em]); $row=$stmt->fetch();
+  if (!$row) {
+    $stmt=$pdo->prepare('SELECT * FROM players WHERE username=?');
+    $stmt->execute([$em]); $row=$stmt->fetch();
+  }
   if ($row && password_verify($pw,$row['pass_hash'])) {
     $_SESSION['pid']=$row['id']; header('Location: index.php?p=home'); exit;
   }
@@ -17,8 +23,8 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     <?php if($err):?><div class="flash flash-err"><?= e($err) ?></div><?php endif;?>
     <form method="post">
       <div class="field">
-        <span>Handle</span>
-        <input type="text" name="username" autocomplete="username" autofocus>
+        <span>Email</span>
+        <input type="email" name="email" autocomplete="email" autofocus>
       </div>
       <div class="field">
         <span>Passkey</span>

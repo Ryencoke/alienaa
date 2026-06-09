@@ -96,6 +96,7 @@
 
   <div class="district panel"><h4>The Datacore</h4><ul>
     <li><a href="index.php?p=datacore&act=lab">Skillsoft Lab</a></li>
+    <li><a href="index.php?p=library">The Library</a></li>
   </ul></div>
 
   <div class="district panel"><h4>Foundry Sector</h4><ul>

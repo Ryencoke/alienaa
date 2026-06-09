@@ -44,6 +44,14 @@ function country_flag($code) {
   return mb_chr(127397 + ord($code[0]), 'UTF-8') . mb_chr(127397 + ord($code[1]), 'UTF-8');
 }
 
+// Flag <img> tag using flagcdn.com (20×15 px). Returns '' if no valid code.
+function flag_img($code) {
+  $code = strtolower(trim((string)$code));
+  if (!preg_match('/^[a-z]{2}$/', $code)) return '';
+  $name = strtoupper($code);
+  return '<img src="https://flagcdn.com/20x15/'.e($code).'.png" width="20" height="15" alt="'.e($name).'" title="'.e($name).'" style="border-radius:2px;vertical-align:middle;box-shadow:0 1px 3px rgba(0,0,0,.3);margin-right:4px">';
+}
+
 function countries() {
   return ['US'=>'United States','CA'=>'Canada','GB'=>'United Kingdom','IE'=>'Ireland','AU'=>'Australia','NZ'=>'New Zealand',
     'DE'=>'Germany','FR'=>'France','ES'=>'Spain','IT'=>'Italy','PT'=>'Portugal','NL'=>'Netherlands','BE'=>'Belgium',
@@ -66,6 +74,7 @@ function nav_links() {
     'messages' => ['Messages',       'index.php?p=messages'],
     'chat'     => ['Public Channel', 'index.php?p=chat'],
     'datacore' => ['Datacore',       'index.php?p=datacore&act=lab'],
+    'library'  => ['Library',        'index.php?p=library'],
     'account'  => ['Account',        'index.php?p=account'],
     'updates'  => ['Updates',        'index.php?p=updates'],
   ];

@@ -228,6 +228,28 @@ if ($sec === 'moderation') {
   <?php return;
 }
 
+/* ============================ IP LOG (stub) ============================ */
+if ($sec === 'iplog') {
+  ?>
+  <div class="panel">
+    <h2>&#127758; IP &amp; Access Log</h2>
+    <?= $back ?>
+    <p class="muted">Login tracking will appear here once the ip_log table is seeded. Run <code>schema_iplog.sql</code> to enable.</p>
+  </div>
+  <?php return;
+}
+
+/* ============================ MAINTENANCE (stub) ============================ */
+if ($sec === 'maintenance' && $canAdmin) {
+  ?>
+  <div class="panel">
+    <h2>&#9881; Maintenance</h2>
+    <?= $back ?>
+    <p class="muted">Maintenance tools will be added here. Manage the database directly or via your hosting control panel.</p>
+  </div>
+  <?php return;
+}
+
 /* ============================ MANAGE UPDATES ============================ */
 if ($sec === 'updates' && $canAdmin) {
   ?>
@@ -251,18 +273,131 @@ if ($sec === 'updates' && $canAdmin) {
 }
 
 /* ============================ HUB ============================ */
+// Live stats for the hub
+$hubStats = [];
+try {
+  $hs = db()->query("SELECT
+    COUNT(*) AS total,
+    SUM(last_seen >= (NOW() - INTERVAL 5 MINUTE)) AS online_now,
+    SUM(sub_until >= CURDATE()) AS subs,
+    SUM(creds_pocket) AS total_pocket,
+    SUM(creds_bank) AS total_bank,
+    SUM(loan) AS total_loans,
+    AVG(level) AS avg_level,
+    MAX(level) AS max_level,
+    SUM(created_at >= (NOW() - INTERVAL 24 HOUR)) AS new_today,
+    SUM(created_at >= (NOW() - INTERVAL 7 DAY)) AS new_week
+  FROM players")->fetch();
+  $hubStats = $hs;
+} catch (Throwable $e) {}
+
+$openReports = 0;
+try { $openReports = (int)db()->query("SELECT COUNT(*) FROM reports WHERE status='open'")->fetchColumn(); } catch (Throwable $e) {}
+$recentBans = [];
+try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='banned' ORDER BY id DESC LIMIT 5")->fetchAll(); } catch (Throwable $e) {}
 ?>
+
 <div class="panel">
-  <h2>&#128737; Staff Panel</h2>
-  <p class="muted">Role: <b style="color:var(--accent)"><?= e(role_label($role) ?: 'Member') ?></b></p>
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <div>
+      <h2 style="margin:0">&#128737; Staff Panel</h2>
+      <p class="muted" style="margin:4px 0 0">Role: <b style="color:var(--accent)"><?= e(role_label($role) ?: 'Member') ?></b></p>
+    </div>
+    <div class="muted" style="font-size:11px">Sprawl-9 &mdash; <?= date('M j, Y g:i a') ?></div>
+  </div>
   <?= $flash ?>
 </div>
+
+<?php if ($canAdmin && $hubStats): ?>
+<div class="panel">
+  <h3 style="margin-bottom:12px">&#128202; Server Overview</h3>
+  <div class="admin-stats-row">
+    <div class="admin-stat-box">
+      <div class="asb-val"><?= number_format($hubStats['total']) ?></div>
+      <div class="asb-lbl">Total Players</div>
+      <div class="asb-sub">+<?= (int)$hubStats['new_today'] ?> today &middot; +<?= (int)$hubStats['new_week'] ?> this week</div>
+    </div>
+    <div class="admin-stat-box">
+      <div class="asb-val" style="color:#3bcf63"><?= number_format($hubStats['online_now']) ?></div>
+      <div class="asb-lbl">Online Now</div>
+      <div class="asb-sub">Last 5 minutes</div>
+    </div>
+    <div class="admin-stat-box">
+      <div class="asb-val" style="color:#e8d44d"><?= number_format($hubStats['subs']) ?></div>
+      <div class="asb-lbl">Subscribers</div>
+      <div class="asb-sub">Active subscriptions</div>
+    </div>
+    <div class="admin-stat-box">
+      <div class="asb-val"><?= number_format($hubStats['total_pocket'] + $hubStats['total_bank']) ?></div>
+      <div class="asb-lbl">Total Creds</div>
+      <div class="asb-sub">Pocket + bank</div>
+    </div>
+    <div class="admin-stat-box">
+      <div class="asb-val" style="color:var(--neon2)"><?= number_format($hubStats['total_loans']) ?></div>
+      <div class="asb-lbl">Outstanding Loans</div>
+      <div class="asb-sub">Across all players</div>
+    </div>
+    <div class="admin-stat-box">
+      <div class="asb-val"><?= round($hubStats['avg_level'] ?? 0, 1) ?></div>
+      <div class="asb-lbl">Avg Level</div>
+      <div class="asb-sub">Max: <?= (int)$hubStats['max_level'] ?></div>
+    </div>
+    <?php if ($openReports): ?>
+    <div class="admin-stat-box" style="border-color:var(--neon2)">
+      <div class="asb-val" style="color:var(--neon2)"><?= $openReports ?></div>
+      <div class="asb-lbl">Open Reports</div>
+      <div class="asb-sub">Needs attention</div>
+    </div>
+    <?php endif; ?>
+  </div>
+</div>
+<?php endif; ?>
+
 <div class="staffgrid">
   <?php if ($canAdmin): ?>
-  <a class="staffcard" href="index.php?p=admin&sec=editplayer"><span class="ic">&#128101;</span><h4>Players</h4><p>Search and edit player accounts &mdash; stats, role &amp; subscription.</p><span class="req">Requires: Admin+</span></a>
-  <a class="staffcard" href="index.php?p=admin&sec=editlog"><span class="ic">&#128220;</span><h4>Player Edit Log</h4><p>Audit trail of who changed what, old &rarr; new.</p><span class="req">Requires: Admin+</span></a>
-  <a class="staffcard" href="index.php?p=admin&sec=txlog"><span class="ic">&#128202;</span><h4>Transaction Log</h4><p>Cred transfers between players.</p><span class="req">Requires: Admin+</span></a>
-  <a class="staffcard" href="index.php?p=admin&sec=updates"><span class="ic">&#128226;</span><h4>Manage Updates</h4><p>Post, edit, and delete game updates.</p><span class="req">Requires: Admin+</span></a>
+  <a class="staffcard" href="index.php?p=admin&sec=editplayer">
+    <span class="ic">&#128101;</span><h4>Players</h4>
+    <p>Search and edit player accounts &mdash; stats, role &amp; subscription.</p>
+    <span class="req">Admin+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=txlog">
+    <span class="ic">&#128202;</span><h4>Economy</h4>
+    <p>View cred transfer logs and monitor the economic health of the Sprawl.</p>
+    <span class="req">Admin+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=updates">
+    <span class="ic">&#128226;</span><h4>Announcements</h4>
+    <p>Post, edit, and delete game update announcements.</p>
+    <span class="req">Admin+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=editlog">
+    <span class="ic">&#128220;</span><h4>Edit Log</h4>
+    <p>Audit trail of all admin account changes &mdash; who changed what.</p>
+    <span class="req">Admin+</span>
+  </a>
   <?php endif; ?>
-  <a class="staffcard" href="index.php?p=admin&sec=moderation"><span class="ic">&#128737;</span><h4>Moderation</h4><p>Delete chat messages, board posts &amp; topics.</p><span class="req">Requires: Mod+</span></a>
+  <a class="staffcard" href="index.php?p=admin&sec=moderation">
+    <span class="ic">&#128737;</span><h4>Moderation</h4>
+    <p>Delete chat messages, board posts and topics.</p>
+    <?php if ($openReports): ?><p style="color:var(--neon2);font-weight:bold">&#9888; <?= $openReports ?> open report(s)</p><?php endif; ?>
+    <span class="req">Mod+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=iplog">
+    <span class="ic">&#127758;</span><h4>IP &amp; Access Log</h4>
+    <p>Track logins, IP addresses, and flag suspicious session activity.</p>
+    <span class="req">Mod+</span>
+  </a>
+  <?php if ($canAdmin): ?>
+  <a class="staffcard" href="index.php?p=cityhall">
+    <span class="ic">&#127963;</span><h4>City Hall</h4>
+    <p>Staff roster, subscriber list, jail records, and game rules.</p>
+    <span class="req">Admin+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=maintenance">
+    <span class="ic">&#9881;</span><h4>Maintenance</h4>
+    <p>Server flags, maintenance mode toggle, and cache controls.</p>
+    <span class="req">Admin+</span>
+  </a>
+  <?php endif; ?>
 </div>
+

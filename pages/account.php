@@ -2,6 +2,9 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
+// Email column migration
+try { $pdo->exec("ALTER TABLE players ADD COLUMN email VARCHAR(120) NOT NULL DEFAULT '' AFTER pass_hash"); } catch(Throwable $e){}
+try { $pdo->exec("ALTER TABLE players ADD UNIQUE KEY uq_player_email (email)"); } catch(Throwable $e){}
 $all_themes    = themes();
 $all_countries = countries();
 
@@ -70,6 +73,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       elseif (strlen($n1) < 8)                          $msg = 'New passkey must be at least 8 characters.';
       elseif ($n1 !== $n2)                              $msg = 'New passkeys do not match.';
       else { $pdo->prepare('UPDATE players SET pass_hash = ? WHERE id = ?')->execute([password_hash($n1, PASSWORD_DEFAULT), $pid]); $msg = 'Passkey changed.'; $player = current_player(); }
+    }
+    elseif ($action === 'email') {
+      $newem = strtolower(trim($_POST['new_email'] ?? '')); $cur = $_POST['current_password'] ?? '';
+      if (!password_verify($cur, $player['pass_hash']))   $msg = 'Current passkey is wrong.';
+      elseif (!filter_var($newem, FILTER_VALIDATE_EMAIL)) $msg = 'Enter a valid email address.';
+      else {
+        try { $pdo->prepare('UPDATE players SET email = ? WHERE id = ?')->execute([$newem, $pid]); $msg = 'Email updated.'; $player = current_player(); }
+        catch (PDOException $e) { $msg = 'That email is already in use.'; }
+      }
     }
 
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
@@ -196,6 +208,7 @@ $curAccent = $player['accent_color'] ?? '';
         order=document.getElementById('sborder'), add=document.getElementById('sbadd');
     if(!list) return;
     var labels=<?= json_encode(array_map(function($v){ return $v[0]; }, $nl)) ?>;
+    var navData=<?= json_encode(array_map(function($v){ return ['text'=>$v[0],'href'=>$v[1]]; }, $nl)) ?>;
     list.addEventListener('click',function(e){
       var row=e.target.closest('.sbrow'); if(!row) return;
       if(e.target.classList.contains('sbdel')){ var k=row.getAttribute('data-key'); row.remove();
@@ -214,10 +227,35 @@ $curAccent = $player['accent_color'] ?? '';
       list.appendChild(row);
       var opt=add.querySelector('option[value="'+k+'"]'); if(opt) opt.remove(); add.value='';
     });
-    form.addEventListener('submit',function(){
-      var keys=[]; list.querySelectorAll('.sbrow').forEach(function(r){ keys.push(r.getAttribute('data-key')); });
-      order.value=keys.join(',');
+    function getKeys(){ var k=[]; list.querySelectorAll('.sbrow').forEach(function(r){ k.push(r.getAttribute('data-key')); }); return k; }
+    function rebuildMenu(keys){
+      var menu=document.getElementById('sidemenu'); if(!menu) return;
+      var adminLi=menu.querySelector('[data-navkey="admin"]');
+      menu.querySelectorAll('[data-navkey]').forEach(function(li){ if(li.getAttribute('data-navkey')!=='admin') li.remove(); });
+      var curP=((window.location.href||'').match(/[?&]p=([a-z]+)/)||[])[1]||'home';
+      keys.forEach(function(k){
+        if(!navData[k]) return;
+        var li=document.createElement('li'); li.setAttribute('data-navkey',k);
+        var active=navData[k].href.indexOf('p='+curP)!==-1; if(active) li.className='active';
+        var a=document.createElement('a'); a.href=navData[k].href; a.textContent=navData[k].text;
+        li.appendChild(a); menu.insertBefore(li, adminLi||null);
+      });
+    }
+    var saveTimer;
+    function autoSave(){
+      var keys=getKeys(); order.value=keys.join(',');
+      rebuildMenu(keys);
+      clearTimeout(saveTimer);
+      saveTimer=setTimeout(function(){
+        var fd=new FormData(); fd.append('action','sidebar'); fd.append('order',keys.join(','));
+        fetch('index.php?p=account&sec=sidebar',{method:'POST',body:fd,credentials:'same-origin'}).catch(function(){});
+      },400);
+    }
+    list.addEventListener('click',function(e){ /* re-hook after moves/deletes */
+      if(e.target.classList.contains('sbdel')||e.target.classList.contains('sbmove')) setTimeout(autoSave,0);
     });
+    add.addEventListener('change',function(){ setTimeout(autoSave,0); });
+    form.addEventListener('submit',function(){ order.value=getKeys().join(','); });
   })();
   </script>
 
@@ -324,7 +362,7 @@ $curAccent = $player['accent_color'] ?? '';
   </form>
 
   <h3>Change Passkey</h3>
-  <form method="post">
+  <form method="post" style="margin-bottom:24px">
     <input type="hidden" name="action" value="password">
     <div class="field">
       <span>Current passkey</span>
@@ -339,6 +377,21 @@ $curAccent = $player['accent_color'] ?? '';
       <input type="password" name="new_password2" autocomplete="new-password" style="max-width:280px">
     </div>
     <button type="submit">Change Passkey</button>
+  </form>
+
+  <h3>Change Email</h3>
+  <p class="muted" style="font-size:12px">Current: <b><?= e($player['email'] ?? '') ?: '<span class="muted">not set</span>' ?></b></p>
+  <form method="post">
+    <input type="hidden" name="action" value="email">
+    <div class="field">
+      <span>New email</span>
+      <input type="email" name="new_email" autocomplete="email" style="max-width:280px">
+    </div>
+    <div class="field">
+      <span>Current passkey (to confirm)</span>
+      <input type="password" name="current_password" autocomplete="current-password" style="max-width:280px">
+    </div>
+    <button type="submit">Change Email</button>
   </form>
 <?php endif; ?>
 </div>

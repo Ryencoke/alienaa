@@ -5,13 +5,13 @@ csrf_guard();
 $p   = $_GET['p']   ?? 'home';
 $act = $_GET['act'] ?? '';
 $pageTitles = [
-  'home'=>'Hideout','stash'=>'Stash','city'=>'The Sprawl','bazaar'=>'Bazaar',
+  'home'=>'Hideout','stash'=>'Inventory','city'=>'The Sprawl','bazaar'=>'Bazaar',
   'boards'=>'Boards','messages'=>'Messages','friends'=>'Friends','account'=>'Account',
   'updates'=>'Updates','admin'=>'Admin Panel','profile'=>'Profile','chat'=>'Public Channel',
   'daemon'=>'Daemon Casino','cityhall'=>'City Hall','datacore'=>'Skillsoft Lab',
   'foundry'=>'Foundry','transit'=>'Transit Hub','sim'=>'Combat Sim','ledger'=>'Ledger',
   'registry'=>'ID Registry','exchange'=>'Exchange','lounge'=>'The Lounge',
-  'blacksmith'=>'Blacksmith','generalstore'=>'General Store',
+  'blacksmith'=>'Blacksmith','generalstore'=>'General Store','library'=>'Library',
 ];
 $pageTitle = $pageTitles[$p] ?? ucfirst($p);
 $player = current_player();
@@ -58,7 +58,7 @@ function bar($label, $val, $max, $key = '') {
 <?php if ($player): ?>
 <nav class="topbar">
   <a href="index.php?p=home" class="<?= $p==='home'?'active':'' ?>">Hideout</a>
-  <a href="index.php?p=stash" class="<?= $p==='stash'?'active':'' ?>">Stash</a>
+  <a href="index.php?p=stash" class="<?= $p==='stash'?'active':'' ?>">Inventory</a>
   <a href="index.php?p=city" class="<?= $p==='city'?'active':'' ?>">The Sprawl</a>
   <a href="index.php?p=bazaar" class="<?= $p==='bazaar'?'active':'' ?>">Bazaar</a>
   <a href="index.php?p=boards" class="<?= $p==='boards'?'active':'' ?>">Boards</a>
@@ -98,12 +98,12 @@ function bar($label, $val, $max, $key = '') {
         if ($sbBars === null || in_array('cycles', $sbBars, true))    bar('Cycles', $player['cycles'], $player['cycles_max'], 'cycles');
       ?>
     </div>
-    <ul class="menu">
+    <ul class="menu" id="sidemenu">
       <?php $nl = nav_links(); foreach (player_sidebar($player) as $k):
         $isActive = (strpos($nl[$k][1], 'p='.$p) !== false); ?>
-        <li<?= $isActive ? ' class="active"' : '' ?>><a href="<?= $nl[$k][1] ?>"><?= e($nl[$k][0]) ?></a></li>
+        <li data-navkey="<?= e($k) ?>"<?= $isActive ? ' class="active"' : '' ?>><a href="<?= $nl[$k][1] ?>"><?= e($nl[$k][0]) ?></a></li>
       <?php endforeach; ?>
-      <?php if ($isStaff): ?><li<?= $p==='admin'?' class="active"':'' ?>><a href="index.php?p=admin">Admin</a></li><?php endif; ?>
+      <?php if ($isStaff): ?><li data-navkey="admin"<?= $p==='admin'?' class="active"':'' ?>><a href="index.php?p=admin">Admin</a></li><?php endif; ?>
     </ul>
     <div class="sidebar-cta">
       <a href="index.php?p=account&sec=premium" class="cta-btn cta-sub">&#9733; Subscribe</a>
@@ -280,6 +280,9 @@ function bar($label, $val, $max, $key = '') {
       if(!nm||!main){ window.location.href=href; return; }
       main.innerHTML=nm.innerHTML; runScripts(main); main.style.opacity='';
       if(window.refreshState) window.refreshState();
+      // Scroll flash messages into view after content swap
+      var fl=main.querySelector('.flash:not(.combat)');
+      if(fl) setTimeout(function(){ fl.scrollIntoView({behavior:'smooth',block:'nearest'}); },80);
       // sync active states without a full reload
       var m=(href||'').match(/[?&]p=([a-z]+)/);
       var curP=m?m[1]:'home';

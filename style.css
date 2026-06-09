@@ -452,6 +452,78 @@ code{color:var(--neon2);font-size:12px}
 .staffnote-head{color:#e26b6b;font-size:13px}
 .staffnote-view{font-size:13px;margin-top:3px}
 
+/* ============================================================ Bazaar marketplace */
+.bz-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.bz-cats{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.bz-cat-btn{display:inline-block;padding:3px 10px;border:1px solid var(--line);border-radius:20px;
+  font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);
+  transition:border-color var(--t),color var(--t),background var(--t)}
+.bz-cat-btn:hover{border-color:var(--accent);color:var(--accent)}
+.bz-cat-btn.active{background:rgba(25,240,199,.12);border-color:var(--accent);color:var(--accent)}
+.bz-sorts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px}
+.bz-sorts a{color:var(--muted);transition:color var(--t)}.bz-sorts a:hover{color:var(--accent)}
+.bz-table-wrap{overflow-x:auto}
+.bz-table{width:100%;border-collapse:collapse;font-size:13px}
+.bz-table thead tr{border-bottom:1px solid var(--line)}
+.bz-table th{padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);white-space:nowrap}
+.bz-table td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.04)}
+.bz-table tbody tr{transition:background var(--t)}.bz-table tbody tr:hover{background:rgba(25,240,199,.04)}
+.bz-table tbody tr.bz-own{background:rgba(255,45,149,.04)}
+.bz-item{font-weight:600;color:var(--text)}
+.bz-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.15);color:var(--accent)}
+.bz-count{display:inline-block;background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 6px;font-weight:700;vertical-align:middle;margin-left:4px}
+.btn-sm{padding:4px 10px;font-size:11px;background:var(--panel2);border:1px solid var(--line);border-radius:4px;color:var(--accent);cursor:pointer;transition:border-color var(--t),background var(--t)}
+.btn-sm:hover{border-color:var(--accent);background:rgba(25,240,199,.08)}
+.btn-sm.btn-ghost{color:var(--muted)}.btn-sm.btn-ghost:hover{color:var(--neon2);border-color:var(--neon2)}
+
+/* ============================================================ Library */
+.lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:12px}
+.lib-card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px;
+  transition:border-color var(--t),transform .1s ease}
+.lib-card:hover{border-color:rgba(25,240,199,.3);transform:translateY(-2px)}
+.lib-card-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.lib-icon{font-size:22px;flex:none}
+.lib-name{font-weight:700;font-size:13px;color:var(--text)}
+.lib-cat{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-top:1px}
+.lib-desc{font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5}
+.lib-stats{display:flex;flex-wrap:wrap;gap:6px}
+.lib-stat{background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.12);border-radius:4px;padding:2px 8px;font-size:11px;color:var(--accent)}
+.lib-stat.def{background:rgba(255,45,149,.06);border-color:rgba(255,45,149,.12);color:var(--neon2)}
+.lib-stat.price{background:rgba(255,210,0,.06);border-color:rgba(255,210,0,.12);color:#ffe14d}
+.lib-rarity-common{border-left:3px solid #888}
+.lib-rarity-uncommon{border-left:3px solid #3bcf63}
+.lib-rarity-rare{border-left:3px solid #4d6be8}
+.lib-rarity-elite{border-left:3px solid #ff2d95}
+.lib-rarity-legendary{border-left:3px solid #e8a33d}
+
+/* ============================================================ Profile redesign */
+.prof-hero{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}
+.prof-avatar{width:72px;height:72px;border-radius:50%;background:var(--panel2);border:2px solid var(--accent);flex:none;display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--accent)}
+.prof-main{flex:1;min-width:200px}
+.prof-username{font-size:22px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent)}
+.prof-meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:12px;color:var(--muted)}
+.prof-meta-item{display:flex;align-items:center;gap:4px}
+.prof-bio{font-size:13px;color:var(--text);margin:10px 0 0;font-style:italic;border-left:2px solid var(--accent);padding-left:10px}
+.prof-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+.prof-stat{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px;text-align:center;transition:border-color var(--t)}
+.prof-stat:hover{border-color:rgba(25,240,199,.3)}
+.prof-stat .val{font-size:20px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent)}
+.prof-stat .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:3px}
+.prof-section{margin-top:0}
+.prof-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.prof-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:11px;border:1px solid var(--line);background:var(--panel2)}
+.prof-badge.gold{border-color:#e8d44d;color:#e8d44d;background:rgba(232,212,77,.06)}
+.prof-badge.teal{border-color:var(--accent);color:var(--accent);background:rgba(25,240,199,.06)}
+.prof-badge.pink{border-color:var(--neon2);color:var(--neon2);background:rgba(255,45,149,.06)}
+.prof-flag{border-radius:2px;vertical-align:middle;margin-right:4px;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+
+/* ============================================================ Admin panel stats */
+.admin-stats-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:16px}
+.admin-stat-box{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.admin-stat-box .asb-val{font-size:20px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent)}
+.admin-stat-box .asb-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:2px}
+.admin-stat-box .asb-sub{font-size:11px;color:var(--muted);margin-top:4px}
+
 /* ============================================================ Staff panel cards */
 .staffgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
 .staffcard{display:block;background:var(--panel2);border:1px solid var(--line);
@@ -516,6 +588,7 @@ main.center{transition:opacity .12s ease}
 .shop-card.owned-card{border-color:rgba(25,240,199,.35)}
 .shop-card .sc-ic{font-size:32px;margin-bottom:6px}
 .shop-card .sc-nm{font-size:12px;font-weight:bold;color:var(--accent);margin-bottom:2px}
+.shop-card .sc-sub{font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}
 .shop-card .sc-pr{font-size:11px;color:var(--muted)}
 .shop-card .sc-owned{font-size:10px;color:var(--accent);margin-top:4px}
 
