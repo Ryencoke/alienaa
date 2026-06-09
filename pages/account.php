@@ -169,6 +169,29 @@ $curAccent = $player['accent_color'] ?? '';
   </form>
   <script>
   (function(){
+    var cbx=document.querySelectorAll('input[name="bars[]"]');
+    if(!cbx.length) return;
+    function applyLive(key,show){
+      // Text stats
+      var stat=document.querySelector('[data-stat="'+key+'"]');
+      if(stat) stat.style.display=show?'':'none';
+      // Meter bars
+      var bar=document.querySelector('[data-bar="'+key+'"]');
+      if(bar) bar.style.display=show?'':'none';
+    }
+    function saveAndApply(){
+      var chosen=[];
+      cbx.forEach(function(c){ if(c.checked) chosen.push(c.value); applyLive(c.value,c.checked); });
+      var fd=new FormData();
+      fd.append('action','sidebar_bars');
+      chosen.forEach(function(v){ fd.append('bars[]',v); });
+      fetch('index.php?p=account&sec=sidebar',{method:'POST',body:fd,credentials:'same-origin'}).catch(function(){});
+    }
+    cbx.forEach(function(c){ c.addEventListener('change',saveAndApply); });
+  })();
+  </script>
+  <script>
+  (function(){
     var list=document.getElementById('sblist'), form=document.getElementById('sbform'),
         order=document.getElementById('sborder'), add=document.getElementById('sbadd');
     if(!list) return;
@@ -223,11 +246,14 @@ $curAccent = $player['accent_color'] ?? '';
 <?php elseif ($sec === 'chat'):
   $cur = $player['chat_color'] ?? '#c9d1e0';
   if (!preg_match('/^#[0-9a-fA-F]{6}$/', $cur)) $cur = '#c9d1e0';
+  $nameColor = chat_color($role, '');   // role-based only — same as what chat displays
   $presets = ['#b8a472','#ffffff','#e23b3b','#3bcf63','#4d6be8','#5fe0e0','#ffe14d','#e8a33d','#ff2d95','#9bff3d'];
 ?>
   <h3>Chat Color</h3>
   <?php if ($role !== 'member'): ?>
-    <p class="muted">Staff roles use fixed role colors in chat. You can still set a personal color for when you're off-staff.</p>
+    <p class="muted">Your username always appears in your role color (<b style="color:<?= e($nameColor) ?>"><?= e($player['username']) ?></b>). The color you set here applies to your message text only.</p>
+  <?php else: ?>
+    <p class="muted">Your username color is determined by your role. This color applies to your message text only.</p>
   <?php endif; ?>
   <form method="post">
     <input type="hidden" name="action" value="chatcolor">
@@ -253,7 +279,7 @@ $curAccent = $player['accent_color'] ?? '';
       <div class="muted" style="font-size:11px;margin-bottom:6px">Preview</div>
       <div style="font-size:13px">
         <span class="muted">00:00:00</span>
-        <b id="ccName" style="color:<?= e($cur) ?>"><?= e($player['username']) ?>:</b>
+        <b id="ccName" style="color:<?= e($nameColor) ?>"><?= e($player['username']) ?>:</b>
         <span id="ccMsg" style="color:<?= e($cur) ?>">This is what your chat messages will look like!</span>
       </div>
     </div>
@@ -262,9 +288,9 @@ $curAccent = $player['accent_color'] ?? '';
   <script>
   (function(){
     var pick=document.getElementById('ccPick'), hex=document.getElementById('ccHex'),
-        nm=document.getElementById('ccName'), msg=document.getElementById('ccMsg');
+        msg=document.getElementById('ccMsg');
     if(!pick) return;
-    function set(c){ if(!/^#[0-9a-fA-F]{6}$/.test(c)) return; pick.value=c; hex.value=c; nm.style.color=c; msg.style.color=c; }
+    function set(c){ if(!/^#[0-9a-fA-F]{6}$/.test(c)) return; pick.value=c; hex.value=c; msg.style.color=c; }
     document.querySelectorAll('#swatches .swatch').forEach(function(s){ s.addEventListener('click',function(){ set(s.getAttribute('data-color')); }); });
     pick.addEventListener('input',function(){ set(pick.value); });
     hex.addEventListener('input',function(){ set(hex.value); });

@@ -38,7 +38,8 @@ function bar($label, $val, $max, $key = '') {
   $pct = $max > 0 ? min(100, round($val / $max * 100)) : 0;
   $df  = $key ? ' data-fill="'.$key.'"' : '';
   $de  = $key ? ' data-em="'.$key.'"' : '';
-  echo '<div class="meter">'
+  $db  = $key ? ' data-bar="'.$key.'"' : '';
+  echo '<div class="meter"'.$db.'>'
      . '<div class="meter-head"><span>'.e($label).'</span>'
      . '<em'.$de.'>'.number_format($val).' / '.number_format($max).'</em></div>'
      . '<div class="track"><div class="fill"'.$df.' style="width:'.$pct.'%"></div></div>'
@@ -78,13 +79,13 @@ function bar($label, $val, $max, $key = '') {
           <div class="name"><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>" style="color:inherit"><?= e($player['username']) ?></a></div>
           <div class="pcard-stat"><span>Lv</span><b id="st-level"><?= (int)$player['level'] ?></b></div>
           <?php if ($sbBars === null || in_array('creds', $sbBars, true)): ?>
-          <div class="pcard-stat"><span>Creds</span><b id="st-pocket"><?= number_format($player['creds_pocket']) ?></b></div>
+          <div class="pcard-stat" data-stat="creds"><span>Creds</span><b id="st-pocket"><?= number_format($player['creds_pocket']) ?></b></div>
           <?php endif; ?>
           <?php if ($sbBars === null || in_array('bank', $sbBars, true)): ?>
-          <div class="pcard-stat"><span>Bank</span><b id="st-bank"><?= number_format($player['creds_bank']) ?></b></div>
+          <div class="pcard-stat" data-stat="bank"><span>Bank</span><b id="st-bank"><?= number_format($player['creds_bank']) ?></b></div>
           <?php endif; ?>
           <?php if ($sbBars === null || in_array('shards', $sbBars, true)): ?>
-          <div class="pcard-stat"><span>Shards</span><b id="st-shards"><?= number_format($player['shards']) ?></b></div>
+          <div class="pcard-stat" data-stat="shards"><span>Shards</span><b id="st-shards"><?= number_format($player['shards']) ?></b></div>
           <?php endif; ?>
         </div>
       </div>
@@ -278,8 +279,6 @@ function bar($label, $val, $max, $key = '') {
       var main=document.querySelector('main.center');
       if(!nm||!main){ window.location.href=href; return; }
       main.innerHTML=nm.innerHTML; runScripts(main); main.style.opacity='';
-      var fl=main.querySelector('.flash:not(.combat)');
-      if(fl){ showToast(fl.textContent.trim()); fl.remove(); }
       if(window.refreshState) window.refreshState();
       // sync active states without a full reload
       var m=(href||'').match(/[?&]p=([a-z]+)/);

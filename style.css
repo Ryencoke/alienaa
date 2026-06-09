@@ -391,11 +391,51 @@ code{color:var(--neon2);font-size:12px}
 .bet-input{width:120px!important;text-align:center}
 .daemon-go-btn{padding:12px;font-size:14px;letter-spacing:.5px;margin-top:2px}
 
+.daemon-result{text-align:center;font-size:16px;font-weight:bold;
+  padding:14px 20px;border-radius:var(--radius);margin:10px 0;
+  font-family:'Orbitron',sans-serif;letter-spacing:.5px;
+  animation:dresult-in .3s cubic-bezier(.2,.8,.3,1) both}
+@keyframes dresult-in{from{opacity:0;transform:scale(.92) translateY(-6px)}to{opacity:1;transform:none}}
+.daemon-result-ok{background:rgba(25,240,199,.12);border:1px solid rgba(25,240,199,.5);
+  color:var(--accent);text-shadow:0 0 14px rgba(25,240,199,.5)}
+.daemon-result-err{background:rgba(255,45,149,.1);border:1px solid rgba(255,45,149,.45);
+  color:var(--neon2);text-shadow:0 0 12px rgba(255,45,149,.4)}
+
 .daemon-pays{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;
   font-size:11px;color:var(--muted);margin-top:14px;padding-top:12px;
   border-top:1px solid var(--line)}
 .net-win{color:var(--accent);font-weight:bold}
 .net-lose{color:var(--neon2);font-weight:bold}
+
+/* ============================================================ Blackjack cards */
+.bj-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.bj-hand{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;min-height:56px}
+.bj-card{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
+  width:44px;height:58px;background:#f0f4ff;color:#1a1a2e;border-radius:6px;
+  font-weight:bold;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.5);line-height:1.1;flex:none}
+.bj-hidden{background:#2a2a4a;color:#555;font-size:12px;border:1px dashed #444}
+.bj-divider{border-top:1px dashed var(--line);margin:10px 0}
+
+/* ============================================================ Casino history */
+.casino-stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+.cs-box{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);
+  padding:10px;text-align:center}
+.cs-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.cs-val{font-size:14px;font-weight:bold;font-family:'Orbitron',sans-serif}
+.cs-pos{color:var(--accent)}
+.cs-neg{color:var(--neon2)}
+
+.hist-list{display:flex;flex-direction:column;gap:1px}
+.hist-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius);
+  background:var(--panel2);transition:background var(--t)}
+.hist-row:hover{background:rgba(25,240,199,.05)}
+.hist-ic{font-size:18px;flex:none;width:24px;text-align:center}
+.hist-info{flex:1;min-width:0;overflow:hidden}
+.hist-game{font-size:12px;font-weight:bold;margin-right:6px}
+.hist-detail{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist-right{text-align:right;flex:none}
+.hist-net{font-size:13px;font-weight:bold;font-family:'Orbitron',sans-serif}
+.hist-time{font-size:10px;margin-top:2px}
 
 /* ============================================================ Toasts */
 #toasts{position:fixed;bottom:16px;right:16px;z-index:200;
