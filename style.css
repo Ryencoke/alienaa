@@ -250,3 +250,14 @@ main.center{transition:opacity .12s ease}
 .itemcard .nm{font-weight:bold}
 .itemcard .st{font-size:11px;color:var(--neon2);margin-top:2px}
 .itemcard .act{flex:none}
+
+/* ---- chat color swatches ---- */
+.swatch{width:28px;height:28px;border-radius:4px;cursor:pointer;border:2px solid var(--line);transition:border-color .12s ease,transform .08s ease}
+.swatch:hover{border-color:var(--accent);transform:scale(1.08)}
+
+/* ---- sidebar quick links editor ---- */
+.sbrow{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 10px;margin-bottom:6px}
+.sbrow .sblabel{flex:1}
+.sbmove,.sbdel{cursor:pointer;user-select:none;color:var(--muted)}
+.sbmove:hover{color:var(--accent)}
+.sbdel{color:var(--neon2)} .sbdel:hover{color:#fff}

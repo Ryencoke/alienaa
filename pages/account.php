@@ -5,7 +5,7 @@ $msg = '';
 $all_themes    = themes();
 $all_countries = countries();
 
-$secs = ['profile'=>'Member Profile','schemes'=>'Schemes & Styles','chat'=>'Chat Settings','boards'=>'Board Settings','account'=>'Account'];
+$secs = ['profile'=>'Member Profile','sidebar'=>'Sidebar','schemes'=>'Schemes & Styles','chat'=>'Chat Settings','boards'=>'Board Settings','account'=>'Account'];
 $sec = $_GET['sec'] ?? 'profile';
 if (!isset($secs[$sec])) $sec = 'profile';
 
@@ -35,6 +35,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $sig = trim($_POST['signature'] ?? ''); if (mb_strlen($sig) > 255) $sig = mb_substr($sig, 0, 255);
       $pdo->prepare('UPDATE players SET signature = ? WHERE id = ?')->execute([$sig, $pid]);
       $msg = 'Board settings saved.'; $player = current_player();
+    }
+    elseif ($action === 'sidebar') {
+      $valid = nav_links(); $out = [];
+      foreach (explode(',', $_POST['order'] ?? '') as $k) { $k = trim($k); if (isset($valid[$k]) && !in_array($k, $out, true)) $out[] = $k; }
+      $pdo->prepare('UPDATE players SET sidebar = ? WHERE id = ?')->execute([implode(',', $out), $pid]);
+      $msg = 'Sidebar saved.'; $player = current_player();
+    }
+    elseif ($action === 'sidebar_reset') {
+      $pdo->prepare('UPDATE players SET sidebar = ? WHERE id = ?')->execute(['', $pid]);
+      $msg = 'Sidebar reset to defaults.'; $player = current_player();
     }
     elseif ($action === 'handle') {
       $newu = trim($_POST['new_username'] ?? ''); $cur = $_POST['current_password'] ?? '';
@@ -92,6 +102,68 @@ $curAccent = $player['accent_color'] ?? '';
   </form>
 </div>
 
+<?php elseif ($sec === 'sidebar'):
+  $current = player_sidebar($player);
+  $nl = nav_links();
+?>
+<div class="panel">
+  <h3>Sidebar Quick Links</h3>
+  <p class="muted">Reorder, add, or remove links from your sidebar navigation.</p>
+  <form method="post" action="index.php?p=account&sec=sidebar" id="sbform">
+    <input type="hidden" name="action" value="sidebar">
+    <input type="hidden" name="order" id="sborder">
+    <div id="sblist">
+      <?php foreach ($current as $k): ?>
+        <div class="sbrow" data-key="<?= e($k) ?>">
+          <span class="sbmove" data-dir="up">&#9650;</span>
+          <span class="sbmove" data-dir="down">&#9660;</span>
+          <span class="sblabel"><?= e($nl[$k][0]) ?></span>
+          <span class="sbdel">&times;</span>
+        </div>
+      <?php endforeach; ?>
+    </div>
+    <p style="margin-top:8px"><select id="sbadd" style="max-width:240px">
+      <option value="">+ Add link&hellip;</option>
+      <?php foreach ($nl as $k => $v): if (!in_array($k, $current, true)): ?><option value="<?= e($k) ?>"><?= e($v[0]) ?></option><?php endif; endforeach; ?>
+    </select></p>
+    <p><button type="submit">Save Sidebar</button></p>
+  </form>
+  <form method="post" action="index.php?p=account&sec=sidebar">
+    <input type="hidden" name="action" value="sidebar_reset">
+    <button type="submit" style="background:none;color:var(--muted);box-shadow:none;padding:0;font-size:12px">Reset to defaults</button>
+  </form>
+  <script>
+  (function(){
+    var list=document.getElementById('sblist'), form=document.getElementById('sbform'),
+        order=document.getElementById('sborder'), add=document.getElementById('sbadd');
+    if(!list) return;
+    var labels=<?= json_encode(array_map(function($v){ return $v[0]; }, $nl)) ?>;
+    list.addEventListener('click',function(e){
+      var row=e.target.closest('.sbrow'); if(!row) return;
+      if(e.target.classList.contains('sbdel')){ var k=row.getAttribute('data-key'); row.remove();
+        var o=document.createElement('option'); o.value=k; o.textContent=labels[k]||k; add.appendChild(o); return; }
+      if(e.target.classList.contains('sbmove')){
+        var dir=e.target.getAttribute('data-dir');
+        if(dir==='up'&&row.previousElementSibling) list.insertBefore(row,row.previousElementSibling);
+        if(dir==='down'&&row.nextElementSibling) list.insertBefore(row.nextElementSibling,row);
+      }
+    });
+    add.addEventListener('change',function(){
+      var k=add.value; if(!k) return;
+      var row=document.createElement('div'); row.className='sbrow'; row.setAttribute('data-key',k);
+      row.innerHTML='<span class="sbmove" data-dir="up">&#9650;</span><span class="sbmove" data-dir="down">&#9660;</span><span class="sblabel"></span><span class="sbdel">&times;</span>';
+      row.querySelector('.sblabel').textContent=labels[k]||k;
+      list.appendChild(row);
+      var opt=add.querySelector('option[value="'+k+'"]'); if(opt) opt.remove(); add.value='';
+    });
+    form.addEventListener('submit',function(){
+      var keys=[]; list.querySelectorAll('.sbrow').forEach(function(r){ keys.push(r.getAttribute('data-key')); });
+      order.value=keys.join(',');
+    });
+  })();
+  </script>
+</div>
+
 <?php elseif ($sec === 'schemes'): ?>
 <div class="panel">
   <h3>Schemes &amp; Styles</h3>
@@ -109,21 +181,46 @@ $curAccent = $player['accent_color'] ?? '';
   </form>
 </div>
 
-<?php elseif ($sec === 'chat'): ?>
+<?php elseif ($sec === 'chat'):
+  $cur = $player['chat_color'] ?? '#c9d1e0';
+  if (!preg_match('/^#[0-9a-fA-F]{6}$/', $cur)) $cur = '#c9d1e0';
+  $presets = ['#b8a472','#ffffff','#e23b3b','#3bcf63','#4d6be8','#5fe0e0','#ffe14d','#e8a33d','#ff2d95','#9bff3d'];
+?>
 <div class="panel">
-  <h3>Chat Settings</h3>
+  <h3>Chat Options</h3>
   <?php if ($role !== 'member'): ?>
-    <p>Your name shows in <b style="color:<?= e(chat_color($role, '')) ?>"><?= e(role_label($role)) ?></b> staff color &mdash; it overrides any personal color.</p>
-    <p class="muted"><b style="color:<?= e(chat_color($role, '')) ?>"><?= e($player['username']) ?>:</b> sample message</p>
-  <?php else: ?>
-    <form method="post">
-      <input type="hidden" name="action" value="chatcolor">
-      <label>Your chat name color</label>
-      <p><input type="color" name="chat_color" value="<?= e($player['chat_color'] ?? '#c9d1e0') ?>" style="width:64px;height:34px;padding:2px"></p>
-      <p class="muted"><b style="color:<?= e(chat_color('member', $player['chat_color'] ?? '')) ?>"><?= e($player['username']) ?>:</b> sample message</p>
-      <p><button type="submit">Save Color</button></p>
-    </form>
+    <p class="muted">Note: in chat your name shows in <b style="color:<?= e(chat_color($role, '')) ?>"><?= e(role_label($role)) ?></b> staff color, which overrides your personal pick. You can still set one for when you're off staff.</p>
   <?php endif; ?>
+  <form method="post">
+    <input type="hidden" name="action" value="chatcolor">
+    <label>Chat text color</label>
+    <div id="swatches" style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">
+      <?php foreach ($presets as $pc): ?><span class="swatch" data-color="<?= $pc ?>" style="background:<?= $pc ?>"></span><?php endforeach; ?>
+    </div>
+    <p style="display:flex;gap:8px;align-items:center">
+      <span class="muted">Custom</span>
+      <input type="color" id="ccPick" name="chat_color" value="<?= e($cur) ?>" style="width:48px;height:34px;padding:2px">
+      <input type="text" id="ccHex" value="<?= e($cur) ?>" maxlength="7" style="width:96px">
+    </p>
+    <div class="panel" style="background:#080812;margin-bottom:10px">
+      <div class="muted" style="font-size:11px;margin-bottom:4px">Preview:</div>
+      <div style="font-size:13px"><span class="muted">00:00:00</span>
+        <b id="ccName" style="color:<?= e($cur) ?>"><?= e($player['username']) ?>:</b>
+        <span id="ccMsg" style="color:<?= e($cur) ?>">This is what your chat messages will look like!</span></div>
+    </div>
+    <p><button type="submit">Save Chat Settings</button></p>
+  </form>
+  <script>
+  (function(){
+    var pick=document.getElementById('ccPick'), hex=document.getElementById('ccHex'),
+        nm=document.getElementById('ccName'), msg=document.getElementById('ccMsg');
+    if(!pick) return;
+    function set(c){ if(!/^#[0-9a-fA-F]{6}$/.test(c)) return; pick.value=c; hex.value=c; nm.style.color=c; msg.style.color=c; }
+    document.querySelectorAll('#swatches .swatch').forEach(function(s){ s.addEventListener('click',function(){ set(s.getAttribute('data-color')); }); });
+    pick.addEventListener('input',function(){ set(pick.value); });
+    hex.addEventListener('input',function(){ set(hex.value); });
+  })();
+  </script>
 </div>
 
 <?php elseif ($sec === 'boards'): ?>

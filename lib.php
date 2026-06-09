@@ -54,6 +54,32 @@ function countries() {
     'NG'=>'Nigeria','SA'=>'Saudi Arabia','AE'=>'UAE','IL'=>'Israel'];
 }
 
+// ---- customizable sidebar ----
+function nav_links() {
+  return [
+    'home'     => ['Hideout',        'index.php?p=home'],
+    'stash'    => ['Inventory',      'index.php?p=stash'],
+    'ledger'   => ['Bank',           'index.php?p=ledger&act=bank'],
+    'city'     => ['The Sprawl',     'index.php?p=city'],
+    'bazaar'   => ['Bazaar',         'index.php?p=bazaar'],
+    'boards'   => ['Message Boards', 'index.php?p=boards'],
+    'messages' => ['Messages',       'index.php?p=messages'],
+    'chat'     => ['Public Channel', 'index.php?p=chat'],
+    'datacore' => ['Datacore',       'index.php?p=datacore&act=lab'],
+    'account'  => ['Account',        'index.php?p=account'],
+    'updates'  => ['Updates',        'index.php?p=updates'],
+  ];
+}
+function default_sidebar() { return ['home','stash','ledger','city','bazaar','boards','messages','account','updates']; }
+function player_sidebar($player) {
+  $valid = nav_links();
+  $s = trim((string)($player['sidebar'] ?? ''));
+  $keys = $s !== '' ? explode(',', $s) : default_sidebar();
+  $out = [];
+  foreach ($keys as $k) { $k = trim($k); if (isset($valid[$k]) && !in_array($k, $out, true)) $out[] = $k; }
+  return $out ?: default_sidebar();
+}
+
 // Render user text safely: escape EVERYTHING first, then convert a tiny BBCode
 // whitelist. Because we escape before converting, no raw HTML can ever slip in.
 function bbcode($text) {

@@ -62,15 +62,9 @@ function bar($label, $val, $max, $key = '') {
       ?>
     </div>
     <ul class="menu">
-      <li><a href="index.php?p=home">Hideout</a></li>
-      <li><a href="index.php?p=stash">Stash</a></li>
-      <li><a href="index.php?p=ledger&act=bank">Bank</a></li>
-      <li><a href="index.php?p=city">The Sprawl</a></li>
-      <li><a href="index.php?p=bazaar">Bazaar</a></li>
-      <li><a href="index.php?p=boards">Message Boards</a></li>
-      <li><a href="index.php?p=messages">Messages</a></li>
-      <li><a href="index.php?p=account">Account</a></li>
-      <li><a href="index.php?p=updates">Updates</a></li>
+      <?php $nl = nav_links(); foreach (player_sidebar($player) as $k): ?>
+        <li><a href="<?= $nl[$k][1] ?>"><?= e($nl[$k][0]) ?></a></li>
+      <?php endforeach; ?>
       <?php if ($isStaff): ?><li><a href="index.php?p=admin">Admin</a></li><?php endif; ?>
     </ul>
   </aside>
