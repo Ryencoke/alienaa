@@ -7,16 +7,6 @@ $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 
-if (!function_exists('grant_xp')) {
-  function grant_xp($pid, $amount) {
-    $pdo = db();
-    $r = $pdo->prepare('SELECT level, xp, xp_next FROM players WHERE id = ?');
-    $r->execute([$pid]); $p = $r->fetch();
-    $level = (int)$p['level']; $xp = (int)$p['xp'] + $amount; $next = (int)$p['xp_next'];
-    while ($xp >= $next && $level < 999) { $xp -= $next; $level++; $next = (int)round($next * 1.5); }
-    $pdo->prepare('UPDATE players SET level = ?, xp = ?, xp_next = ? WHERE id = ?')->execute([$level, $xp, $next, $pid]);
-  }
-}
 
 try {
   $pdo->exec('CREATE TABLE IF NOT EXISTS player_ore (
@@ -29,23 +19,24 @@ try {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 } catch (Throwable $e) {}
 
-// Get Mining skill level
+// Get Mining skill level from drone skill (points 0–1000, divided to 0–9 level)
 $miningLevel = 0;
 try {
-  $sq = $pdo->prepare("SELECT level FROM player_skills WHERE player_id = ? AND skill_name = 'mining'");
+  $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points) SELECT ?, id, 0 FROM skills')->execute([$pid]);
+  $sq = $pdo->prepare("SELECT FLOOR(ps.points / 100) FROM player_skills ps JOIN skills s ON s.id = ps.skill_id WHERE ps.player_id = ? AND s.code = 'drone'");
   $sq->execute([$pid]);
   $miningLevel = (int)($sq->fetchColumn() ?: 0);
 } catch (Throwable $e) {}
 
 // Ore catalog: [id, name, tier, min_mining_level, drop_weight, icon, color, desc]
 $ORES = [
-  ['scrap',     'Junk Metal',        1,  0,  80, '&#129419;', '#8a8fa8', 'Twisted scrap from derelict Grid zones. Low-grade but always useful.'],
-  ['copper',    'Copper Wire',       1,  1,  60, '&#127312;', '#e8a33d', 'Basic conductive material. Backbone of entry-level fabrication.'],
-  ['iron',      'Iron Alloy',        2,  3,  45, '&#9760;',   '#b0b8cc', 'Dense alloy salvaged from collapsed structures.'],
-  ['titanium',  'Titanium Core',     3,  5,  28, '&#128311;', '#19f0c7', 'High-grade structural metal. Lightweight and extremely durable.'],
-  ['nanocarbon','Nano-Carbon Fiber', 4,  7,  16, '&#128302;', '#ff2d95', 'Lab-engineered composite fiber. Powers advanced armor synthesis.'],
-  ['quantum',   'Quantum Crystal',   5,  9,   8, '&#128142;', '#a66de8', 'Crystalline data-matrix ore. Unlocks cutting-edge weapon crafting.'],
-  ['void',      'Void Metal',        6, 12,   3, '&#11088;',  '#e8d44d', 'Unstable ore from deep Grid anomalies. Near-mythical scarcity.'],
+  ['scrap',     'Junk Metal',        1, 0, 80, '&#129419;', '#8a8fa8', 'Twisted scrap from derelict Grid zones. Low-grade but always useful.'],
+  ['copper',    'Copper Wire',       1, 1, 60, '&#127312;', '#e8a33d', 'Basic conductive material. Backbone of entry-level fabrication.'],
+  ['iron',      'Iron Alloy',        2, 3, 45, '&#9760;',   '#b0b8cc', 'Dense alloy salvaged from collapsed structures.'],
+  ['titanium',  'Titanium Core',     3, 5, 28, '&#128311;', '#19f0c7', 'High-grade structural metal. Lightweight and extremely durable.'],
+  ['nanocarbon','Nano-Carbon Fiber', 4, 6, 16, '&#128302;', '#ff2d95', 'Lab-engineered composite fiber. Powers advanced armor synthesis.'],
+  ['quantum',   'Quantum Crystal',   5, 7,  8, '&#128142;', '#a66de8', 'Crystalline data-matrix ore. Unlocks cutting-edge weapon crafting.'],
+  ['void',      'Void Metal',        6, 9,  3, '&#11088;',  '#e8d44d', 'Unstable ore from deep Grid anomalies. Near-mythical scarcity.'],
 ];
 $oreMap = [];
 foreach ($ORES as $o) $oreMap[$o[0]] = $o;
@@ -100,7 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'mine'
                    ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)')
         ->execute([$pid, $chosen[0], $qty]);
 
-    grant_xp($pid, mt_rand(2, 5));
     $player = current_player();
     $cooldownLeft = MINE_COOLDOWN;
     $lastHaul = ['ore' => $chosen, 'qty' => $qty];
@@ -137,7 +127,7 @@ $hasOre = !empty(array_filter($oreInv));
         <div style="font-family:'Orbitron',sans-serif;font-weight:700;font-size:18px;color:#e8a33d"><?= number_format($player['cycles']) ?></div>
       </div>
       <div>
-        <div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.5px">Mining Lv</div>
+        <div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.5px">Drone Lv</div>
         <div style="font-family:'Orbitron',sans-serif;font-weight:700;font-size:18px;color:var(--accent)"><?= $miningLevel ?></div>
       </div>
       <div>

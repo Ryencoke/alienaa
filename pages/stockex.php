@@ -40,14 +40,18 @@ try {
   }
 } catch (Throwable $e) {}
 
-// Simulate market fluctuation on each page load (max ±3%)
+// Simulate market fluctuation on each page load (max ±3%), log price every ~5 minutes
 try {
   $allStocks = $pdo->query("SELECT id, price FROM stocks")->fetchAll();
   $upd = $pdo->prepare('UPDATE stocks SET prev_price=price, price=?, trend=SIGN(?-price) WHERE id=?');
+  $logPrice = $pdo->prepare('INSERT INTO stock_price_log (stock_id, price) VALUES (?,?)');
+  $lastLog  = (int)($pdo->query("SELECT MAX(UNIX_TIMESTAMP(recorded_at)) FROM stock_price_log")->fetchColumn() ?: 0);
+  $doLog    = (time() - $lastLog) >= 300;
   foreach ($allStocks as $s) {
-    $pct   = (mt_rand(-30, 30) / 1000);
-    $np    = max(5, (int)round($s['price'] * (1 + $pct)));
+    $pct = (mt_rand(-30, 30) / 1000);
+    $np  = max(5, (int)round($s['price'] * (1 + $pct)));
     $upd->execute([$np, $np, $s['id']]);
+    if ($doLog) $logPrice->execute([$s['id'], $np]);
   }
 } catch (Throwable $e) {}
 
@@ -120,6 +124,26 @@ try {
 } catch (Throwable $e) {}
 
 $catColors = ['tech'=>'var(--accent)','weapons'=>'var(--neon2)','pharma'=>'#3bcf63','energy'=>'#e8a33d','manufacturing'=>'#c9d1e0','finance'=>'#e8d44d','security'=>'var(--neon2)','general'=>'var(--muted)'];
+
+$stockInfo = [
+  'NXUS' => ['desc'=>'Nexus Corp controls most of the grid infrastructure. Prices rise with tech demand and server activity. Sensitive to Datacore/hacking news.',       'trend'=>'Volatile — spikes during high network activity'],
+  'ARMX' => ['desc'=>'ArmaTech Industries manufactures weapons and combat gear. Demand surges after PvP events and conflict cycles in the Sprawl.',                    'trend'=>'Cyclical — rises after conflict, dips in peace'],
+  'PHRS' => ['desc'=>'Pharmasynth Co produces stims and biochem compounds. Stock climbs when Synthesis Den activity is high and compound supplies run low.',            'trend'=>'Moderate growth — stable base with demand spikes'],
+  'NRGY' => ['desc'=>'NeonGrid Energy powers the whole city. Prices track server load and Drive usage across the grid. Low volatility, steady returns.',                'trend'=>'Low volatility — consistent dividend payer'],
+  'DATV' => ['desc'=>'DataVault Ltd secures encrypted data caches. Rises when hacking/netrunning activity increases and breach attempts spike.',                       'trend'=>'Volatile — correlates with hack/intrusion events'],
+  'SCRP' => ['desc'=>'Scrapyard Holdings runs salvage operations in the outer sectors. Cheap stock with sudden spikes when rare materials surface.',                   'trend'=>'Low base, high spike potential — boom or bust'],
+  'CHEM' => ['desc'=>'StreetChem Inc distributes chemicals and combat stims. Steady performer that rises when conflict in the Sprawl is high.',                         'trend'=>'Moderate — follows conflict and synth activity'],
+  'CRED' => ['desc'=>'CreditFlow Bank holds the debt of half the city. Stable but slow-growing. The safest store of value on the exchange.',                           'trend'=>'Very stable — slow upward drift over time'],
+  'INFX' => ['desc'=>'Infect-X Security contracts city defense and prison systems. Profits spike when crime rates rise and incarceration increases.',                   'trend'=>'Spikes during crime waves and conflict cycles'],
+  'GRDX' => ['desc'=>'Grid Exchange is the exchange itself — meta stock. Rises with overall trading volume and market activity. Self-referential.',                    'trend'=>'Moderate — follows overall market volume'],
+];
+
+// Load up to 7 days of price history per stock
+$priceHistory = [];
+try {
+  $hq = $pdo->query("SELECT stock_id, price, recorded_at FROM stock_price_log WHERE recorded_at >= NOW() - INTERVAL 7 DAY ORDER BY recorded_at ASC");
+  foreach ($hq as $row) { $priceHistory[$row['stock_id']][] = (int)$row['price']; }
+} catch (Throwable $e) {}
 ?>
 
 <!-- Header -->
@@ -157,24 +181,61 @@ $catColors = ['tech'=>'var(--accent)','weapons'=>'var(--neon2)','pharma'=>'#3bcf
     $diffCol = $diff > 0 ? '#3bcf63' : ($diff < 0 ? 'var(--neon2)' : 'var(--muted)');
     $catCol  = $catColors[$s['category']] ?? 'var(--muted)';
     $hold    = null; foreach ($portfolio as $ph) { if ($ph['stock_id'] == $s['id']) { $hold = $ph; break; } }
+    $info    = $stockInfo[$s['ticker']] ?? ['desc'=>'','trend'=>''];
+    $hist    = $priceHistory[$s['id']] ?? [];
   ?>
-  <div style="border-bottom:1px solid rgba(255,255,255,.04);padding:10px 14px">
-    <div style="display:grid;grid-template-columns:1fr 80px 80px 80px 130px;align-items:center;gap:4px">
+  <div style="border-bottom:1px solid rgba(255,255,255,.04)">
+    <div style="display:grid;grid-template-columns:1fr 80px 80px 80px 130px;align-items:center;gap:4px;padding:10px 14px;cursor:pointer" onclick="var d=this.nextElementSibling;d.style.display=d.style.display==='none'?'block':'none'">
       <div>
         <span style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:<?= $catCol ?>"><?= e($s['ticker']) ?></span>
         <span style="font-size:12px;color:var(--text);margin-left:6px"><?= e($s['name']) ?></span>
         <?php if ($hold): ?><span style="font-size:10px;color:var(--accent);margin-left:4px">(<?= number_format($hold['shares']) ?> owned)</span><?php endif; ?>
+        <span style="font-size:10px;color:var(--muted);margin-left:4px">&#9660;</span>
       </div>
       <div style="text-align:right;font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;color:var(--text)"><?= number_format($s['price']) ?></div>
       <div style="text-align:right;font-size:11px;font-weight:700;color:<?= $diffCol ?>"><?= $diff >= 0 ? '+' : '' ?><?= $diffPct ?>%</div>
       <div style="text-align:right;font-size:11px;color:var(--muted)"><?= number_format($s['prev_price']) ?></div>
-      <div>
+      <div onclick="event.stopPropagation()">
         <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
           <input type="hidden" name="action" value="buy">
           <input type="hidden" name="stock_id" value="<?= (int)$s['id'] ?>">
           <input type="number" name="qty" value="1" min="1" style="width:48px;padding:3px 5px;font-size:11px">
           <button type="submit" style="padding:4px 10px;font-size:11px;color:#3bcf63;border-color:rgba(59,207,99,.3);background:rgba(59,207,99,.08)">Buy</button>
         </form>
+      </div>
+    </div>
+    <!-- Detail panel -->
+    <div style="display:none;padding:12px 14px 14px;background:var(--panel2);border-top:1px solid rgba(255,255,255,.04)">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start">
+        <div>
+          <div style="font-size:12px;color:var(--text);margin-bottom:6px;line-height:1.5"><?= e($info['desc']) ?></div>
+          <?php if ($info['trend']): ?>
+          <div style="font-size:11px"><span style="color:var(--muted)">Trend: </span><span style="color:#e8d44d"><?= e($info['trend']) ?></span></div>
+          <?php endif; ?>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Category: <span style="color:<?= $catCol ?>"><?= ucfirst($s['category']) ?></span></div>
+        </div>
+        <?php if (count($hist) >= 2): ?>
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-align:center">7-Day Price</div>
+          <?php
+            $mn = min($hist); $mx = max($hist); $rng = max(1, $mx - $mn);
+            $w = 120; $h = 40; $pts = '';
+            $n = count($hist);
+            for ($xi = 0; $xi < $n; $xi++) {
+              $x = (int)round($xi / max(1, $n-1) * ($w-2)) + 1;
+              $y = (int)round($h - 2 - ($hist[$xi] - $mn) / $rng * ($h-4));
+              $pts .= ($xi===0?'M':'L') . "{$x},{$y} ";
+            }
+            $trend_color = $hist[count($hist)-1] >= $hist[0] ? '#3bcf63' : 'var(--neon2)';
+          ?>
+          <svg width="<?= $w ?>" height="<?= $h ?>" style="display:block;overflow:visible">
+            <path d="<?= trim($pts) ?>" fill="none" stroke="<?= $trend_color ?>" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+          <div style="font-size:9px;color:var(--muted);text-align:center"><?= number_format($hist[0]) ?> → <?= number_format($hist[count($hist)-1]) ?></div>
+        </div>
+        <?php else: ?>
+        <div style="font-size:10px;color:var(--muted);text-align:center;padding:8px">Not enough<br>history yet</div>
+        <?php endif; ?>
       </div>
     </div>
   </div>

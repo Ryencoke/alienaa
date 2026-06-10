@@ -12,14 +12,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                           WHERE i.id = ? AND pi.qty > 0');
       $q->execute([$pid, $iid]);
       $slot = $q->fetchColumn();
-      $col = $slot === 'weapon' ? 'equipped_weapon' : ($slot === 'armor' ? 'equipped_armor' : null);
-      if (!$col) throw new RuntimeException("You can't equip that.");
-      $pdo->prepare("UPDATE players SET {$col} = ? WHERE id = ?")->execute([$iid, $pid]);
+      if ($slot !== 'weapon' && $slot !== 'armor') throw new RuntimeException("You can't equip that.");
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')
+          ->execute(["equipped_{$slot}:{$pid}", $iid]);
       $msg = 'Equipped.';
     } elseif ($a === 'unequip') {
       $slot = $_POST['slot'] ?? '';
-      $col = $slot === 'weapon' ? 'equipped_weapon' : ($slot === 'armor' ? 'equipped_armor' : null);
-      if ($col) { $pdo->prepare("UPDATE players SET {$col} = NULL WHERE id = ?")->execute([$pid]); $msg = 'Unequipped.'; }
+      if (in_array($slot, ['weapon','armor'], true)) {
+        $pdo->prepare('DELETE FROM settings WHERE k=?')->execute(["equipped_{$slot}:{$pid}"]);
+        $msg = 'Unequipped.';
+      }
     }
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
   $player = current_player();
@@ -38,14 +40,24 @@ function equipped_item($pdo, $id) {
   $q = $pdo->prepare('SELECT id, name, atk, def FROM items WHERE id = ?');
   $q->execute([$id]); return $q->fetch() ?: null;
 }
-// Equipped gear from Fabrication Lab (new system)
+// Equipped gear — check player_gear first, fall back to player_items
 $ew = $ea = null; $gearAtk = $gearDef = 0;
 try {
   $gq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
   $gq->execute(["equipped_weapon:{$pid}"]); $wid = (int)$gq->fetchColumn();
-  if ($wid > 0) { $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$wid,$pid]); $ew = $gq2->fetch() ?: null; $gearAtk = $ew ? (int)$ew['atk'] : 0; }
+  if ($wid > 0) {
+    $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def FROM player_gear WHERE id=? AND player_id=?');
+    $gq2->execute([$wid,$pid]); $ew = $gq2->fetch() ?: null;
+    if (!$ew) { $gq3 = $pdo->prepare('SELECT i.id,i.name,i.atk,0 AS def FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq3->execute([$pid,$wid]); $ew = $gq3->fetch() ?: null; }
+    $gearAtk = $ew ? (int)$ew['atk'] : 0;
+  }
   $gq->execute(["equipped_armor:{$pid}"]); $aid = (int)$gq->fetchColumn();
-  if ($aid > 0) { $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$aid,$pid]); $ea = $gq2->fetch() ?: null; $gearDef = $ea ? (int)$ea['def'] : 0; }
+  if ($aid > 0) {
+    $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def FROM player_gear WHERE id=? AND player_id=?');
+    $gq2->execute([$aid,$pid]); $ea = $gq2->fetch() ?: null;
+    if (!$ea) { $gq3 = $pdo->prepare('SELECT i.id,i.name,0 AS atk,i.def FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq3->execute([$pid,$aid]); $ea = $gq3->fetch() ?: null; }
+    $gearDef = $ea ? (int)$ea['def'] : 0;
+  }
 } catch (Throwable $e) {}
 
 $inv = $pdo->prepare(
@@ -107,7 +119,19 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
       </div>
       <div class="act">
         <?php if (in_array($r['slot'], ['weapon','armor'], true)): ?>
-          <a href="index.php?p=weaponcraft" class="muted" style="font-size:11px" title="Manage loadout at Fabrication Lab">&#9874; equip</a>
+          <?php if ($isEq): ?>
+            <form method="post" style="margin:0">
+              <input type="hidden" name="action" value="unequip">
+              <input type="hidden" name="slot" value="<?= e($r['slot']) ?>">
+              <button class="btn btn-sm btn-ghost" type="submit">Unequip</button>
+            </form>
+          <?php else: ?>
+            <form method="post" style="margin:0">
+              <input type="hidden" name="action" value="equip">
+              <input type="hidden" name="item_id" value="<?= (int)$r['id'] ?>">
+              <button class="btn btn-sm btn-primary" type="submit">Equip</button>
+            </form>
+          <?php endif; ?>
         <?php endif; ?>
       </div>
     </div>

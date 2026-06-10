@@ -16,6 +16,7 @@ $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points)
 if (!function_exists('grant_xp')) {
   function grant_xp($pid, $amount) {
     $pdo = db();
+    try { $bq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $bq->execute(["apt_xp_bonus:{$pid}"]); $b=(int)$bq->fetchColumn(); if($b>0) $amount=(int)ceil($amount*(1+$b/100)); } catch(Throwable $e){}
     $r = $pdo->prepare('SELECT level, xp, xp_next FROM players WHERE id = ?');
     $r->execute([$pid]); $p = $r->fetch();
     $level = (int)$p['level']; $xp = (int)$p['xp'] + $amount; $next = (int)$p['xp_next'];
@@ -23,21 +24,33 @@ if (!function_exists('grant_xp')) {
     while ($xp >= $next && $level < 999) { $xp -= $next; $level++; $next = (int)round($next * 1.5); $gained++; }
     $pdo->prepare('UPDATE players SET level = ?, xp = ?, xp_next = ? WHERE id = ?')
         ->execute([$level, $xp, $next, $pid]);
+    if ($gained > 0) {
+      // Award 5 attribute points per level gained
+      try {
+        $aq = $pdo->prepare('SELECT COALESCE(v,0) FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]);
+        $cur = (int)($aq->fetchColumn() ?: 0);
+        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["attr_points:{$pid}", $cur + $gained * 5]);
+      } catch(Throwable $e) {}
+    }
     return $gained;
   }
 }
 
-function sim_fight($pHp, $pAtk, $pDef, $e) {
+function sim_fight($pHp, $pAtk, $pDef, $e, $tacticAtk = 1.0, $tacticDef = 1.0) {
   $eHp = (int)$e['hp']; $dealt = 0; $taken = 0;
-  for ($i = 0; $i < 200; $i++) {
-    $d = max(1, (int)round(($pAtk - (int)$e['defense']) * random_int(85, 115) / 100));
+  $pAtkF = max(1, (int)round($pAtk * $tacticAtk));
+  $pDefF = max(0, (int)round($pDef * $tacticDef));
+  $log = [];
+  for ($i = 0; $i < 50; $i++) {
+    $d = max(1, (int)round(max(1, $pAtkF - (int)$e['defense']) * random_int(85, 115) / 100));
     $eHp -= $d; $dealt += $d;
-    if ($eHp <= 0) return ['win', $dealt, $taken, $pHp];
-    $ed = max(1, (int)round(((int)$e['attack'] - $pDef) * random_int(85, 115) / 100));
+    $ed = max(1, (int)round(max(1, (int)$e['attack'] - $pDefF) * random_int(85, 115) / 100));
     $pHp -= $ed; $taken += $ed;
-    if ($pHp <= 0) return ['loss', $dealt, $taken, 0];
+    $log[] = ['r'=>$i+1,'d'=>$d,'e'=>$ed,'php'=>max(0,$pHp),'ehp'=>max(0,$eHp)];
+    if ($eHp <= 0) return ['win',  $dealt, $taken, max(0,$pHp), $log];
+    if ($pHp <= 0) return ['loss', $dealt, $taken, 0,           $log];
   }
-  return ['loss', $dealt, $taken, max(0, $pHp)];
+  return ['loss', $dealt, $taken, max(0, $pHp), $log];
 }
 
 // Combat skill
@@ -80,9 +93,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ((int)$player['level'] < (int)$e['level_req'])
         throw new RuntimeException("You're not jacked up enough for that — needs level {$e['level_req']}.");
 
+      $tactic = $_POST['tactic'] ?? 'balanced';
+      $tacticMods = [
+        'aggressive' => [1.25, 0.80],
+        'balanced'   => [1.00, 1.00],
+        'defensive'  => [0.80, 1.25],
+      ];
+      [$tAtkM, $tDefM] = $tacticMods[$tactic] ?? [1.0, 1.0];
+
       $pAtk = ATK_BASE + (int)$player['level'] * ATK_PER_LVL + intdiv($combat, ATK_PER_SKILL) + $gearAtk + $buffAtk;
       $pDef = intdiv($combat, DEF_PER_SKILL) + $gearDef + $buffDef;
-      [$outcome, $dealt, $taken, $endHp] = sim_fight((int)$player['integrity'], $pAtk, $pDef, $e);
+      [$outcome, $dealt, $taken, $endHp, $roundLog] = sim_fight((int)$player['integrity'], $pAtk, $pDef, $e, $tAtkM, $tDefM);
+      $_SESSION['sim_log'] = array_slice($roundLog, 0, 15); // store up to 15 rounds
+      $_SESSION['sim_tactic'] = $tactic;
       $fightOutcome = $outcome;
 
       $credsWon = 0; $xpWon = 0; $lootMsg = '';
@@ -187,6 +210,38 @@ $flatlined = (int)$player['integrity'] <= 0;
   </div>
 </div>
 <?php endif; ?>
+
+<?php if (!empty($_SESSION['sim_log'])): $slog = $_SESSION['sim_log']; $stac = $_SESSION['sim_tactic'] ?? 'balanced'; ?>
+<div class="panel">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+    <h3 style="margin:0">&#128202; Combat Log</h3>
+    <span style="font-size:11px;color:var(--muted);padding:2px 8px;border:1px solid var(--line);border-radius:10px"><?= ucfirst($stac) ?> Stance</span>
+  </div>
+  <div style="overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="border-bottom:1px solid var(--line)">
+      <th style="text-align:center;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase">#</th>
+      <th style="text-align:center;padding:5px 8px;color:var(--neon2);font-size:10px;text-transform:uppercase">You Deal</th>
+      <th style="text-align:center;padding:5px 8px;color:#ff9090;font-size:10px;text-transform:uppercase">Enemy Deals</th>
+      <th style="text-align:center;padding:5px 8px;color:var(--accent);font-size:10px;text-transform:uppercase">Your HP</th>
+      <th style="text-align:center;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase">Enemy HP</th>
+    </tr></thead>
+    <tbody>
+    <?php foreach ($slog as $row): ?>
+    <tr style="border-bottom:1px solid rgba(255,255,255,.04)">
+      <td style="text-align:center;padding:5px 8px;color:var(--muted)"><?= (int)$row['r'] ?></td>
+      <td style="text-align:center;padding:5px 8px;color:var(--neon2);font-weight:600">-<?= (int)$row['d'] ?></td>
+      <td style="text-align:center;padding:5px 8px;color:#ff9090;font-weight:600">-<?= (int)$row['e'] ?></td>
+      <td style="text-align:center;padding:5px 8px;color:<?= (int)$row['php'] < 20 ? 'var(--neon2)' : 'var(--accent)' ?>"><?= (int)$row['php'] ?></td>
+      <td style="text-align:center;padding:5px 8px;color:var(--muted)"><?= (int)$row['ehp'] ?></td>
+    </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+  <?php if (count($slog) >= 15): ?><p class="muted" style="text-align:center;font-size:11px;margin:8px 0 0">Showing first 15 rounds.</p><?php endif; ?>
+</div>
+<?php unset($_SESSION['sim_log']); endif; ?>
 
 <!-- Stats: integrity + combat -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px">
@@ -312,6 +367,14 @@ $flatlined = (int)$player['integrity'] <= 0;
       <form method="post" style="margin:0;margin-top:auto">
         <input type="hidden" name="action" value="engage">
         <input type="hidden" name="enemy" value="<?= e($e['code']) ?>">
+        <div style="display:flex;gap:4px;margin-bottom:6px">
+          <?php foreach (['aggressive'=>['&#128293;','ATK+25%/DEF-20%'],'balanced'=>['&#9876;','Standard'],'defensive'=>['&#128737;','DEF+25%/ATK-20%']] as $tk=>[$tic,$tl]): ?>
+          <label style="flex:1;text-align:center;cursor:pointer">
+            <input type="radio" name="tactic" value="<?= $tk ?>" <?= $tk==='balanced'?'checked':'' ?> style="display:none" class="tac-radio">
+            <span class="tac-lbl" data-val="<?= $tk ?>" style="display:block;padding:4px 2px;border-radius:4px;border:1px solid var(--line);font-size:10px;line-height:1.3;color:var(--muted);transition:all .15s;cursor:pointer"><?= $tic ?><br><?= $tl ?></span>
+          </label>
+          <?php endforeach; ?>
+        </div>
         <button type="submit" style="width:100%;background:<?= $tm['bg'] ?>;border-color:<?= $tm['border'] ?>;color:<?= $tm['color'] ?>">&#9889; Engage</button>
       </form>
     <?php endif; ?>
@@ -366,3 +429,20 @@ $flatlined = (int)$player['integrity'] <= 0;
   </div>
 </div>
 <?php endif; ?>
+
+<script>
+(function(){
+  document.querySelectorAll('.tac-radio').forEach(function(r){
+    r.addEventListener('change',function(){
+      var form=r.closest('form');
+      if(!form)return;
+      form.querySelectorAll('.tac-lbl').forEach(function(l){
+        l.style.borderColor='var(--line)';l.style.color='var(--muted)';l.style.background='';
+      });
+      var lbl=form.querySelector('.tac-lbl[data-val="'+r.value+'"]');
+      if(lbl){lbl.style.borderColor='var(--accent)';lbl.style.color='var(--accent)';lbl.style.background='rgba(25,240,199,.08)';}
+    });
+    if(r.checked) r.dispatchEvent(new Event('change'));
+  });
+})();
+</script>

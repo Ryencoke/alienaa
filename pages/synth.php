@@ -46,16 +46,10 @@ $RARITY_COLORS = ['common'=>'var(--muted)','uncommon'=>'var(--accent)','rare'=>'
 // ── Load player data ──────────────────────────────────────────────────────
 $biochem = 0;
 try {
-  $sq = $pdo->prepare("SELECT v FROM settings WHERE k=?");
-  $sq->execute(["skill:biochem:{$pid}"]); $sv = $sq->fetchColumn();
-  if ($sv !== false) $biochem = (int)$sv;
-  // also try player_skills table if it exists
-} catch (Throwable $e) {}
-try {
-  // Try skills table used by datacore
-  $sq = $pdo->prepare("SELECT pts FROM player_skills WHERE pid=? AND code='pharmacology'");
-  $sq->execute([$pid]); $sv = $sq->fetchColumn();
-  if ($sv !== false && (int)$sv > $biochem) $biochem = (int)$sv;
+  $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points) SELECT ?, id, 0 FROM skills')->execute([$pid]);
+  $sq = $pdo->prepare("SELECT FLOOR(ps.points / 100) FROM player_skills ps JOIN skills s ON s.id = ps.skill_id WHERE ps.player_id = ? AND s.code = 'chem'");
+  $sq->execute([$pid]);
+  $biochem = (int)($sq->fetchColumn() ?: 0);
 } catch (Throwable $e) {}
 
 $cycles = (int)$player['cycles'];
@@ -82,21 +76,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $act = $_POST['action'] ?? '';
   try {
     if ($act === 'gather') {
-      $compId = $_POST['comp_id'] ?? '';
-      $comp   = null;
+      $compId  = $_POST['comp_id'] ?? '';
+      $comp    = null;
       foreach ($COMPOUNDS as $c) { if ($c['id'] === $compId) { $comp = $c; break; } }
       if (!$comp) throw new RuntimeException('Invalid compound.');
-      if ($biochem < $comp['skill']) throw new RuntimeException('Requires Pharmacology Lv.' . $comp['skill'] . '.');
+      if ($biochem < $comp['skill']) throw new RuntimeException('Requires Streetchem Lv.' . $comp['skill'] . '.');
       $qty = max(1, (int)($_POST['qty'] ?? 1));
       $totalCost = $comp['cost'] * $qty;
       if ($cycles < $totalCost) throw new RuntimeException('Not enough Drive (' . $totalCost . ' needed).');
-      $bonus = ($biochem >= 3 && random_int(1, 100) <= ($biochem * 8)) ? 1 : 0;
-      $got   = $qty + $bonus;
+      $sigBonus = max(0, min(3, (int)($_POST['sig'] ?? 0)));
+      // Signal hotspot bonus: each signal bar = chance of +1 extra per gather
+      $bonus = 0;
+      for ($i = 0; $i < $sigBonus; $i++) { if (random_int(1, 100) <= 35) $bonus++; }
+      $got = $qty + $bonus;
       $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?')->execute([$totalCost, $pid, $totalCost]);
       $myComps[$compId] = ($myComps[$compId] ?? 0) + $got;
       $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["synth_comp:{$pid}", json_encode($myComps)]);
-      $msg = 'Acquired ' . $got . 'x ' . $comp['name'] . ($bonus ? ' (+1 bonus!)' : '') . '.';
+      $msg = 'Acquired ' . $got . 'x ' . $comp['name'] . ($bonus ? " (+{$bonus} from signal hotspot!)" : '') . '.';
       $player = current_player(); $cycles = (int)$player['cycles'];
+      // Refresh signals on new gather
+      foreach ($COMPOUNDS as $c2) { $signals[$c2['id']] = random_int(0, 3); }
       $tab = 'gather';
 
     } elseif ($act === 'brew') {
@@ -153,6 +152,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $totalComps = array_sum($myComps);
 $totalStims = array_sum($myStims);
+
+// Generate random signal hotspots per page load (1-3 bonus yield per compound)
+$signals = [];
+foreach ($COMPOUNDS as $c) { $signals[$c['id']] = random_int(0, 3); }
 ?>
 
 <!-- Header -->
@@ -166,7 +169,7 @@ $totalStims = array_sum($myStims);
       </div>
       <div style="display:flex;gap:12px;font-size:12px">
         <span>Drive: <b style="color:#e8a33d"><?= number_format($cycles) ?></b></span>
-        <span>Pharmacology: <b style="color:var(--accent)">Lv <?= $biochem ?></b></span>
+        <span>Streetchem: <b style="color:var(--accent)">Lv <?= $biochem ?></b></span>
       </div>
     </div>
   </div>
@@ -186,15 +189,27 @@ $totalStims = array_sum($myStims);
 <!-- ===================== GATHER ===================== -->
 <?php if ($tab === 'gather'): ?>
 <div class="panel">
-  <p class="muted" style="font-size:12px;margin-top:0;margin-bottom:12px">Spend Drive to acquire raw compounds. Higher Pharmacology level gives a bonus chance to gain extra units.</p>
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+    <p class="muted" style="font-size:12px;margin:0">Spend Drive to acquire raw compounds. Each compound node has a random <b>Signal Hotspot</b> level — higher signal = bonus yield chance (35% per bar).</p>
+    <div style="font-size:11px;color:var(--muted);white-space:nowrap">
+      &#128267; <span style="color:#4d6be8">&#9646;&#9646;&#9646;</span>=Strong &nbsp;
+      <span style="color:#e8a33d">&#9646;&#9646;&#9647;</span>=Med &nbsp;
+      <span style="color:var(--muted)">&#9646;&#9647;&#9647;</span>=Weak &nbsp;
+      <span style="color:var(--line)">&#9647;&#9647;&#9647;</span>=None
+    </div>
+  </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
     <?php foreach ($COMPOUNDS as $c):
-      $locked = $biochem < $c['skill'];
-      $owned  = $myComps[$c['id']] ?? 0;
-      $maxQty = $c['cost'] > 0 ? max(1, (int)floor($cycles / $c['cost'])) : 1;
-      $rarCol = $RARITY_COLORS[$c['rarity']] ?? 'var(--muted)';
+      $locked  = $biochem < $c['skill'];
+      $owned   = $myComps[$c['id']] ?? 0;
+      $maxQty  = $c['cost'] > 0 ? max(1, (int)floor($cycles / $c['cost'])) : 1;
+      $rarCol  = $RARITY_COLORS[$c['rarity']] ?? 'var(--muted)';
+      $sig     = $signals[$c['id']] ?? 0;
+      $sigColors= [0=>'var(--line)', 1=>'var(--muted)', 2=>'#e8a33d', 3=>'#4d6be8'];
+      $sigBars = '';
+      for ($bb=1;$bb<=3;$bb++) $sigBars .= '<span style="color:'.($bb<=$sig ? $sigColors[$sig] : 'var(--line)').'">&#9646;</span>';
     ?>
-    <div style="background:var(--panel2);border:1px solid <?= $locked ? 'var(--line)' : 'rgba(25,240,199,.15)' ?>;border-radius:8px;padding:12px;<?= $locked ? 'opacity:.5' : '' ?>">
+    <div style="background:var(--panel2);border:1px solid <?= ($sig>=3) ? '#4d6be8' : (($sig>=2) ? 'rgba(232,163,61,.4)' : ($locked ? 'var(--line)' : 'rgba(25,240,199,.15)')) ?>;border-radius:8px;padding:12px;<?= $locked ? 'opacity:.5' : '' ?>">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <span style="font-size:22px"><?= $c['icon'] ?></span>
         <div style="flex:1;min-width:0">
@@ -202,19 +217,21 @@ $totalStims = array_sum($myStims);
           <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= e($c['desc']) ?></div>
         </div>
         <div style="text-align:right;flex:none">
-          <div style="font-size:11px;color:var(--accent);font-weight:700">x<?= $owned ?></div>
-          <div style="font-size:10px;color:var(--muted)">owned</div>
+          <div style="font-size:13px;letter-spacing:1px"><?= $sigBars ?></div>
+          <div style="font-size:10px;color:var(--muted)">signal</div>
+          <div style="font-size:11px;color:var(--accent);font-weight:700;margin-top:2px">x<?= $owned ?></div>
         </div>
       </div>
       <?php if ($locked): ?>
-        <div style="font-size:11px;color:var(--neon2)">&#128274; Pharmacology Lv.<?= $c['skill'] ?></div>
+        <div style="font-size:11px;color:var(--neon2)">&#128274; Streetchem Lv.<?= $c['skill'] ?></div>
       <?php else: ?>
         <form method="post" style="margin:0;display:flex;gap:6px;align-items:center">
           <input type="hidden" name="action" value="gather">
           <input type="hidden" name="comp_id" value="<?= e($c['id']) ?>">
+          <input type="hidden" name="sig" value="<?= $sig ?>">
           <input type="number" name="qty" value="1" min="1" max="<?= $maxQty ?>" style="width:60px;padding:4px 6px;font-size:12px">
-          <span style="font-size:10px;color:var(--muted);flex:1"><?= $c['cost'] ?> cy/unit</span>
-          <button type="submit" style="padding:5px 12px;font-size:11px" <?= $cycles < $c['cost'] ? 'disabled' : '' ?>>Acquire</button>
+          <span style="font-size:10px;color:var(--muted);flex:1"><?= $c['cost'] ?> drive/unit</span>
+          <button type="submit" style="padding:5px 12px;font-size:11px;<?= $sig>=3 ? 'border-color:#4d6be8;color:#4d6be8;background:rgba(77,107,232,.1)' : ($sig>=2 ? 'border-color:rgba(232,163,61,.5);color:#e8a33d;background:rgba(232,163,61,.08)' : '') ?>" <?= $cycles < $c['cost'] ? 'disabled' : '' ?>>Acquire</button>
         </form>
       <?php endif; ?>
     </div>
@@ -236,7 +253,7 @@ $totalStims = array_sum($myStims);
         <span style="font-size:20px"><?= $s['icon'] ?></span>
         <div>
           <div style="font-weight:700;font-size:13px;color:var(--accent)"><?= e($s['name']) ?></div>
-          <?php if ($locked): ?><div style="font-size:10px;color:var(--neon2)">&#128274; Pharmacology Lv.<?= $s['skill'] ?></div><?php endif; ?>
+          <?php if ($locked): ?><div style="font-size:10px;color:var(--neon2)">&#128274; Streetchem Lv.<?= $s['skill'] ?></div><?php endif; ?>
         </div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px"><?= e($s['desc']) ?></div>
@@ -298,7 +315,7 @@ $totalStims = array_sum($myStims);
 
 <?php if ($biochem === 0): ?>
 <div style="background:rgba(255,45,149,.06);border:1px solid rgba(255,45,149,.2);border-radius:7px;padding:12px;font-size:12px;color:var(--muted);text-align:center">
-  &#128161; Train <b>Pharmacology</b> at the <a href="index.php?p=datacore&act=lab">Skillsoft Lab</a> to unlock higher-tier compounds and stims.
+  &#128161; Train <b>Streetchem</b> at the <a href="index.php?p=datacore&act=lab">Skillsoft Lab</a> to unlock higher-tier compounds and stims.
 </div>
 <?php endif; ?>
 <?php endif; ?>

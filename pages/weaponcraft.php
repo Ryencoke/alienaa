@@ -26,22 +26,70 @@ try {
 
 // Recipes: [id, name, type, atk_bonus, def_bonus, icon, color, desc, cost: ['ore'=>qty,...]]
 $RECIPES = [
-  // Weapons
-  ['scrap_shiv',      'Scrap Shiv',          'weapon',  4,  0, '&#128299;', '#8a8fa8', 'Jagged junk metal sharpened on concrete. Crude but cuts.',          ['scrap'=>6]],
-  ['copper_blade',    'Copper Blade',         'weapon', 12,  0, '&#9876;',   '#e8a33d', 'Copper-alloyed fighting blade. Reliable in a close fight.',         ['copper'=>8, 'scrap'=>4]],
-  ['iron_sword',      'Iron Machete',         'weapon', 22,  0, '&#9874;',   '#b0b8cc', 'Heavy-gauge iron blade. Cleaves through standard armor.',           ['iron'=>10, 'copper'=>5]],
-  ['titan_blade',     'Titan Blade',          'weapon', 36,  0, '&#128481;', '#19f0c7', 'Aerospace-grade titanium edge. Surgical strike capability.',        ['titanium'=>8, 'iron'=>4]],
-  ['nano_edge',       'Nano-Edge Katana',     'weapon', 55,  0, '&#128302;', '#ff2d95', 'Mono-molecular nano-carbon edge. Cuts through most plating.',       ['nanocarbon'=>6, 'titanium'=>5]],
-  ['quantum_saber',   'Quantum Saber',        'weapon', 78,  0, '&#128142;', '#a66de8', 'Quantum-lattice blade that disrupts defensive fields on contact.',  ['quantum'=>4, 'nanocarbon'=>3]],
-  ['void_reaper',     'Void Reaper',          'weapon',110,  0, '&#11088;',  '#e8d44d', 'Forged from void metal. Legends say it cuts through reality itself.',['void'=>3, 'quantum'=>2]],
-  // Armor
-  ['scrap_vest',      'Scrap Vest',           'armor',  0,  6, '&#128737;', '#8a8fa8', 'Bolted-together salvage. Won\'t stop much, but it\'s something.',    ['scrap'=>8]],
-  ['copper_mesh',     'Copper Mesh Vest',     'armor',  0, 15, '&#129683;', '#e8a33d', 'Woven copper mesh. Decent protection for early-grid runners.',       ['copper'=>10, 'scrap'=>5]],
-  ['iron_plate',      'Iron Plate Carrier',   'armor',  0, 28, '&#129667;', '#b0b8cc', 'Full-coverage iron plating. Heavy but highly protective.',           ['iron'=>12, 'copper'=>6]],
-  ['titan_armor',     'Titan Exo-Shell',      'armor',  0, 45, '&#127760;', '#19f0c7', 'Lightweight titanium exoskeleton. Moves like mesh, stops like rock.', ['titanium'=>10, 'iron'=>5]],
-  ['nano_weave',      'Nano-Weave Suit',      'armor',  0, 68, '&#127951;', '#ff2d95', 'Nano-carbon composite weave. Near-impenetrable to standard rounds.',  ['nanocarbon'=>8, 'titanium'=>4]],
-  ['quantum_shell',   'Quantum Shell Armor',  'armor',  0, 95, '&#128083;', '#a66de8', 'Quantum-phased shell armor. Partially phase-shifts incoming damage.',  ['quantum'=>5, 'nanocarbon'=>4]],
-  ['void_plate',      'Void Plate Aegis',     'armor',  0,130, '&#11088;',  '#e8d44d', 'Void metal armor that warps physics around your body.',              ['void'=>4, 'quantum'=>3]],
+  // ── Weapons ──
+  ['scrap_shiv',      'Scrap Shiv',           'weapon',  4,  0, '&#128299;', '#8a8fa8', 'Jagged junk metal sharpened on concrete. Crude but cuts.',           ['scrap'=>6]],
+  ['scrap_cleaver',   'Scrap Cleaver',        'weapon',  6,  1, '&#9876;',   '#8a8fa8', 'Serrated scrap edge bolted to a broken pipe. Messy.',                ['scrap'=>8, 'copper'=>1]],
+  ['junk_flail',      'Junk Flail',           'weapon',  7,  0, '&#9876;',   '#8a8fa8', 'Chain-linked metal scraps. Unpredictable swing arc.',                ['scrap'=>10]],
+  ['copper_blade',    'Copper Blade',         'weapon', 12,  0, '&#9876;',   '#e8a33d', 'Copper-alloyed fighting blade. Reliable in a close fight.',          ['copper'=>8, 'scrap'=>4]],
+  ['copper_knuckles', 'Copper Knuckles',      'weapon', 14,  0, '&#128299;', '#e8a33d', 'Cast copper knuckle dusters — quiet, personal, effective.',          ['copper'=>6, 'scrap'=>4]],
+  ['copper_chain',    'Copper Chain',         'weapon', 16,  1, '&#9876;',   '#e8a33d', 'Heavy copper chain used for leverage and lethality.',                ['copper'=>9, 'scrap'=>5]],
+  ['copper_halberd',  'Copper Halberd',       'weapon', 18,  0, '&#9874;',   '#e8a33d', 'Long-hafted copper pole-blade. Reach advantage in corridor fights.', ['copper'=>11, 'scrap'=>6]],
+  ['iron_sword',      'Iron Machete',         'weapon', 22,  0, '&#9874;',   '#b0b8cc', 'Heavy-gauge iron blade. Cleaves through standard armor.',            ['iron'=>10, 'copper'=>5]],
+  ['iron_staff',      'Iron Staff',           'weapon', 24,  1, '&#9876;',   '#b0b8cc', 'Solid iron fighting staff. Blocks as well as strikes.',              ['iron'=>8, 'copper'=>6]],
+  ['iron_gauntlet',   'Iron Gauntlet',        'weapon', 26,  2, '&#128299;', '#b0b8cc', 'Reinforced iron punch-driver. Bone-shattering on impact.',           ['iron'=>10, 'copper'=>4]],
+  ['iron_mauler',     'Iron Mauler',          'weapon', 30,  0, '&#9876;',   '#b0b8cc', 'Two-headed iron maul. Slow but devastating.',                        ['iron'=>13, 'copper'=>5]],
+  ['titan_blade',     'Titan Blade',          'weapon', 36,  0, '&#128481;', '#19f0c7', 'Aerospace-grade titanium edge. Surgical strike capability.',         ['titanium'=>8, 'iron'=>4]],
+  ['titan_spear',     'Titan Spear',          'weapon', 40,  0, '&#9874;',   '#19f0c7', 'Titanium-tipped combat spear. Penetrates most light armor.',         ['titanium'=>9, 'copper'=>3]],
+  ['titan_shotgun',   'Titan Shotgun',        'weapon', 42,  0, '&#128299;', '#19f0c7', 'Titanium-frame breach-loader. Wide spread pattern.',                 ['titanium'=>10, 'iron'=>5]],
+  ['titan_rapier',    'Titan Rapier',         'weapon', 45,  0, '&#9876;',   '#19f0c7', 'Flexible titanium thrusting blade. Precise and fast.',               ['titanium'=>11, 'iron'=>3]],
+  ['nano_edge',       'Nano-Edge Katana',     'weapon', 55,  0, '&#128302;', '#ff2d95', 'Mono-molecular nano-carbon edge. Cuts through most plating.',        ['nanocarbon'=>6, 'titanium'=>5]],
+  ['nano_sword',      'Nano Sword',           'weapon', 60,  0, '&#9876;',   '#ff2d95', 'Nano-forged carbon blade. Lighter than titanium, sharper than glass.',['nanocarbon'=>7, 'titanium'=>4]],
+  ['nano_crossbow',   'Carbon Crossbow',      'weapon', 62,  0, '&#128299;', '#ff2d95', 'Nano-carbon limbs, near-silent discharge. Armor-piercing bolts.',     ['nanocarbon'=>7, 'iron'=>4]],
+  ['nano_flail',      'Nano Flail',           'weapon', 65,  0, '&#9876;',   '#ff2d95', 'Nano-filament chain weapon. Wraps and cuts simultaneously.',          ['nanocarbon'=>8, 'iron'=>3]],
+  ['nano_rifle',      'Nano Rifle',           'weapon', 68,  0, '&#128299;', '#ff2d95', 'Nano-carbon barrel with near-zero flex. Exceptional accuracy.',       ['nanocarbon'=>7, 'quantum'=>1]],
+  ['quantum_saber',   'Quantum Saber',        'weapon', 78,  0, '&#128142;', '#a66de8', 'Quantum-lattice blade that disrupts defensive fields on contact.',   ['quantum'=>4, 'nanocarbon'=>3]],
+  ['quantum_spear',   'Quantum Spear',        'weapon', 82,  0, '&#9874;',   '#a66de8', 'Quantum-resonance tip. Bypasses first layer of energy shielding.',   ['quantum'=>5, 'titanium'=>3]],
+  ['quantum_rifle',   'Quantum Rifle',        'weapon', 85,  0, '&#128299;', '#a66de8', 'Accelerates projectiles through a quantum field lens.',               ['quantum'=>5, 'nanocarbon'=>2]],
+  ['quantum_blade',   'Quantum Blade',        'weapon', 88,  0, '&#128481;', '#a66de8', 'Phase-locking blade — resonates at target matter frequency.',         ['quantum'=>6, 'nanocarbon'=>2]],
+  ['quantum_canon',   'Quantum Canon',        'weapon', 92,  0, '&#128299;', '#a66de8', 'Fires a compressed quantum bolt. Obliterates soft targets.',          ['quantum'=>7, 'void'=>1]],
+  ['void_reaper',     'Void Reaper',          'weapon',110,  0, '&#11088;',  '#e8d44d', 'Forged from void metal. Legends say it cuts through reality itself.', ['void'=>3, 'quantum'=>2]],
+  ['void_lance',      'Void Lance',           'weapon',118,  0, '&#9874;',   '#e8d44d', 'Void-infused spear tip. Tears open spatial pockets on impact.',       ['void'=>4, 'nanocarbon'=>2]],
+  ['void_hammer',     'Void Hammer',          'weapon',125,  0, '&#9876;',   '#e8d44d', 'Void-metal hammerhead. Warps local spacetime on each blow.',          ['void'=>4, 'quantum'=>2]],
+  ['void_shard',      'Void Shard',           'weapon',130,  0, '&#11088;',  '#e8d44d', 'A crystallised fragment of void metal filed to a lethal point.',      ['void'=>5, 'quantum'=>1]],
+  ['void_fist',       'Void Fist',            'weapon',135,  0, '&#128299;', '#e8d44d', 'Void-metal gauntlet. Punch through hardlight shields bare-handed.',   ['void'=>6, 'quantum'=>2]],
+  ['void_cannon',     'Void Cannon',          'weapon',140,  0, '&#128299;', '#e8d44d', 'Annihilation-class weapon. Banned in six city-states.',               ['void'=>7, 'quantum'=>3]],
+
+  // ── Armor ──
+  ['scrap_vest',      'Scrap Vest',           'armor',  0,  6, '&#128737;', '#8a8fa8', 'Bolted-together salvage. Won\'t stop much, but it\'s something.',     ['scrap'=>8]],
+  ['scrap_buckler',   'Scrap Buckler',        'armor',  0,  8, '&#128737;', '#8a8fa8', 'Sheet metal bolted into a rough breastplate. Dents instead of bleeds.',['scrap'=>10]],
+  ['junk_plating',    'Junk Plating',         'armor',  0,  9, '&#128737;', '#8a8fa8', 'Layered junk scraps riveted over a cloth base. Better than nothing.',  ['scrap'=>12]],
+  ['copper_mesh',     'Copper Mesh Vest',     'armor',  0, 15, '&#129683;', '#e8a33d', 'Woven copper mesh. Decent protection for early-grid runners.',         ['copper'=>10, 'scrap'=>5]],
+  ['copper_jacket',   'Copper Jacket',        'armor',  0, 18, '&#128737;', '#e8a33d', 'Copper-thread reinforced jacket. Flexible and surprisingly tough.',    ['copper'=>11, 'scrap'=>6]],
+  ['copper_shell',    'Copper Shell',         'armor',  0, 20, '&#128737;', '#e8a33d', 'Pressed copper sheets over a rigid frame. Holds its shape under fire.',['copper'=>12, 'scrap'=>5]],
+  ['copper_guard',    'Copper Guard',         'armor',  0, 22, '&#128737;', '#e8a33d', 'Full copper plating system. Heavy but solid for the first tier.',      ['copper'=>14, 'scrap'=>4]],
+  ['iron_plate',      'Iron Plate Carrier',   'armor',  0, 28, '&#129667;', '#b0b8cc', 'Full-coverage iron plating. Heavy but highly protective.',             ['iron'=>12, 'copper'=>6]],
+  ['iron_coat',       'Iron Coat',            'armor',  0, 30, '&#128737;', '#b0b8cc', 'Heavy iron-reinforced longcoat. Slows movement but absorbs impacts.',  ['iron'=>12, 'copper'=>5]],
+  ['iron_carapace',   'Iron Carapace',        'armor',  0, 32, '&#128737;', '#b0b8cc', 'Full-body iron shell assembly. The grid called it overkill. It lied.', ['iron'=>14, 'copper'=>5]],
+  ['iron_bulwark',    'Iron Bulwark',         'armor',  0, 35, '&#128737;', '#b0b8cc', 'Reinforced iron layering with extra shoulder guards.',                 ['iron'=>14, 'copper'=>7]],
+  ['titan_armor',     'Titan Exo-Shell',      'armor',  0, 45, '&#127760;', '#19f0c7', 'Lightweight titanium exoskeleton. Moves like mesh, stops like rock.',  ['titanium'=>10, 'iron'=>5]],
+  ['titan_vest',      'Titan Vest',           'armor',  0, 48, '&#128737;', '#19f0c7', 'Titanium plate carrier. Light enough to sprint in, dense enough to tank.',['titanium'=>11, 'iron'=>5]],
+  ['titan_shield',    'Titan Shield',         'armor',  0, 50, '&#128737;', '#19f0c7', 'Full-body titanium deflection shell. Elite early protection.',          ['titanium'=>12, 'iron'=>4]],
+  ['titan_mantle',    'Titan Mantle',         'armor',  0, 52, '&#128737;', '#19f0c7', 'Layered titanium-fibre cloak-armour hybrid. Rare construction.',        ['titanium'=>13, 'iron'=>4]],
+  ['titan_husk',      'Titan Husk',           'armor',  0, 55, '&#128737;', '#19f0c7', 'Full titanium carapace with nano-fibre inner lining.',                  ['titanium'=>14, 'nanocarbon'=>1]],
+  ['nano_weave',      'Nano-Weave Suit',      'armor',  0, 68, '&#127951;', '#ff2d95', 'Nano-carbon composite weave. Near-impenetrable to standard rounds.',    ['nanocarbon'=>8, 'titanium'=>4]],
+  ['nano_shell',      'Nano Shell',           'armor',  0, 70, '&#128737;', '#ff2d95', 'Nano-carbon outer shell over reactive foam interior.',                  ['nanocarbon'=>9, 'titanium'=>4]],
+  ['nano_lattice',    'Nano Lattice',         'armor',  0, 72, '&#128737;', '#ff2d95', 'Lattice-woven nano-fibre. Distributes impact across the whole suit.',   ['nanocarbon'=>10, 'titanium'=>3]],
+  ['nano_fortress',   'Nano Fortress',        'armor',  0, 75, '&#128737;', '#ff2d95', 'Dense nano-carbon fortress suit. Barely flexible but nearly impregnable.',['nanocarbon'=>12, 'quantum'=>1]],
+  ['quantum_shell',   'Quantum Shell Armor',  'armor',  0, 95, '&#128083;', '#a66de8', 'Quantum-phased shell armor. Partially phase-shifts incoming damage.',    ['quantum'=>5, 'nanocarbon'=>4]],
+  ['quantum_plate',   'Quantum Plate',        'armor',  0,100, '&#128737;', '#a66de8', 'Quantum-locked plate system. Probability-shifted to resist hits.',       ['quantum'=>6, 'nanocarbon'=>3]],
+  ['quantum_barrier', 'Quantum Barrier',      'armor',  0,105, '&#128737;', '#a66de8', 'Generates a low-level quantum shield field around the wearer.',          ['quantum'=>7, 'nanocarbon'=>3]],
+  ['quantum_shroud',  'Quantum Shroud',       'armor',  0,108, '&#128737;', '#a66de8', 'Quantum-threaded cloak. Near-invisible to targeting systems.',           ['quantum'=>7, 'void'=>1]],
+  ['quantum_dome',    'Quantum Dome',         'armor',  0,112, '&#128737;', '#a66de8', 'Projected quantum field dome. Absorbs high-yield kinetic rounds.',       ['quantum'=>8, 'nanocarbon'=>2]],
+  ['void_plate',      'Void Plate Aegis',     'armor',  0,130, '&#11088;',  '#e8d44d', 'Void metal armor that warps physics around your body.',                  ['void'=>4, 'quantum'=>3]],
+  ['void_carapace',   'Void Carapace',        'armor',  0,135, '&#128737;', '#e8d44d', 'Full void-metal carapace. Incoming attacks partially phase through.',    ['void'=>5, 'quantum'=>2]],
+  ['void_matrix',     'Void Matrix',          'armor',  0,140, '&#128737;', '#e8d44d', 'Void-lattice matrix suit. Bends physics to deflect anything.',           ['void'=>5, 'quantum'=>3]],
+  ['void_bastion',    'Void Bastion',         'armor',  0,145, '&#128737;', '#e8d44d', 'Void-forge bastion plate. The heaviest defensive build in existence.',   ['void'=>6, 'quantum'=>2]],
+  ['void_absolute',   'Void Absolute',        'armor',  0,150, '&#11088;',  '#e8d44d', 'Ultimate void-metal fortress. It doesn\'t stop attacks — it unmakes them.',['void'=>7, 'quantum'=>3]],
 ];
 
 // Ore icons/names for display
@@ -194,25 +242,36 @@ function canAfford($cost, $oreInv) {
   <?php endif; ?>
 </div>
 
-<!-- Recipes — two columns: weapons / armor -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+<?php
+$wctab = in_array($_GET['tab'] ?? '', ['weapons','armor','arsenal']) ? $_GET['tab'] : 'weapons';
+$wcounts = ['weapons'=>0,'armor'=>0,'arsenal'=>count($myGear)];
+foreach ($RECIPES as $r) { if ($r[2]==='weapon') $wcounts['weapons']++; else $wcounts['armor']++; }
+?>
+<!-- Tab Nav -->
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+  <?php foreach (['weapons'=>'&#128299; Weapons ('.$wcounts['weapons'].')','armor'=>'&#128737; Armor ('.$wcounts['armor'].')','arsenal'=>'&#127863; Your Arsenal ('.$wcounts['arsenal'].')'] as $tk=>$tl): ?>
+  <a href="index.php?p=weaponcraft&tab=<?= $tk ?>" style="padding:7px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $wctab===$tk?'var(--accent)':'var(--line)' ?>;background:<?= $wctab===$tk?'rgba(25,240,199,.1)':'var(--panel2)' ?>;color:<?= $wctab===$tk?'var(--accent)':'var(--muted)' ?>"><?= $tl ?></a>
+  <?php endforeach; ?>
+</div>
 
-<!-- Weapons -->
-<div class="panel" style="margin-bottom:0">
+<?php if ($wctab === 'weapons'): ?>
+<div class="panel">
   <h3 style="margin-top:0">&#128299; Weapons</h3>
+  <p class="muted" style="font-size:12px;margin-bottom:12px">Craft from ore mined at The Sump. Red ore cost = you need more.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">
   <?php foreach ($RECIPES as $r): if ($r[2] !== 'weapon') continue; $affordable = canAfford($r[8], $oreInv); ?>
-  <div style="border:1px solid <?= $affordable ? 'rgba(25,240,199,.25)' : 'var(--line)' ?>;border-radius:7px;padding:10px;margin-bottom:8px;background:var(--panel2);<?= !$affordable ? 'opacity:.7' : '' ?>">
+  <div style="border:1px solid <?= $affordable ? 'rgba(25,240,199,.25)' : 'var(--line)' ?>;border-radius:7px;padding:10px;background:var(--panel2);<?= !$affordable ? 'opacity:.7' : '' ?>">
     <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
       <span style="font-size:22px;flex:none"><?= $r[5] ?></span>
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:13px;color:<?= e($r[6]) ?>"><?= e($r[1]) ?></div>
         <div style="font-size:11px;color:var(--muted);margin:2px 0 4px"><?= e($r[7]) ?></div>
-        <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.2);border-radius:4px;padding:2px 8px;font-size:11px;color:var(--neon2);font-weight:700">+<?= $r[3] ?> ATK</div>
+        <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.2);border-radius:4px;padding:2px 8px;font-size:11px;color:var(--neon2);font-weight:700">+<?= $r[3] ?> ATK<?= $r[4]>0?' &nbsp;+'.e($r[4]).' DEF':'' ?></div>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
-      <?php foreach ($r[8] as $ore => $need): ?>
-        <span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px;color:<?= ($oreInv[$ore]??0)>=$need?'var(--text)':'var(--neon2)' ?>">
+    <div style="font-size:11px;margin-bottom:6px;display:flex;flex-wrap:wrap;gap:4px">
+      <?php foreach ($r[8] as $ore => $need): $ok=($oreInv[$ore]??0)>=$need; ?>
+        <span style="background:<?= $ok?'rgba(25,240,199,.07)':'rgba(255,45,149,.07)' ?>;border:1px solid <?= $ok?'rgba(25,240,199,.2)':'rgba(255,45,149,.3)' ?>;border-radius:4px;padding:2px 7px;color:<?= $ok?'var(--text)':'var(--neon2)' ?>">
           <?= $ORE_NAMES[$ore][1] ?> <?= $need ?>× <?= $ORE_NAMES[$ore][0] ?>
         </span>
       <?php endforeach; ?>
@@ -226,24 +285,27 @@ function canAfford($cost, $oreInv) {
     </form>
   </div>
   <?php endforeach; ?>
+  </div>
 </div>
 
-<!-- Armor -->
-<div class="panel" style="margin-bottom:0">
+<?php elseif ($wctab === 'armor'): ?>
+<div class="panel">
   <h3 style="margin-top:0">&#128737; Armor</h3>
+  <p class="muted" style="font-size:12px;margin-bottom:12px">Higher DEF means more survivability in combat. Red ore cost = you need more.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">
   <?php foreach ($RECIPES as $r): if ($r[2] !== 'armor') continue; $affordable = canAfford($r[8], $oreInv); ?>
-  <div style="border:1px solid <?= $affordable ? 'rgba(25,240,199,.25)' : 'var(--line)' ?>;border-radius:7px;padding:10px;margin-bottom:8px;background:var(--panel2);<?= !$affordable ? 'opacity:.7' : '' ?>">
+  <div style="border:1px solid <?= $affordable ? 'rgba(25,240,199,.25)' : 'var(--line)' ?>;border-radius:7px;padding:10px;background:var(--panel2);<?= !$affordable ? 'opacity:.7' : '' ?>">
     <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
       <span style="font-size:22px;flex:none"><?= $r[5] ?></span>
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:13px;color:<?= e($r[6]) ?>"><?= e($r[1]) ?></div>
         <div style="font-size:11px;color:var(--muted);margin:2px 0 4px"><?= e($r[7]) ?></div>
-        <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.2);border-radius:4px;padding:2px 8px;font-size:11px;color:var(--accent);font-weight:700">+<?= $r[4] ?> DEF</div>
+        <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.2);border-radius:4px;padding:2px 8px;font-size:11px;color:var(--accent);font-weight:700">+<?= $r[4] ?> DEF<?= $r[3]>0?' &nbsp;+'.e($r[3]).' ATK':'' ?></div>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
-      <?php foreach ($r[8] as $ore => $need): ?>
-        <span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px;color:<?= ($oreInv[$ore]??0)>=$need?'var(--text)':'var(--neon2)' ?>">
+    <div style="font-size:11px;margin-bottom:6px;display:flex;flex-wrap:wrap;gap:4px">
+      <?php foreach ($r[8] as $ore => $need): $ok=($oreInv[$ore]??0)>=$need; ?>
+        <span style="background:<?= $ok?'rgba(25,240,199,.07)':'rgba(255,45,149,.07)' ?>;border:1px solid <?= $ok?'rgba(25,240,199,.2)':'rgba(255,45,149,.3)' ?>;border-radius:4px;padding:2px 7px;color:<?= $ok?'var(--text)':'var(--neon2)' ?>">
           <?= $ORE_NAMES[$ore][1] ?> <?= $need ?>× <?= $ORE_NAMES[$ore][0] ?>
         </span>
       <?php endforeach; ?>
@@ -257,15 +319,17 @@ function canAfford($cost, $oreInv) {
     </form>
   </div>
   <?php endforeach; ?>
+  </div>
 </div>
 
-</div>
+<?php elseif ($wctab === 'arsenal'): ?>
 
-<!-- Crafted Gear Inventory -->
-<?php if (!empty($myGear)): ?>
 <div class="panel">
   <h3 style="margin-top:0">&#127863; Your Arsenal</h3>
-  <p class="muted" style="font-size:12px;margin-bottom:12px">Equip one weapon and one armor at a time. Equipped gear boosts your Combat Arena stats.</p>
+  <p class="muted" style="font-size:12px;margin-bottom:12px">Equip one weapon and one armor at a time. Equipped gear boosts your Combat stats.</p>
+  <?php if (empty($myGear)): ?>
+    <p class="muted" style="text-align:center;padding:16px">No gear crafted yet. Head to Weapons or Armor tab to fabricate something.</p>
+  <?php else: ?>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
     <?php foreach ($myGear as $g):
       $isEquipped = ($g['gear_type']==='weapon' ? $equippedWeapon : $equippedArmor) === (int)$g['id'];
@@ -307,10 +371,7 @@ function canAfford($cost, $oreInv) {
     </div>
     <?php endforeach; ?>
   </div>
+  <?php endif; ?>
 </div>
-<?php endif; ?>
 
-<p class="muted" style="text-align:center">
-  <a href="index.php?p=mining">&larr; The Sump (Mining)</a>
-  &middot; <a href="index.php?p=pvp">Combat Arena &rarr;</a>
-</p>
+<?php endif; // end tab block ?>

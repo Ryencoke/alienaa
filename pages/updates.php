@@ -52,10 +52,11 @@ $pages = max(1, (int)ceil($total / UPDATES_PER_PAGE));
 $pg    = min($pg, $pages);
 $off   = ($pg - 1) * UPDATES_PER_PAGE;
 
-$stmt = $pdo->prepare('SELECT u.id, u.body, u.credit, u.created_at,
+$stmt = $pdo->prepare('SELECT u.id, u.body, u.credit, u.created_at, p.username AS posted_by,
                        (SELECT COALESCE(SUM(value),0) FROM update_votes v WHERE v.update_id = u.id) AS score,
                        (SELECT COALESCE(value,0) FROM update_votes v WHERE v.update_id = u.id AND v.player_id = ?) AS my_vote
-                     FROM updates u ORDER BY u.created_at DESC, u.id DESC
+                     FROM updates u LEFT JOIN players p ON p.id = u.author_id
+                     ORDER BY u.created_at DESC, u.id DESC
                      LIMIT ' . (int)UPDATES_PER_PAGE . ' OFFSET ' . (int)$off);
 $stmt->execute([$pid]);
 $rows = $stmt->fetchAll();
@@ -99,7 +100,10 @@ function uvote($uid, $dir, $glyph, $myVote) {
       </div>
       <div class="updbody">
         <?= bbcode($r['body']) ?>
-        <?php if (trim($r['credit']) !== ''): ?><div class="muted" style="font-style:italic;font-size:11px;margin-top:6px">&#128172; Thanks to <?= e($r['credit']) ?></div><?php endif; ?>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;display:flex;gap:12px;flex-wrap:wrap">
+          <span>&#128100; Posted by <b style="color:var(--accent)"><?= e($r['posted_by'] ?? 'Staff') ?></b></span>
+          <?php if (trim($r['credit']) !== ''): ?><span style="font-style:italic">&#128172; Thanks to <?= e($r['credit']) ?></span><?php endif; ?>
+        </div>
       </div>
       <div class="updvote">
         <?= uvote($r['id'], 'up', '&#9650;', (int)$r['my_vote']) ?>

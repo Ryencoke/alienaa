@@ -2,7 +2,7 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
-$MAXBET = 1000000;
+$MAXBET = 10000;
 
 if (!function_exists('bj_value')) {
   function bj_value($hand) {

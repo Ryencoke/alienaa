@@ -2,7 +2,7 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
-$MAXBET = 1000000;
+$MAXBET = 10000;
 
 if (!function_exists('vp_eval')) {
   function vp_rankval($r) { $m = ['J'=>11,'Q'=>12,'K'=>13,'A'=>14]; return $m[$r] ?? (int)$r; }

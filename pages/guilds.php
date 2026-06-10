@@ -166,10 +166,16 @@ $tab = in_array($_GET['tab'] ?? '', ['home','board','members','search','create']
 <?php endif; ?>
 <div class="panel">
   <h3 style="margin-top:0">Donate Credits</h3>
-  <form method="post" style="display:flex;gap:8px;align-items:center">
+  <form method="post">
     <input type="hidden" name="action" value="donate">
-    <input type="number" name="amount" min="1" placeholder="Amount" style="flex:1">
-    <button type="submit" style="font-size:12px">&#128178; Donate</button>
+    <div class="field">
+      <span>Amount <span class="muted" style="font-size:11px">Pocket: <?= number_format((int)$player['creds_pocket']) ?> cr</span></span>
+      <div class="num-wrap">
+        <input type="number" name="amount" id="donateAmt" min="1" max="<?= (int)$player['creds_pocket'] ?>" placeholder="0">
+        <button type="button" class="fill-max" onclick="document.getElementById('donateAmt').value=<?= (int)$player['creds_pocket'] ?>">Max</button>
+      </div>
+    </div>
+    <button type="submit" style="margin-top:8px;font-size:12px" <?= (int)$player['creds_pocket'] < 1 ? 'disabled' : '' ?>>&#128178; Donate</button>
   </form>
   <p class="muted" style="font-size:11px;margin:6px 0 0">Donations give XP to the Syndicate. The bank is controlled by leadership.</p>
 </div>
@@ -196,18 +202,17 @@ $tab = in_array($_GET['tab'] ?? '', ['home','board','members','search','create']
 <?php
   $posts = [];
   try { $q = $pdo->prepare('SELECT sp.*, p.username, p.role, p.chat_color FROM syndicate_posts sp JOIN players p ON p.id=sp.author_id WHERE sp.syndicate_id=? ORDER BY sp.id DESC LIMIT 30'); $q->execute([$mySyn['syndicate_id']]); $posts = $q->fetchAll(); } catch (Throwable $e) {}
-  foreach ($posts as $post):
-    $pcol = chat_color($post['role'], $post['chat_color']);
 ?>
+<?php foreach ($posts as $post): $pcol = chat_color($post['role'], $post['chat_color']); ?>
 <div class="panel" style="padding:14px">
   <div style="font-weight:700;font-size:14px;margin-bottom:6px"><?= e($post['title']) ?></div>
   <div style="font-size:12px;color:var(--muted);white-space:pre-wrap"><?= e($post['body']) ?></div>
   <div style="margin-top:8px;font-size:11px;color:var(--muted)">by <b style="color:<?= e($pcol) ?>"><?= e($post['username']) ?></b> &middot; <?= e(date('M j Y', strtotime($post['created_at']))) ?></div>
 </div>
-<?php endforeach;
-if (empty($posts)) echo '<div class="panel" style="color:var(--muted);text-align:center">No posts yet.</div>';
+<?php endforeach; ?>
+<?php if (empty($posts)) { echo '<div class="panel" style="color:var(--muted);text-align:center">No posts yet.</div>'; } ?>
 
-// ── MEMBERS ──
+<?php // ── MEMBERS ──
 elseif ($tab === 'members' && $mySyn):
   $members = [];
   try { $q = $pdo->prepare('SELECT sm.player_id, sm.rank, sm.joined_at, p.username, p.level, p.role, p.chat_color FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? ORDER BY FIELD(sm.rank,"leader","officer","member"), p.username'); $q->execute([$mySyn['syndicate_id']]); $members = $q->fetchAll(); } catch (Throwable $e) {}

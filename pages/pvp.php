@@ -16,6 +16,26 @@ $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 
+if (!function_exists('grant_xp')) {
+  function grant_xp($pid, $amount) {
+    $pdo = db();
+    try { $bq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $bq->execute(["apt_xp_bonus:{$pid}"]); $b=(int)$bq->fetchColumn(); if($b>0) $amount=(int)ceil($amount*(1+$b/100)); } catch(Throwable $e){}
+    $r = $pdo->prepare('SELECT level, xp, xp_next FROM players WHERE id = ?');
+    $r->execute([$pid]); $p = $r->fetch();
+    $level = (int)$p['level']; $xp = (int)$p['xp'] + $amount; $next = (int)$p['xp_next'];
+    $gained = 0;
+    while ($xp >= $next && $level < 999) { $xp -= $next; $level++; $next = (int)round($next * 1.5); $gained++; }
+    $pdo->prepare('UPDATE players SET level = ?, xp = ?, xp_next = ? WHERE id = ?')->execute([$level, $xp, $next, $pid]);
+    if ($gained > 0) {
+      try {
+        $aq = $pdo->prepare('SELECT COALESCE(v,0) FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]);
+        $cur = (int)($aq->fetchColumn() ?: 0);
+        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["attr_points:{$pid}", $cur + $gained * 5]);
+      } catch(Throwable $e) {}
+    }
+  }
+}
+
 try {
   $pdo->exec("CREATE TABLE IF NOT EXISTS player_stats (
     pid INT PRIMARY KEY, str_pts INT NOT NULL DEFAULT 5,
@@ -278,9 +298,44 @@ try {
   </div>
   <form method="post" style="display:flex;gap:8px;align-items:center;max-width:400px">
     <input type="hidden" name="action" value="challenge">
-    <input type="text" name="target" placeholder="Ghost's handle" style="flex:1" <?= (int)$player['integrity'] < 10 ? 'disabled' : '' ?>>
-    <button type="submit" style="padding:10px 20px" <?= (int)$player['integrity'] < 10 ? 'disabled' : '' ?>>&#9876; Fight</button>
+    <div class="ac-wrap" style="flex:1;position:relative">
+      <input type="text" id="pvpTarget" name="target" placeholder="Ghost's handle"
+             autocomplete="off" maxlength="32"
+             style="width:100%" <?= (int)$player['integrity'] < 10 ? 'disabled' : '' ?>>
+      <div class="ac-list" id="pvpAcList" style="display:none"></div>
+    </div>
+    <button type="submit" style="padding:10px 20px;flex:none" <?= (int)$player['integrity'] < 10 ? 'disabled' : '' ?>>&#9876; Fight</button>
   </form>
+  <script>
+  (function(){
+    var inp=document.getElementById('pvpTarget'), list=document.getElementById('pvpAcList');
+    if(!inp||!list) return;
+    var cur=-1, items=[];
+    function show(names){
+      items=names; cur=-1;
+      if(!names.length){ list.style.display='none'; return; }
+      list.innerHTML=''; names.forEach(function(n,i){
+        var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
+        d.addEventListener('mousedown',function(e){ e.preventDefault(); inp.value=n; list.style.display='none'; });
+        list.appendChild(d);
+      }); list.style.display='block';
+    }
+    inp.addEventListener('input',function(){
+      var q=inp.value.trim(); if(q.length<1){ list.style.display='none'; return; }
+      fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
+        .then(function(r){return r.json();}).then(show).catch(function(){});
+    });
+    inp.addEventListener('keydown',function(e){
+      if(!items.length) return;
+      var rows=list.querySelectorAll('.ac-item');
+      if(e.key==='ArrowDown'){ e.preventDefault(); cur=Math.min(cur+1,rows.length-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
+      else if(e.key==='ArrowUp'){ e.preventDefault(); cur=Math.max(cur-1,-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
+      else if(e.key==='Enter'&&cur>=0){ e.preventDefault(); inp.value=items[cur]; list.style.display='none'; }
+      else if(e.key==='Escape'){ list.style.display='none'; }
+    });
+    document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none'; });
+  })();
+  </script>
 </div>
 
 <!-- Recent arena activity -->

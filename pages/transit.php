@@ -14,20 +14,6 @@ $routes = [
 $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points)
                SELECT ?, id, 0 FROM skills')->execute([$pid]);
 
-// XP grant + level-up (guarded so it coexists with the other pages' copies).
-if (!function_exists('grant_xp')) {
-  function grant_xp($pid, $amount) {
-    $pdo = db();
-    $r = $pdo->prepare('SELECT level, xp, xp_next FROM players WHERE id = ?');
-    $r->execute([$pid]); $p = $r->fetch();
-    $level = (int)$p['level']; $xp = (int)$p['xp'] + $amount; $next = (int)$p['xp_next'];
-    $gained = 0;
-    while ($xp >= $next && $level < 999) { $xp -= $next; $level++; $next = (int)round($next * 1.5); $gained++; }
-    $pdo->prepare('UPDATE players SET level = ?, xp = ?, xp_next = ? WHERE id = ?')
-        ->execute([$level, $xp, $next, $pid]);
-    return $gained;
-  }
-}
 
 // Current skill points + names (for the mining gate).
 $skillPts = $skillName = [];
@@ -61,9 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pay = random_int($rt['pay_min'], $rt['pay_max']);
         $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$pay, $pid]);
         $pdo->commit();
-        $lv = grant_xp($pid, $rt['xp']);
-        $msg = "Ran the {$rt['name']} clean — hauled in " . number_format($pay) . " creds, +{$rt['xp']} XP."
-             . ($lv ? " LEVEL UP (+{$lv})!" : '');
+        $msg = "Ran the {$rt['name']} clean — hauled in " . number_format($pay) . " creds.";
       }
     }
 
@@ -81,9 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?)
                      ON DUPLICATE KEY UPDATE qty = qty + VALUES(qty)')
           ->execute([$pid, $node['item_id'], $yield]);
-      $lv = grant_xp($pid, (int)$node['xp_reward']);
-      $msg = "Mined {$yield} &times; {$node['item_name']}. +{$node['xp_reward']} XP"
-           . ($lv ? " &mdash; LEVEL UP (+{$lv})!" : ".");
+      $msg = "Mined {$yield} &times; {$node['item_name']}.";
     }
 
   } catch (Throwable $ex) {

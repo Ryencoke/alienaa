@@ -8,19 +8,6 @@ $runResult = null;
 $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points)
                SELECT ?, id, 0 FROM skills')->execute([$pid]);
 
-if (!function_exists('grant_xp')) {
-  function grant_xp($pid, $amount) {
-    $pdo = db();
-    $r = $pdo->prepare('SELECT level, xp, xp_next FROM players WHERE id = ?');
-    $r->execute([$pid]); $p = $r->fetch();
-    $level = (int)$p['level']; $xp = (int)$p['xp'] + $amount; $next = (int)$p['xp_next'];
-    $gained = 0;
-    while ($xp >= $next && $level < 999) { $xp -= $next; $level++; $next = (int)round($next * 1.5); $gained++; }
-    $pdo->prepare('UPDATE players SET level = ?, xp = ?, xp_next = ? WHERE id = ?')
-        ->execute([$level, $xp, $next, $pid]);
-    return $gained;
-  }
-}
 
 // Skills
 $skillPts = $skillName = [];
@@ -73,6 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pool = array_values($available);
       $runResult = [];
       $totalXp = 0;
+      $foundryBonus = 0;
+      try { $fbq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $fbq->execute(["apt_foundry_bonus:{$pid}"]); $foundryBonus=(int)$fbq->fetchColumn(); } catch(Throwable $e){}
       $pdo->beginTransaction();
 
       foreach ($picks as $slot) {
@@ -84,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Pick item from pool
         $n = $pool[array_rand($pool)];
-        $qty = random_int((int)$n['yield_min'], (int)$n['yield_max']) * $mult;
+        $qty = (int)ceil(random_int((int)$n['yield_min'], (int)$n['yield_max']) * $mult * (1 + $foundryBonus / 100));
         $xp  = (int)$n['xp_reward'];
 
         $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?)
@@ -95,14 +84,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       $pdo->commit();
 
-      $lv = grant_xp($pid, $totalXp);
       $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')
           ->execute([$cdKey, (string)(time() + FOUNDRY_CD)]);
       $cdLeft = FOUNDRY_CD;
       $player = current_player();
 
       $items = implode(', ', array_map(fn($r) => $r['qty'] . 'x ' . $r['name'], $runResult));
-      $msg = "Run complete: {$items}. +{$totalXp} XP." . ($lv ? ' LEVEL UP (+' . $lv . ')!' : '');
+      $msg = "Run complete: {$items}.";
     }
 
     elseif ($action === 'craft') {
@@ -132,8 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           ->execute([$pid, $rec['out_item_id'], $rec['out_qty']]);
       $pdo->commit();
 
-      $lv = grant_xp($pid, (int)$rec['xp_reward']);
-      $msg = "Fabricated {$rec['out_qty']} &times; {$rec['out_name']}. +{$rec['xp_reward']} XP" . ($lv ? " &mdash; LEVEL UP (+{$lv})!" : '.');
+      $msg = "Fabricated {$rec['out_qty']} &times; {$rec['out_name']}.";
     }
 
   } catch (Throwable $ex) {

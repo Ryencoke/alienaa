@@ -88,31 +88,8 @@ $cyPct  = (int)$player['cycles_max'] > 0 ? min(100, round((int)$player['cycles']
   </div>
 </div>
 
-<!-- ===================== CONDITION + GEAR ===================== -->
+<!-- ===================== GEAR ===================== -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
-
-  <!-- Condition -->
-  <div class="panel" style="margin-bottom:0">
-    <h3 style="margin-top:0;margin-bottom:12px">&#128337; Condition</h3>
-    <?php
-    $conds = [
-      ['Health',    $player['integrity'], $player['integrity_max'], $intPct, 'var(--neon2)',  'rgba(255,45,149,.08)',  'rgba(255,45,149,.2)'],
-      ['Signal',    $player['signal'],    $player['signal_max'],    $sigPct, 'var(--accent)', 'rgba(25,240,199,.06)',  'rgba(25,240,199,.15)'],
-      ['Drive',     $player['cycles'],    $player['cycles_max'],    $cyPct,  '#e8a33d',       'rgba(232,163,61,.06)', 'rgba(232,163,61,.15)'],
-    ];
-    foreach ($conds as [$lbl, $v, $m, $pct, $c, $bg, $bord]):
-    ?>
-    <div style="background:<?= $bg ?>;border:1px solid <?= $bord ?>;border-radius:6px;padding:8px 12px;margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-        <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px"><?= $lbl ?></span>
-        <span style="font-size:12px;font-weight:bold;color:<?= $c ?>"><?= number_format($v) ?><span style="color:var(--muted);font-weight:400"> / <?= number_format($m) ?></span></span>
-      </div>
-      <div style="height:5px;background:rgba(0,0,0,.3);border-radius:3px;overflow:hidden">
-        <div style="width:<?= $pct ?>%;height:100%;background:<?= $c ?>;border-radius:3px;transition:width .4s"></div>
-      </div>
-    </div>
-    <?php endforeach; ?>
-  </div>
 
   <!-- Gear -->
   <div class="panel" style="margin-bottom:0">
@@ -191,17 +168,21 @@ try {
   $q->execute([$pid]);
   foreach ($q as $r) $newsFeed[] = $r;
 } catch (Throwable $e) {}
+// Staff notes intentionally excluded from user notifications
+
+// Attribute points alert
+$attrPoints = 0;
 try {
-  // Latest staff post
-  $q = $pdo->query("SELECT 'news' AS type, CONCAT('[Staff] ', LEFT(t.title,60)) AS text, t.created_at AS ts
-    FROM topics t JOIN players p ON p.id = t.author_id
-    WHERE p.role IN ('manager','admin') ORDER BY t.created_at DESC LIMIT 3");
-  foreach ($q as $r) $newsFeed[] = $r;
+  $aq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]);
+  $attrPoints = (int)($aq->fetchColumn() ?: 0);
 } catch (Throwable $e) {}
+if ($attrPoints > 0) {
+  $newsFeed[] = ['type'=>'levelup','text'=>"You have <b>{$attrPoints} unspent attribute points</b> from leveling up! <a href='index.php?p=training'>Visit Training &rarr;</a>",'ts'=>date('Y-m-d H:i:s')];
+}
 
 // Sort all items by ts desc
 usort($newsFeed, fn($a, $b) => strtotime($b['ts'] ?? 0) <=> strtotime($a['ts'] ?? 0));
-$newsGeneral  = array_filter($newsFeed, fn($r) => in_array($r['type'],['news','transfer']));
+$newsGeneral  = array_filter($newsFeed, fn($r) => in_array($r['type'],['news','transfer','levelup']));
 $newsPersonal = array_filter($newsFeed, fn($r) => in_array($r['type'],['message']));
 $hasNews = !empty($newsFeed);
 ?>
@@ -217,13 +198,14 @@ $hasNews = !empty($newsFeed);
   </div>
   <div id="news-body">
     <?php foreach ($newsFeed as $item):
-      $icon = ['message'=>'&#9993;','transfer'=>'&#128178;','news'=>'&#128203;'][$item['type']] ?? '&#8226;';
-      $col  = ['message'=>'var(--accent)','transfer'=>'#3bcf63','news'=>'#e8d44d'][$item['type']] ?? 'var(--muted)';
+      $icon = ['message'=>'&#9993;','transfer'=>'&#128178;','news'=>'&#128203;','levelup'=>'&#11088;'][$item['type']] ?? '&#8226;';
+      $col  = ['message'=>'var(--accent)','transfer'=>'#3bcf63','news'=>'#e8d44d','levelup'=>'#e8d44d'][$item['type']] ?? 'var(--muted)';
+      $rawText = $item['type'] === 'levelup'; // allow HTML in levelup items
     ?>
-    <div class="news-item" data-ntype="<?= e($item['type']) ?>" style="display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+    <div class="news-item" data-ntype="<?= e($item['type']) ?>" style="display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)<?= $item['type']==='levelup' ? ';background:rgba(232,212,77,.05);margin:-1px -4px;padding:8px 4px;border-radius:5px' : '' ?>">
       <span style="font-size:14px;flex:none;margin-top:1px;color:<?= $col ?>"><?= $icon ?></span>
       <div style="flex:1;min-width:0">
-        <div style="font-size:13px"><?= e($item['text']) ?></div>
+        <div style="font-size:13px"><?= $rawText ? $item['text'] : e($item['text']) ?></div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px"><?= !empty($item['ts']) ? e(date('M j, g:ia', strtotime($item['ts']))) : '' ?></div>
       </div>
     </div>
@@ -257,28 +239,6 @@ function switchNews(tab){
 </script>
 <?php endif; ?>
 
-<!-- ===================== QUICK ACCESS ===================== -->
-<div class="panel">
-  <h3 style="margin-top:0;margin-bottom:12px">&#9889; Quick Access</h3>
-  <div class="hh-actions">
-    <?php $qa = [
-      ['index.php?p=city',             '&#127758;','The Sprawl',    'Explore districts'],
-      ['index.php?p=ledger&act=bank',  '&#127974;','Bank',          'Deposit &amp; transfer'],
-      ['index.php?p=bazaar',           '&#128722;','Bazaar',        'Player market'],
-      ['index.php?p=datacore&act=lab', '&#127891;','Skillsoft Lab', 'Train your skills'],
-      ['index.php?p=sim',              '&#128737;','Combat Sim',    'Fight for XP &amp; loot'],
-      ['index.php?p=foundry',          '&#9881;',  'Foundry',       'Craft &amp; scavenge'],
-      ['index.php?p=exchange',         '&#9670;',  'Exchange',      'Shards &amp; subscribe'],
-      ['index.php?p=daemon',           '&#127920;','Casino',        'The Lucky Daemon'],
-    ]; foreach ($qa as [$href,$icon,$name,$desc]): ?>
-    <a href="<?= $href ?>" class="hh-act">
-      <div class="hha-icon"><?= $icon ?></div>
-      <div class="hha-name"><?= $name ?></div>
-      <div class="hha-desc"><?= $desc ?></div>
-    </a>
-    <?php endforeach; ?>
-  </div>
-</div>
 
 <!-- ===================== ONLINE NOW ===================== -->
 <?php if ($online > 0): ?>

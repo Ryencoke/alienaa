@@ -4,8 +4,19 @@ $pdo = db();
 $msg = '';
 $canModB = in_array($player['role'] ?? 'member', ['moderator','admin','manager'], true);
 
-const TOPICS_PER_PAGE = 20;
-const BODY_MAX        = 8000;
+if (!defined('TOPICS_PER_PAGE')) define('TOPICS_PER_PAGE', 20);
+if (!defined('BODY_MAX'))        define('BODY_MAX', 8000);
+
+// Ensure threaded-reply schema additions exist
+try {
+  $pdo->exec('CREATE TABLE IF NOT EXISTS post_votes (
+    post_id INT NOT NULL, player_id INT NOT NULL, value TINYINT NOT NULL,
+    PRIMARY KEY (post_id, player_id), INDEX idx_post (post_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+  try { $pdo->exec('ALTER TABLE posts ADD COLUMN parent_id INT NULL'); } catch (Throwable $e) {}
+  try { $pdo->exec('ALTER TABLE posts ADD INDEX idx_parent (parent_id)'); } catch (Throwable $e) {}
+  try { $pdo->exec('ALTER TABLE topics ADD COLUMN views INT NOT NULL DEFAULT 0'); } catch (Throwable $e) {}
+} catch (Throwable $e) {}
 
 $bid = (int)($_GET['b'] ?? 0);   // viewing a board
 $tid = (int)($_GET['t'] ?? 0);   // viewing a topic

@@ -159,23 +159,37 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
       [$code,$icon,$name,$type,$atk,$def,$price,$desc,$rarity] = $w;
       $statVal = $tab === 'weapons' ? $atk : $def;
     ?>
-    <div class="lib-card <?= lib_rarity_class($rarity) ?>"
+    <div class="lib-card <?= lib_rarity_class($rarity) ?> lib-expandable"
          data-rarity="<?= $rarity ?>"
          data-price="<?= $price ?>"
          data-stat="<?= $statVal ?>"
-         data-name="<?= strtolower(e($name)) ?>">
+         data-name="<?= strtolower(e($name)) ?>"
+         style="cursor:pointer">
       <div class="lib-card-head">
         <div class="lib-icon"><?= $icon ?></div>
-        <div>
+        <div style="flex:1;min-width:0">
           <div class="lib-name"><?= e($name) ?></div>
           <div class="lib-cat" style="color:<?= lib_rarity_color($rarity) ?>"><?= ucfirst($rarity) ?> &mdash; <?= ucfirst($type) ?></div>
         </div>
+        <span class="lib-expand-arrow" style="color:var(--muted);font-size:11px;flex:none;align-self:center;transition:transform .2s">&#9660;</span>
       </div>
       <div class="lib-desc"><?= e($desc) ?></div>
       <div class="lib-stats">
         <?php if ($atk): ?><span class="lib-stat">&#9876; +<?= $atk ?> ATK</span><?php endif; ?>
         <?php if ($def): ?><span class="lib-stat def">&#128737; +<?= $def ?> DEF</span><?php endif; ?>
         <span class="lib-stat price">&#9733; <?= number_format($price) ?> cr</span>
+      </div>
+      <div class="lib-detail" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:12px">
+        <div style="color:var(--muted);margin-bottom:6px"><?= e($desc) ?></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+          <?php if ($atk): ?><span style="background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.2);color:var(--neon2);padding:2px 8px;border-radius:4px;font-size:11px">&#9876; <?= $atk ?> ATK</span><?php endif; ?>
+          <?php if ($def): ?><span style="background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.2);color:var(--accent);padding:2px 8px;border-radius:4px;font-size:11px">&#128737; <?= $def ?> DEF</span><?php endif; ?>
+          <span style="background:rgba(232,212,77,.08);border:1px solid rgba(232,212,77,.2);color:#e8d44d;padding:2px 8px;border-radius:4px;font-size:11px">&#9670; <?= number_format($price) ?> cr</span>
+        </div>
+        <div style="font-size:11px">
+          <span style="color:var(--muted)">Obtain at: </span>
+          <a href="index.php?p=weaponcraft&tab=<?= $tab === 'weapons' ? 'weapons' : 'armor' ?>" style="color:var(--accent)">&#9881; Weaponcraft Lab</a>
+        </div>
       </div>
     </div>
     <?php endforeach; ?>
@@ -364,5 +378,19 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
   if(sortEl)   sortEl.addEventListener('change',apply);
 
   apply(); // run on load to set count
+
+  // Expandable cards
+  document.addEventListener('click', function(ev) {
+    var card = ev.target.closest('.lib-expandable');
+    if (!card) return;
+    // Don't toggle if clicking a link inside the detail
+    if (ev.target.closest('.lib-detail a')) return;
+    var detail = card.querySelector('.lib-detail');
+    var arrow  = card.querySelector('.lib-expand-arrow');
+    if (!detail) return;
+    var open = detail.style.display !== 'none';
+    detail.style.display = open ? 'none' : 'block';
+    if (arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
+  });
 })();
 </script>

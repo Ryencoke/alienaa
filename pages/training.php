@@ -29,7 +29,6 @@ try {
 
 define('TRAIN_DRIVE_COST', 10);    // Drive (cycles) per session
 define('TRAIN_COOLDOWN', 1800);    // 30 min between sessions
-define('TRAIN_BASE_XP', 3);        // base XP from training
 define('TRAIN_STAT_CAP', 30);      // max stat pts from training (rest come from unspent leveling)
 define('TRAIN_MAX_PER_STAT', 25);  // hard cap per individual stat from training
 
@@ -98,10 +97,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'train
       $pdo->prepare('UPDATE players SET cycles = GREATEST(0, cycles - ?) WHERE id=?')->execute([TRAIN_DRIVE_COST, $pid]);
       $player = current_player();
 
-      // XP
-      $xpGain = TRAIN_BASE_XP + ($gained ? 2 : 0);
-      grant_xp($pid, $xpGain);
-
       // Store cooldown
       $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["training_at:{$pid}", (string)time()]);
       $lastTrain    = time();
@@ -109,9 +104,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'train
       $canTrain     = false;
 
       if ($gained) {
-        $msg = "+1 {$r['label']}! Your {$r['effect']} has increased. +{$xpGain} XP.";
+        $msg = "+1 {$r['label']}! Your {$r['effect']} has increased.";
       } else {
-        $msg = "Session complete. Hard work, but no breakthrough this time. +{$xpGain} XP.";
+        $msg = "Session complete. No breakthrough this time, but the grind continues.";
       }
     } catch (Throwable $ex) { $msg = 'Training error: '.$ex->getMessage(); }
   }

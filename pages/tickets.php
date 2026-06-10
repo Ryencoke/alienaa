@@ -11,7 +11,8 @@ try {
     subject VARCHAR(160) NOT NULL, body TEXT NOT NULL,
     status ENUM('open','pending','waiting','closed') NOT NULL DEFAULT 'open',
     priority ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
-    assigned_to INT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    assigned_to INT NULL, screenshot VARCHAR(200) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_player (player_id), INDEX idx_status (status)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -21,6 +22,7 @@ try {
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_ticket (ticket_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+  try { $pdo->exec('ALTER TABLE tickets ADD COLUMN screenshot VARCHAR(200) NULL'); } catch (Throwable $e) {}
 } catch (Throwable $e) {}
 
 $STATUSES  = ['open'=>['Open','rgba(59,207,99,.12)','rgba(59,207,99,.4)','#3bcf63'],
@@ -37,7 +39,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($sub === '' || mb_strlen($sub) > 160) throw new RuntimeException('Subject must be 1–160 characters.');
       if (mb_strlen($body) < 10)                throw new RuntimeException('Please describe your issue (10+ chars).');
       if (mb_strlen($body) > 4000)              throw new RuntimeException('Description too long.');
-      $pdo->prepare('INSERT INTO tickets (player_id, subject, body) VALUES (?,?,?)')->execute([$pid, $sub, $body]);
+      // Handle optional screenshot upload
+      $imgPath = null;
+      if (!empty($_FILES['screenshot']['tmp_name'])) {
+        $ext = strtolower(pathinfo((string)$_FILES['screenshot']['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, ['jpg','jpeg','png','gif','webp'], true)) throw new RuntimeException('Screenshot must be a JPG, PNG, GIF, or WebP image.');
+        if ($_FILES['screenshot']['size'] > 3 * 1024 * 1024) throw new RuntimeException('Screenshot too large (max 3 MB).');
+        $ftype = function_exists('mime_content_type') ? @mime_content_type($_FILES['screenshot']['tmp_name']) : '';
+        if ($ftype && !str_starts_with($ftype, 'image/')) throw new RuntimeException('Invalid file type.');
+        $dir = __DIR__ . '/../uploads/tickets/';
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $fname = 'tk_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        if (!move_uploaded_file($_FILES['screenshot']['tmp_name'], $dir . $fname)) throw new RuntimeException('Screenshot upload failed.');
+        $imgPath = $fname;
+      }
+      $pdo->prepare('INSERT INTO tickets (player_id, subject, body, screenshot) VALUES (?,?,?,?)')->execute([$pid, $sub, $body, $imgPath]);
+      // Notify staff: increment admin new-ticket counter
+      try {
+        $nq = $pdo->query("SELECT COALESCE(v,0) FROM settings WHERE k='admin_new_tickets'"); $nc = (int)($nq->fetchColumn() ?: 0);
+        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['admin_new_tickets', $nc + 1]);
+      } catch (Throwable $e) {}
       $msg = 'Ticket submitted. We will respond shortly.';
 
     } elseif ($act === 'reply') {
@@ -47,6 +68,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Verify access: staff or owner
       $q = $pdo->prepare('SELECT player_id, status FROM tickets WHERE id=?'); $q->execute([$tid]); $t = $q->fetch();
       if (!$t || ((int)$t['player_id'] !== $pid && !$isStaff)) throw new RuntimeException('Not authorized.');
+      // Non-staff limited to 1 reply per ticket
+      if (!$isStaff) {
+        $rc = $pdo->prepare('SELECT COUNT(*) FROM ticket_replies WHERE ticket_id=? AND author_id=? AND is_staff=0');
+        $rc->execute([$tid, $pid]);
+        if ((int)$rc->fetchColumn() > 0) throw new RuntimeException('You\'ve already replied. Staff will respond soon — additional replies are not permitted.');
+      }
       $pdo->prepare('INSERT INTO ticket_replies (ticket_id, author_id, body, is_staff) VALUES (?,?,?,?)')->execute([$tid, $pid, $body, $isStaff ? 1 : 0]);
       $pdo->prepare("UPDATE tickets SET status='pending', updated_at=NOW() WHERE id=?")->execute([$tid]);
       $msg = 'Reply sent.';
@@ -99,18 +126,33 @@ if ($view) {
   </div>
   <div style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:14px;margin-bottom:12px">
     <div style="font-size:13px;white-space:pre-wrap"><?= e($ticket['body']) ?></div>
+    <?php if (!empty($ticket['screenshot'])): ?>
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">&#128247; Screenshot:</div>
+      <a href="uploads/tickets/<?= e($ticket['screenshot']) ?>" target="_blank">
+        <img src="uploads/tickets/<?= e($ticket['screenshot']) ?>" alt="screenshot" style="max-width:100%;max-height:300px;border-radius:5px;border:1px solid var(--line)">
+      </a>
+    </div>
+    <?php endif; ?>
   </div>
 </div>
 
 <?php foreach ($replies as $r):
   $isStaffMsg = (int)$r['is_staff'];
-  $bg = $isStaffMsg ? 'rgba(25,240,199,.04)' : 'var(--panel2)';
-  $bord = $isStaffMsg ? 'rgba(25,240,199,.2)' : 'var(--line)';
+  $rRole   = $r['role'] ?? 'member';
+  $rColor  = chat_color($rRole, '');
+  $rLabel  = role_label($rRole);
+  $bg   = $isStaffMsg ? 'rgba(25,240,199,.04)' : 'var(--panel2)';
+  $bord = $isStaffMsg ? 'rgba(25,240,199,.2)'  : 'var(--line)';
 ?>
 <div style="background:<?= $bg ?>;border:1px solid <?= $bord ?>;border-radius:7px;padding:12px;margin-bottom:8px">
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-    <b style="font-size:13px;color:<?= $isStaffMsg ? 'var(--accent)' : 'var(--text)' ?>"><?= e($r['username']) ?></b>
-    <?php if ($isStaffMsg): ?><span style="background:rgba(25,240,199,.12);border:1px solid rgba(25,240,199,.25);color:var(--accent);padding:1px 8px;border-radius:10px;font-size:10px;font-family:'Orbitron',sans-serif">STAFF</span><?php endif; ?>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+    <b style="font-size:13px;color:<?= $isStaffMsg ? $rColor : 'var(--text)' ?>"><?= e($r['username']) ?></b>
+    <?php if ($isStaffMsg && $rLabel): ?>
+      <span style="background:<?= e($rColor) ?>22;border:1px solid <?= e($rColor) ?>55;color:<?= e($rColor) ?>;padding:1px 8px;border-radius:10px;font-size:10px;font-family:'Orbitron',sans-serif;letter-spacing:.5px"><?= e(strtoupper($rLabel)) ?></span>
+    <?php elseif ($isStaffMsg): ?>
+      <span style="background:rgba(25,240,199,.12);border:1px solid rgba(25,240,199,.25);color:var(--accent);padding:1px 8px;border-radius:10px;font-size:10px;font-family:'Orbitron',sans-serif">STAFF</span>
+    <?php endif; ?>
     <span style="font-size:11px;color:var(--muted);margin-left:auto"><?= e(date('M j Y g:ia', strtotime($r['created_at']))) ?></span>
   </div>
   <div style="font-size:13px;white-space:pre-wrap"><?= e($r['body']) ?></div>
@@ -149,12 +191,25 @@ if ($view) {
 </div>
 
 <?php else: // ── TICKET LIST ──
+  $newTicketCount = 0;
   if ($isStaff) {
     $tickets = $pdo->query("SELECT t.*, p.username FROM tickets t JOIN players p ON p.id=t.player_id ORDER BY FIELD(t.status,'open','pending','waiting','closed'), t.updated_at DESC LIMIT 100")->fetchAll();
+    try {
+      $nq = $pdo->query("SELECT COALESCE(v,0) FROM settings WHERE k='admin_new_tickets'");
+      $newTicketCount = (int)($nq->fetchColumn() ?: 0);
+      if ($newTicketCount > 0) {
+        $pdo->prepare('DELETE FROM settings WHERE k=?')->execute(['admin_new_tickets']);
+      }
+    } catch (Throwable $e) {}
   } else {
     $q = $pdo->prepare("SELECT * FROM tickets WHERE player_id=? ORDER BY updated_at DESC"); $q->execute([$pid]); $tickets = $q->fetchAll();
   }
 ?>
+<?php if ($isStaff && $newTicketCount > 0): ?>
+<div style="background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.3);border-radius:7px;padding:12px 16px;font-size:13px;color:var(--neon2);margin-bottom:8px">
+  &#128276; <b><?= (int)$newTicketCount ?> new ticket<?= $newTicketCount !== 1 ? 's' : '' ?></b> submitted since your last visit.
+</div>
+<?php endif; ?>
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="height:3px;background:linear-gradient(90deg,var(--accent),var(--neon2),transparent)"></div>
   <div style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -162,14 +217,16 @@ if ($view) {
       <h2 style="margin:0 0 2px">&#127381; Customer Service</h2>
       <p class="muted" style="margin:0;font-size:12px">Submit issues, report problems, or request help from the team.</p>
     </div>
+    <?php if (!$isStaff): ?>
     <button onclick="document.getElementById('new-ticket-form').style.display = document.getElementById('new-ticket-form').style.display==='none'?'block':'none'" style="font-size:12px">&#43; New Ticket</button>
+    <?php endif; ?>
   </div>
 </div>
 
 <div id="new-ticket-form" style="display:none">
   <div class="panel">
     <h3 style="margin-top:0">Submit a Ticket</h3>
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="action" value="create">
       <div class="field">
         <span>Subject</span>
@@ -178,6 +235,10 @@ if ($view) {
       <div class="field" style="margin-top:10px">
         <span>Details</span>
         <textarea name="body" style="min-height:100px" placeholder="Describe your issue in detail..."></textarea>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <span>Screenshot <span class="muted" style="font-weight:400;text-transform:none">(optional, max 3 MB)</span></span>
+        <input type="file" name="screenshot" accept="image/jpeg,image/png,image/gif,image/webp" style="padding:4px 0">
       </div>
       <button type="submit" style="margin-top:10px">Submit Ticket</button>
     </form>
