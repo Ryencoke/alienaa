@@ -50,13 +50,14 @@ $friends = $friends->fetchAll();
 $searchResults = [];
 $q = trim($_GET['q'] ?? '');
 if ($q !== '') {
-  $sr = $pdo->prepare(
-    'SELECT p.id, p.username, p.level FROM players p
-     WHERE p.username LIKE ? AND p.id != ?
-     ORDER BY p.username LIMIT 20'
-  );
-  $sr->execute(['%' . $q . '%', $pid]);
-  $searchResults = $sr->fetchAll();
+  if (ctype_digit($q)) {
+    $sr = $pdo->prepare('SELECT p.id, p.username, p.level FROM players p WHERE p.id = ? AND p.id != ?');
+    $sr->execute([(int)$q, $pid]); $searchResults = $sr->fetchAll();
+  }
+  if (empty($searchResults)) {
+    $sr = $pdo->prepare('SELECT p.id, p.username, p.level FROM players p WHERE p.username LIKE ? AND p.id != ? ORDER BY p.username LIMIT 20');
+    $sr->execute(['%' . $q . '%', $pid]); $searchResults = $sr->fetchAll();
+  }
 }
 
 $friendIds = array_column($friends, 'id');
@@ -73,7 +74,7 @@ $friendIds = array_column($friends, 'id');
   <h3>Find Players</h3>
   <form method="get" style="display:flex;gap:8px;align-items:center">
     <input type="hidden" name="p" value="friends">
-    <input type="text" name="q" value="<?= e($q) ?>" placeholder="Search username..." style="flex:1;min-width:0" autocomplete="off" maxlength="32" data-no-counter>
+    <input type="text" name="q" value="<?= e($q) ?>" placeholder="Search by username or player ID..." style="flex:1;min-width:160px" autocomplete="off" data-no-counter>
     <button type="submit">Search</button>
   </form>
   <?php if ($q !== '' && empty($searchResults)): ?>

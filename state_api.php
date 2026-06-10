@@ -41,10 +41,10 @@ try {
     WHERE f.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
     ORDER BY p.username LIMIT 50");
   $oq->execute([$p['id']]);
-  foreach ($oq as $o) $online[] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],'')];
+  foreach ($oq as $o) $online[] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],$o['chat_color'])];
 } catch (Throwable $e) {
-  foreach ($pdo->query("SELECT id, username, role FROM players WHERE last_seen >= (NOW() - INTERVAL 5 MINUTE) ORDER BY username LIMIT 50") as $o)
-    $online[] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],'')];
+  foreach ($pdo->query("SELECT id, username, role, chat_color FROM players WHERE last_seen >= (NOW() - INTERVAL 5 MINUTE) ORDER BY username LIMIT 50") as $o)
+    $online[] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],$o['chat_color'])];
 }
 
 // Player ID 1 always appears online

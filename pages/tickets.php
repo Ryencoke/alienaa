@@ -247,13 +247,13 @@ if ($view) {
 <div class="panel" style="text-align:center;color:var(--muted);padding:32px">No tickets yet. Submit one above if you need help.</div>
 <?php else: ?>
 <div class="panel" style="padding:0;overflow:hidden">
-  <div style="display:grid;grid-template-columns:50px 1fr 110px 130px 90px;padding:8px 14px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line);font-weight:700">
+  <div style="display:grid;grid-template-columns:50px 1fr 100px 100px 90px;padding:8px 14px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line);font-weight:700">
     <span>#</span><span>Subject</span><?php if ($isStaff): ?><span>Player</span><?php else: ?><span></span><?php endif; ?><span>Status</span><span>Updated</span>
   </div>
   <?php foreach ($tickets as $t):
     $st = $STATUSES[$t['status']] ?? $STATUSES['open'];
   ?>
-  <div style="display:grid;grid-template-columns:50px 1fr 110px 130px 90px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center;font-size:12px">
+  <div style="display:grid;grid-template-columns:50px 1fr 100px 100px 90px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center;font-size:12px">
     <span style="color:var(--muted)">#<?= (int)$t['id'] ?></span>
     <span><a href="index.php?p=tickets&tid=<?= (int)$t['id'] ?>" style="color:var(--text);font-weight:700"><?= e($t['subject']) ?></a></span>
     <?php if ($isStaff): ?>
@@ -261,8 +261,8 @@ if ($view) {
     <?php else: ?>
       <span></span>
     <?php endif; ?>
-    <span style="background:<?= $st[1] ?>;border:1px solid <?= $st[2] ?>;color:<?= $st[3] ?>;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;text-align:center;white-space:nowrap;display:inline-block"><?= $st[0] ?></span>
-    <span style="color:var(--muted)"><?= e(date('M j', strtotime($t['updated_at']))) ?></span>
+    <span><span style="background:<?= $st[1] ?>;border:1px solid <?= $st[2] ?>;color:<?= $st[3] ?>;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;white-space:nowrap;display:inline-block"><?= $st[0] ?></span></span>
+    <span style="color:var(--muted);padding-left:8px"><?= e(date('M j', strtotime($t['updated_at']))) ?></span>
   </div>
   <?php endforeach; ?>
 </div>

@@ -105,6 +105,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $editId = $uid; $msg = 'Player updated.';
       } else { $msg = 'No such player.'; }
     }
+    elseif ($a === 'save_player_items' && $canAdmin) {
+      $uid = (int)($_POST['uid'] ?? 0);
+      if (!$uid) throw new RuntimeException('No player selected.');
+      $ids  = (array)($_POST['item_id']  ?? []);
+      $qtys = (array)($_POST['item_qty'] ?? []);
+      foreach ($ids as $i => $iid) {
+        $iid = (int)$iid; $qty = max(0, (int)($qtys[$i] ?? 0));
+        if ($iid <= 0) continue;
+        if ($qty === 0) {
+          $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=?')->execute([$uid, $iid]);
+        } else {
+          $pdo->prepare('INSERT INTO player_items (player_id,item_id,qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=VALUES(qty)')->execute([$uid, $iid, $qty]);
+        }
+      }
+      $editId = $uid; $msg = 'Inventory updated.';
+    }
     elseif ($a === 'create_user' && $canAdmin) {
       $nu = trim($_POST['new_username'] ?? '');
       $ne = trim($_POST['new_email'] ?? '');
@@ -287,6 +303,41 @@ if ($sec === 'editplayer' && $canAdmin) {
         </form>
       <?php endif; ?>
     </div>
+
+    <?php
+    // Items editing section
+    $allItems = [];
+    try { $allItems = $pdo->query('SELECT id, name, category FROM items ORDER BY category, name')->fetchAll(); } catch (Throwable $e) {}
+    $playerItemQtys = [];
+    try { $piq = $pdo->prepare('SELECT item_id, qty FROM player_items WHERE player_id=?'); $piq->execute([(int)$t['id']]); foreach ($piq as $pi) $playerItemQtys[(int)$pi['item_id']] = (int)$pi['qty']; } catch (Throwable $e) {}
+    if ($allItems):
+      $grouped = [];
+      foreach ($allItems as $it) $grouped[$it['category'] ?: 'Other'][] = $it;
+    ?>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px;margin-top:14px">
+      <h4 style="margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">&#127918; Inventory Items</h4>
+      <form method="post">
+        <input type="hidden" name="action" value="save_player_items">
+        <input type="hidden" name="uid" value="<?= (int)$t['id'] ?>">
+        <?php foreach ($grouped as $cat => $items): ?>
+        <div style="margin-bottom:14px">
+          <div style="font-size:11px;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px"><?= e($cat) ?></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px">
+            <?php foreach ($items as $it): ?>
+            <div style="display:flex;align-items:center;gap:6px">
+              <input type="hidden" name="item_id[]" value="<?= (int)$it['id'] ?>">
+              <input type="number" name="item_qty[]" value="<?= (int)($playerItemQtys[(int)$it['id']] ?? 0) ?>" min="0" style="width:60px;font-size:11px">
+              <label style="font-size:11px;color:var(--muted)"><?= e($it['name']) ?></label>
+            </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <?php endforeach; ?>
+        <p style="margin-top:10px"><button type="submit" style="font-size:12px">Save Inventory</button></p>
+      </form>
+    </div>
+    <?php endif; ?>
+
     <?php endif; ?>
   </div>
   <?php return;

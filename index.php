@@ -296,7 +296,7 @@ try {
           var line=document.createElement('div'); line.style.marginBottom='2px';
           var t=document.createElement('span');
           t.textContent=m.time+' '; t.style.color='#5d6680'; t.style.fontSize='10px';
-          if(m.sub){ var star=document.createElement('span'); star.textContent='★'; star.style.cssText='color:#e8d44d;font-size:10px;margin-right:2px'; line.appendChild(t); line.appendChild(star); } else { line.appendChild(t); }
+          line.appendChild(t);
           var who=document.createElement('a'); who.href='index.php?p=profile&id='+m.id;
           who.textContent=m.username+': '; who.style.color=m.name_color||'#c9d1e0'; who.style.fontWeight='bold';
           var body=document.createElement('span');
@@ -348,7 +348,7 @@ try {
       <div id="jackedin">
         <?php if (empty($online)): ?>
           <p class="muted" style="font-size:11px">No friends online. <a href="index.php?p=friends">Add friends</a> to see them here.</p>
-        <?php else: foreach ($online as $o): $oc = chat_color($o['role'], ''); ?>
+        <?php else: foreach ($online as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
           <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a></div>
         <?php endforeach; endif; ?>
       </div>

@@ -95,6 +95,7 @@ function nav_links() {
     'training'  => ['Neural Training', 'index.php?p=training'],
     'pvp'       => ['Combat Arena',    'index.php?p=pvp'],
     'accord'    => ['Commerce Accord', 'index.php?p=accord'],
+    'trade'     => ['Secure Trade',    'index.php?p=trade'],
   ];
 }
 function default_sidebar() { return ['home','stash','ledger','city','bazaar','boards','messages','account','updates']; }

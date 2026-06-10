@@ -2,7 +2,7 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
-$with = (int)($_GET['u'] ?? 0);
+$with = (int)($_GET['u'] ?? 0) ?: (int)($_GET['to'] ?? 0);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send') {
   try {
@@ -12,8 +12,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send'
     if ($body === '')            throw new RuntimeException('Write a message.');
     if (mb_strlen($body) > 4000) throw new RuntimeException('Message is too long.');
     if (!$toId && $toName !== '') {
-      $r = $pdo->prepare('SELECT id FROM players WHERE username = ?'); $r->execute([$toName]);
-      $toId = (int)$r->fetchColumn();
+      if (ctype_digit($toName)) {
+        $r = $pdo->prepare('SELECT id FROM players WHERE id = ?'); $r->execute([(int)$toName]);
+        $toId = (int)$r->fetchColumn();
+      }
+      if (!$toId) {
+        $r = $pdo->prepare('SELECT id FROM players WHERE username = ?'); $r->execute([$toName]);
+        $toId = (int)$r->fetchColumn();
+      }
     }
     if (!$toId)              throw new RuntimeException('No such recipient.');
     if ($toId === (int)$pid) throw new RuntimeException("You can't message yourself.");
@@ -76,11 +82,13 @@ if ($with) {
       <?php endforeach; ?>
     </div>
     <div style="border-top:1px solid var(--line);padding:10px 14px;background:var(--panel2)">
-      <form method="post" style="margin:0;display:flex;gap:8px;align-items:flex-end">
+      <form method="post" style="margin:0">
         <input type="hidden" name="action" value="send">
         <input type="hidden" name="to_id" value="<?= (int)$with ?>">
-        <textarea name="body" maxlength="4000" placeholder="Write a message..." style="flex:1;min-height:42px;max-height:160px;resize:vertical"></textarea>
-        <button type="submit" style="flex:none;align-self:flex-end;padding:10px 16px">Send</button>
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <textarea name="body" maxlength="4000" placeholder="Write a message..." data-no-counter style="flex:1;min-height:60px;max-height:200px;resize:vertical;width:0;min-width:0"></textarea>
+          <button type="submit" style="flex:none;align-self:flex-end;padding:10px 16px">Send</button>
+        </div>
       </form>
       <div style="font-size:10px;color:var(--muted);margin-top:4px">Ctrl+Enter to send</div>
     </div>
@@ -99,6 +107,8 @@ if ($with) {
 }
 
 /* ---------- inbox ---------- */
+$msgFriends = [];
+try { $fq = $pdo->prepare('SELECT p.id,p.username,p.role,p.chat_color FROM friends f JOIN players p ON p.id=f.friend_id WHERE f.player_id=? ORDER BY p.username LIMIT 30'); $fq->execute([$pid]); $msgFriends = $fq->fetchAll(); } catch (Throwable $e) {}
 $rs = $pdo->prepare('SELECT * FROM messages WHERE from_id = ? OR to_id = ? ORDER BY id DESC LIMIT 200');
 $rs->execute([$pid, $pid]);
 $convos = [];
@@ -117,12 +127,22 @@ if ($convos) {
   <h2>Messages</h2>
   <?= $flash ?>
   <h3>New Message</h3>
+  <?php if (!empty($msgFriends)): ?>
+  <div style="margin-bottom:10px">
+    <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Friends</div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px">
+      <?php foreach ($msgFriends as $mf): $mfc = chat_color($mf['role'], $mf['chat_color']); ?>
+      <button type="button" onclick="document.getElementById('msgToName').value='<?= e(addslashes($mf['username'])) ?>'" style="font-size:11px;padding:3px 10px;color:<?= e($mfc) ?>;border-color:<?= e($mfc) ?>;background:rgba(0,0,0,.2)"><?= e($mf['username']) ?></button>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php endif; ?>
   <form method="post">
     <input type="hidden" name="action" value="send">
     <div class="field">
-      <span>To (handle)</span>
+      <span>To (handle or player ID)</span>
       <div class="ac-wrap" style="max-width:280px">
-        <input type="text" name="to_name" id="msgToName" maxlength="32" autocomplete="off" data-no-counter>
+        <input type="text" name="to_name" id="msgToName" autocomplete="off" data-no-counter>
         <div class="ac-list" id="msgAcList" style="display:none"></div>
       </div>
     </div>

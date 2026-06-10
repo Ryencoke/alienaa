@@ -64,6 +64,7 @@
     <li><a href="index.php?p=ledger&act=bank">Bank</a></li>
     <li><a href="index.php?p=auction">Black Market Auctions</a></li>
     <li><a href="index.php?p=accord">Commerce Accord</a></li>
+    <li><a href="index.php?p=trade">Secure Trade Post</a></li>
     <li><a href="index.php?p=generalstore">The Supply Node</a></li>
   </ul></div>
 

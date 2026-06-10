@@ -227,3 +227,60 @@ APARTMENTS (apartments.php)
 PENDING / DEFERRED
 ------------------
 - [guilds.php] Extra Drive bonus for syndicate members when leader is subscribed (requires daily reset changes)
+
+--- SESSION: 2026-06-10 (sixth batch) ---
+
+BUG FIXES
+---------
+- [tickets.php] Status badge smaller (padding:1px 6px, font-size:9px) and padded away from "Updated" column
+- [messages.php] Reply textarea fixed — data-no-counter + width:0/min-width:0 in flex; textarea now visible and resizable
+- [messages.php] "Send Message" link from profile now works (?to= param accepted alongside ?u=)
+- [state_api.php] Staff colors in online panel now correct — chat_color() was receiving empty string; now passes $o['chat_color']
+- [index.php] Online panel server-side render also fixed for same color bug
+- [index.php] Subscriber ★ icon removed from quickchat right-sidebar user list
+- [friends.php] Search field min-width raised (min-width:160px); no char counter; supports numeric player ID search
+
+MESSAGES (messages.php)
+-----------------------
+- "To" field: no character limit shown, placeholder updated to "handle or player ID"
+- Recipient can now be searched by numeric player ID in addition to username
+- Friends quick-select buttons shown above compose form for fast recipient selection
+
+FRIENDS (friends.php)
+---------------------
+- Search field accepts numeric player IDs — exact match tried first, then username LIKE fallback
+- Input placeholder updated to clarify ID search support
+
+PROFILE (profile.php)
+---------------------
+- Secure Trade panel removed entirely
+- Quick Actions: "Transfer Credits" replaced with "Secure Trade & Transfer" linking to pages/trade.php
+- "Send Message" link corrected to use ?p=messages&u= (consistent with messages.php)
+
+SECURE TRADE (pages/trade.php — NEW)
+--------------------------------------
+- New standalone Secure Trade Post page in The Sprawl
+- Three tabs: Pending Trades, New Trade, Direct Transfer
+- New Trade: propose a trade offering/requesting credits, shards, and inventory items
+  - Offered credits/shards/items locked in escrow on propose; refunded on reject/cancel
+  - Friends quick-select for recipient; username or player ID accepted
+  - Multiple item rows, dynamic JS "Add Item" button
+- Pending Trades: incoming offers (accept/reject) and outgoing offers (cancel)
+- Direct Transfer: instant credit or shard transfer with no escrow
+- trade_offers table: auto-created with from_shards/to_shards columns
+- trade_offer_items table: auto-created for per-offer item rows
+- Player autocomplete on recipient field (players_search.php)
+
+CITY (city.php)
+---------------
+- "Secure Trade Post" link added to The Bazaar district
+
+LIB (lib.php)
+-------------
+- 'trade' added to nav_links() so Secure Trade Post can appear in customizable sidebar
+
+ADMIN (admin.php sec=editplayer)
+---------------------------------
+- New "Inventory Items" section added to Edit Player — shows all items from items table grouped by category
+- Each item has a quantity input; admins can set any quantity (0 removes the row)
+- save_player_items POST action handles the update via INSERT ... ON DUPLICATE KEY UPDATE
