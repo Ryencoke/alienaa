@@ -8,7 +8,7 @@ try { $pdo->exec("ALTER TABLE players ADD UNIQUE KEY uq_player_email (email)"); 
 $all_themes    = themes();
 $all_countries = countries();
 
-$secs = ['profile'=>'Profile','sidebar'=>'Sidebar','schemes'=>'Appearance','chat'=>'Chat','boards'=>'Boards','account'=>'Credentials'];
+$secs = ['profile'=>'Profile','sidebar'=>'Sidebar','schemes'=>'Appearance','chat'=>'Chat','boards'=>'Boards','account'=>'Credentials','premium'=>'Subscribe','shards'=>'Shards'];
 $sec = $_GET['sec'] ?? 'profile';
 if (!isset($secs[$sec])) $sec = 'profile';
 
@@ -459,5 +459,59 @@ $curAccent = $player['accent_color'] ?? '';
     btn.textContent=inp.type==='password'?'👁':'🙈';
   }
   </script>
+
+<?php elseif ($sec === 'premium'):
+  $isSub = is_subscribed($player);
+  $subUntil = $player['sub_until'] ?? '';
+?>
+  <h3>&#9733; Subscriber Status</h3>
+  <?php if ($isSub): ?>
+  <div style="background:rgba(232,212,77,.06);border:1px solid rgba(232,212,77,.3);border-radius:8px;padding:16px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:28px">&#9733;</span>
+      <div>
+        <div style="font-family:'Orbitron',sans-serif;font-weight:700;color:#e8d44d;font-size:14px">Active Subscriber</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">Expires: <?= e(date('M j, Y', strtotime($subUntil))) ?></div>
+      </div>
+    </div>
+  </div>
+  <?php else: ?>
+  <div style="background:rgba(255,45,149,.05);border:1px solid rgba(255,45,149,.2);border-radius:8px;padding:16px;margin-bottom:16px">
+    <div style="font-size:13px;color:var(--muted)">You are not currently subscribed.</div>
+  </div>
+  <?php endif; ?>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:16px">
+    <?php $perks = [['&#9733; Subscriber Star','Gold star next to your name in chat and profiles'],['&#128176; 2&times; Shards','Double Shard drops from the daily vault'],['&#9889; XP Bonus','+10% experience from all sources'],['&#127885; Lounge Access','Exclusive entry to The Static Lounge']]; foreach ($perks as [$icon,$desc]): ?>
+    <div style="background:var(--panel2);border:1px solid rgba(232,212,77,.2);border-radius:7px;padding:12px">
+      <div style="font-weight:700;font-size:12px;color:#e8d44d;margin-bottom:4px"><?= $icon ?></div>
+      <div style="font-size:11px;color:var(--muted)"><?= $desc ?></div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+  <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px;text-align:center">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:8px">Subscriptions are managed by Grid Administration.</div>
+    <a href="index.php?p=tickets" class="btn btn-ghost">&#127979; Contact Support</a>
+  </div>
+
+<?php elseif ($sec === 'shards'):
+  $shards = (int)($player['shards'] ?? 0);
+?>
+  <h3>&#9670; Shards</h3>
+  <div style="background:rgba(255,45,149,.05);border:1px solid rgba(255,45,149,.2);border-radius:8px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:16px">
+    <span style="font-size:36px;color:var(--neon2)">&#9670;</span>
+    <div>
+      <div style="font-family:'Orbitron',sans-serif;font-weight:700;font-size:24px;color:var(--neon2)"><?= number_format($shards) ?></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">Your Shard balance</div>
+    </div>
+  </div>
+  <p class="muted" style="font-size:13px">Shards are the premium currency of the Sprawl. Earn them for free from the daily vault, or as a <a href="index.php?p=account&sec=premium">Subscriber</a> bonus.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:14px">
+    <?php $uses = [['&#128176; Exchange','Trade Shards for Creds at the Exchange'],['&#9889; Boost','Purchase temporary stat boosts'],['&#9734; Cosmetics','Unlock exclusive chat colors and titles'],['&#127979; Support','Contact Staff for Shard purchases']]; foreach ($uses as [$icon,$desc]): ?>
+    <div style="background:var(--panel2);border:1px solid rgba(255,45,149,.15);border-radius:7px;padding:12px">
+      <div style="font-weight:700;font-size:12px;color:var(--neon2);margin-bottom:4px"><?= $icon ?></div>
+      <div style="font-size:11px;color:var(--muted)"><?= $desc ?></div>
+    </div>
+    <?php endforeach; ?>
+  </div>
 <?php endif; ?>
 </div>

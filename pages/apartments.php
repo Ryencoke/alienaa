@@ -30,6 +30,33 @@ $APT_TYPES = [
 $REGIONS = array_unique(array_column($APT_TYPES, 'region'));
 $RARITY_COLORS = ['common'=>'var(--muted)','uncommon'=>'var(--accent)','rare'=>'var(--neon2)','legendary'=>'#e8d44d'];
 
+// Apply or remove the stat/setting bonus for an apartment type.
+// Uses apt_perk_tid:{pid} in settings to track what's applied so reversals are safe.
+function perk_apply($pdo, $pid, $typeId, $APT_TYPES, $add = true) {
+  if (!isset($APT_TYPES[$typeId])) return;
+  $key = $APT_TYPES[$typeId]['perk_key'];
+  $val = (int)$APT_TYPES[$typeId]['perk_val'];
+  $delta = $add ? $val : -$val;
+  try {
+    if ($key === 'cycles_max')
+      $pdo->prepare('UPDATE players SET cycles_max = GREATEST(1, cycles_max + ?) WHERE id = ?')->execute([$delta, $pid]);
+    elseif ($key === 'signal_max')
+      $pdo->prepare('UPDATE players SET signal_max = GREATEST(1, signal_max + ?) WHERE id = ?')->execute([$delta, $pid]);
+    elseif ($key === 'dual_boost')
+      $pdo->prepare('UPDATE players SET cycles_max = GREATEST(1, cycles_max + ?), signal_max = GREATEST(1, signal_max + ?) WHERE id = ?')->execute([$delta, $delta, $pid]);
+    elseif (in_array($key, ['xp_bonus','foundry_bonus','bank_bonus'], true)) {
+      if ($add)
+        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["apt_{$key}:{$pid}", $val]);
+      else
+        $pdo->prepare('DELETE FROM settings WHERE k=?')->execute(["apt_{$key}:{$pid}"]);
+    }
+    if ($add)
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["apt_perk_tid:{$pid}", $typeId]);
+    else
+      $pdo->prepare('DELETE FROM settings WHERE k=?')->execute(["apt_perk_tid:{$pid}"]);
+  } catch (Throwable $e) {}
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $act = $_POST['action'] ?? '';
   try {
@@ -50,16 +77,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $qp = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND is_primary=1'); $qp->execute([$pid]);
       $hasPrimary = (int)$qp->fetchColumn() > 0;
       $pdo->prepare('INSERT INTO player_apartments (player_id, apt_type_id, region, is_primary) VALUES (?,?,?,?)')->execute([$pid, $typeId, $apt['region'], $hasPrimary ? 0 : 1]);
+      if (!$hasPrimary) perk_apply($pdo, $pid, $typeId, $APT_TYPES, true);
       $msg = 'Purchased ' . $apt['name'] . '!';
-      if (!$hasPrimary) $msg .= ' Set as your primary residence (+perks active).';
+      if (!$hasPrimary) $msg .= ' Set as your primary residence — perks applied!';
       $player = current_player();
 
     } elseif ($act === 'setprimary') {
       $aptId = (int)($_POST['apt_id'] ?? 0);
       $qa = $pdo->prepare('SELECT id FROM player_apartments WHERE id=? AND player_id=? AND rented_to IS NULL'); $qa->execute([$aptId, $pid]); if (!$qa->fetchColumn()) throw new RuntimeException('Not found or currently rented out.');
+      // Remove old primary perk (only if previously tracked)
+      $tkq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $tkq->execute(["apt_perk_tid:{$pid}"]);
+      $oldTid = (int)$tkq->fetchColumn();
+      if ($oldTid) perk_apply($pdo, $pid, $oldTid, $APT_TYPES, false);
       $pdo->prepare('UPDATE player_apartments SET is_primary=0 WHERE player_id=?')->execute([$pid]);
       $pdo->prepare('UPDATE player_apartments SET is_primary=1 WHERE id=? AND player_id=?')->execute([$aptId, $pid]);
-      $msg = 'Primary residence updated.';
+      // Apply new primary's perk
+      $ntq = $pdo->prepare('SELECT apt_type_id FROM player_apartments WHERE id=? AND player_id=?'); $ntq->execute([$aptId, $pid]);
+      $newTid = (int)$ntq->fetchColumn();
+      if ($newTid) perk_apply($pdo, $pid, $newTid, $APT_TYPES, true);
+      $msg = 'Primary residence updated — perks applied!';
 
     } elseif ($act === 'rent_out') {
       $aptId    = (int)($_POST['apt_id'] ?? 0);
@@ -100,6 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $qp = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND is_primary=1'); $qp->execute([$pid]); $hasPrimary = (int)$qp->fetchColumn() > 0;
       $pdo->prepare('UPDATE player_apartments SET player_id=?, on_market=0, market_price=0, is_primary=?, rented_to=NULL WHERE id=?')->execute([$pid, $hasPrimary?0:1, $aptId]);
       $pdo->commit();
+      if (!$hasPrimary) perk_apply($pdo, $pid, (int)$listing['apt_type_id'], $APT_TYPES, true);
       $msg = 'Purchased ' . $APT_TYPES[$listing['apt_type_id']]['name'] . ' from ' . $listing['seller_name'] . '!';
       $player = current_player();
     }
@@ -181,7 +218,10 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
     <div class="rent-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
       <form method="post"><input type="hidden" name="action" value="rent_out"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px">
-          <input type="text" name="renter" placeholder="Renter's handle" style="flex:1;min-width:120px">
+          <div class="xfer-to-wrap" style="flex:1;min-width:120px">
+            <input type="text" name="renter" class="rent-ac-inp" placeholder="Renter's handle" autocomplete="off" maxlength="32" style="width:100%">
+            <div class="ac-list rent-ac-list" style="display:none"></div>
+          </div>
           <input type="number" name="rent_amount" min="1" placeholder="Daily rent (cr)" style="width:130px">
           <button type="submit" style="font-size:12px">Confirm Rental</button>
         </div>
@@ -248,3 +288,35 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
 </div>
 <?php endif; ?>
 <?php endif; ?>
+<script>
+(function(){
+  document.querySelectorAll('.rent-ac-inp').forEach(function(inp){
+    var list=inp.closest('.xfer-to-wrap').querySelector('.rent-ac-list');
+    if(!inp||!list) return;
+    var cur=-1, items=[];
+    function show(names){
+      items=names; cur=-1;
+      if(!names.length){ list.style.display='none'; return; }
+      list.innerHTML=''; names.forEach(function(n,i){
+        var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
+        d.addEventListener('mousedown',function(e){ e.preventDefault(); inp.value=n; list.style.display='none'; });
+        list.appendChild(d);
+      }); list.style.display='block';
+    }
+    inp.addEventListener('input',function(){
+      var q=inp.value.trim(); if(q.length<1){ list.style.display='none'; return; }
+      fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
+        .then(function(r){return r.json();}).then(show).catch(function(){});
+    });
+    inp.addEventListener('keydown',function(e){
+      if(!items.length) return;
+      var rows=list.querySelectorAll('.ac-item');
+      if(e.key==='ArrowDown'){ e.preventDefault(); cur=Math.min(cur+1,rows.length-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
+      else if(e.key==='ArrowUp'){ e.preventDefault(); cur=Math.max(cur-1,-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
+      else if(e.key==='Enter'&&cur>=0){ e.preventDefault(); inp.value=items[cur]; list.style.display='none'; }
+      else if(e.key==='Escape'){ list.style.display='none'; }
+    });
+    document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none'; });
+  });
+})();
+</script>

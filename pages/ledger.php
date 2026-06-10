@@ -16,11 +16,14 @@ try {
   $q->execute(["bank_interest:{$pid}"]);
   $lastInterest = $q->fetchColumn();
   if ($lastInterest !== $today && (int)$player['creds_bank'] > 0) {
-    $interestEarned = (int)max(1, floor((int)$player['creds_bank'] * BANK_INTEREST_RATE));
+    $q->execute(["apt_bank_bonus:{$pid}"]); $bankBonus = (int)$q->fetchColumn();
+    $rate = BANK_INTEREST_RATE + ($bankBonus > 0 ? $bankBonus / 10000 : 0); // perk_val 25 = +0.0025 = +0.25%
+    $interestEarned = (int)max(1, floor((int)$player['creds_bank'] * $rate));
     $pdo->prepare('UPDATE players SET creds_bank = creds_bank + ? WHERE id = ?')->execute([$interestEarned, $pid]);
     $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["bank_interest:{$pid}", $today]);
     $player = current_player();
-    $msg = '&#9733; Daily interest applied: +' . number_format($interestEarned) . ' creds (0.5% on your balance).';
+    $ratePct = round($rate * 100, 3);
+    $msg = '&#9733; Daily interest applied: +' . number_format($interestEarned) . ' creds (' . $ratePct . '% on your balance).';
   }
 } catch (Throwable $e) {}
 

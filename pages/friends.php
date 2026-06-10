@@ -117,11 +117,15 @@ $friendIds = array_column($friends, 'id');
           <span class="friend-status <?= $f['online'] ? 'status-online' : 'status-offline' ?>">
             <?= $f['online'] ? 'Online' : 'Offline' ?>
           </span>
-          <form method="post" style="margin:0">
-            <input type="hidden" name="action" value="remove">
-            <input type="hidden" name="friend_id" value="<?= (int)$f['id'] ?>">
-            <button class="btn btn-ghost btn-sm" type="submit">Remove</button>
-          </form>
+          <div style="display:flex;gap:5px;align-items:center">
+            <a href="index.php?p=messages&u=<?= (int)$f['id'] ?>" class="btn btn-ghost btn-sm" title="Message">&#9993;</a>
+            <a href="index.php?p=pvp" class="btn btn-ghost btn-sm" title="Challenge in Arena">&#9876;</a>
+            <form method="post" style="margin:0">
+              <input type="hidden" name="action" value="remove">
+              <input type="hidden" name="friend_id" value="<?= (int)$f['id'] ?>">
+              <button class="btn btn-ghost btn-sm" type="submit" style="color:var(--neon2);border-color:rgba(255,45,149,.25)" onclick="return confirm('Remove <?= e(addslashes($f['username'])) ?> from friends?')">Remove</button>
+            </form>
+          </div>
         </div>
       <?php endforeach; ?>
     </div>

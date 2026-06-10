@@ -85,7 +85,15 @@ if ($with) {
       <div style="font-size:10px;color:var(--muted);margin-top:4px">Ctrl+Enter to send</div>
     </div>
   </div>
-  <script>(function(){ var el=document.getElementById('thread-scroll'); if(el) el.scrollTop=el.scrollHeight; })();</script>
+  <script>
+  (function(){
+    var el=document.getElementById('thread-scroll'); if(el) el.scrollTop=el.scrollHeight;
+    var ta=document.querySelector('textarea[name=body]');
+    if(ta) ta.addEventListener('keydown',function(e){
+      if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){ e.preventDefault(); ta.closest('form').requestSubmit(); }
+    });
+  })();
+  </script>
   <?php
   return;
 }

@@ -3,20 +3,36 @@ $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 
+try {
+  $pdo->exec('CREATE TABLE IF NOT EXISTS chat_messages (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    player_id  INT          NOT NULL,
+    body       VARCHAR(240) NOT NULL,
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_player (player_id),
+    INDEX idx_id     (id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+} catch (Throwable $e) {}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'say') {
   $body = trim($_POST['body'] ?? '');
   if ($body !== '') {
-    if (mb_strlen($body) > 240) $body = mb_substr($body, 0, 240);
-    $pdo->prepare('INSERT INTO chat_messages (player_id, body, created_at) VALUES (?,?,NOW())')
-        ->execute([$pid, $body]);
+    try {
+      if (mb_strlen($body) > 240) $body = mb_substr($body, 0, 240);
+      $pdo->prepare('INSERT INTO chat_messages (player_id, body, created_at) VALUES (?,?,NOW())')
+          ->execute([$pid, $body]);
+    } catch (Throwable $e) {}
   }
 }
 
 // Get recent messages
-$rows = array_reverse($pdo->query(
-  'SELECT c.body, c.created_at, p.id AS uid, p.username, p.role, p.chat_color, p.sub_until
-   FROM chat_messages c JOIN players p ON p.id = c.player_id
-   ORDER BY c.id DESC LIMIT 150')->fetchAll());
+$rows = [];
+try {
+  $rows = array_reverse($pdo->query(
+    'SELECT c.body, c.created_at, p.id AS uid, p.username, p.role, p.chat_color, p.sub_until
+     FROM chat_messages c JOIN players p ON p.id = c.player_id
+     ORDER BY c.id DESC LIMIT 150')->fetchAll());
+} catch (Throwable $e) {}
 
 // Online count
 $onlineCount = 0;

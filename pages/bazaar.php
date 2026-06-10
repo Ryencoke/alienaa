@@ -215,7 +215,10 @@ function bsort_link($key, $label, $cur, $tab, $cat) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="field">
         <span>Quantity</span>
-        <input type="number" name="qty" id="bzQty" min="1" value="1">
+        <div class="num-wrap">
+          <input type="number" name="qty" id="bzQty" min="1" value="1" style="min-width:70px;max-width:100px">
+          <button type="button" class="fill-max" id="bzMaxQty">Max</button>
+        </div>
       </div>
       <div class="field">
         <span>Price per unit (cr)</span>
@@ -236,14 +239,16 @@ function bsort_link($key, $label, $cur, $tab, $cat) {
         f=document.getElementById('bzFee'),n=document.getElementById('bzNet');
     if(!item) return;
     function fmt(v){ return v.toLocaleString('en-US')+' cr'; }
+    function getMax(){ return parseInt((item.options[item.selectedIndex]||{}).getAttribute&&item.options[item.selectedIndex].getAttribute('data-max'),10)||9999; }
     function upd(){
       var tot=Math.max(0,(parseInt(q.value,10)||0)*(parseInt(p.value,10)||0));
       var fee=Math.ceil(tot*0.02);
       t.textContent=fmt(tot); f.textContent=fmt(fee); n.textContent=fmt(tot-fee);
-      var mx=parseInt((item.options[item.selectedIndex]||{}).getAttribute&&item.options[item.selectedIndex].getAttribute('data-max'),10)||9999;
-      q.max=mx;
+      q.max=getMax();
     }
-    item.addEventListener('change',upd); q.addEventListener('input',upd); p.addEventListener('input',upd); upd();
+    var maxBtn=document.getElementById('bzMaxQty');
+    if(maxBtn) maxBtn.addEventListener('click',function(){ q.value=getMax(); upd(); });
+    item.addEventListener('change',function(){ q.value=1; upd(); }); q.addEventListener('input',upd); p.addEventListener('input',upd); upd();
   })();
   </script>
   <?php else: ?>

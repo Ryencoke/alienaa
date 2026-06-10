@@ -56,9 +56,11 @@ try {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 
   // Migrate older tables that are missing columns
-  try { $pdo->exec('ALTER TABLE posts  ADD COLUMN parent_id INT NULL');             } catch (Throwable $e) {}
-  try { $pdo->exec('ALTER TABLE posts  ADD INDEX  idx_parent (parent_id)');         } catch (Throwable $e) {}
-  try { $pdo->exec('ALTER TABLE topics ADD COLUMN views INT NOT NULL DEFAULT 0');   } catch (Throwable $e) {}
+  try { $pdo->exec('ALTER TABLE posts      ADD COLUMN parent_id INT NULL');                        } catch (Throwable $e) {}
+  try { $pdo->exec('ALTER TABLE posts      ADD INDEX  idx_parent (parent_id)');                    } catch (Throwable $e) {}
+  try { $pdo->exec('ALTER TABLE topics     ADD COLUMN views INT NOT NULL DEFAULT 0');              } catch (Throwable $e) {}
+  try { $pdo->exec('ALTER TABLE board_cats ADD COLUMN sort TINYINT NOT NULL DEFAULT 0');           } catch (Throwable $e) {}
+  try { $pdo->exec('ALTER TABLE boards     ADD COLUMN sort TINYINT NOT NULL DEFAULT 0');           } catch (Throwable $e) {}
 
   // Seed default categories and boards if empty
   if ((int)$pdo->query('SELECT COUNT(*) FROM board_cats')->fetchColumn() === 0) {
@@ -392,14 +394,17 @@ if ($bid) {
 }
 
 /* ============================ INDEX VIEW ============================ */
-$cats = $pdo->query('SELECT id, name FROM board_cats ORDER BY sort, id')->fetchAll();
-$boards = $pdo->query(
-  'SELECT b.id, b.cat_id, b.name, b.descr,
-     (SELECT COUNT(*) FROM topics t WHERE t.board_id = b.id) AS topics,
-     (SELECT COUNT(*) FROM posts p JOIN topics t ON t.id = p.topic_id WHERE t.board_id = b.id) AS posts
-   FROM boards b ORDER BY b.sort, b.id')->fetchAll();
+$cats = [];
 $byCat = [];
-foreach ($boards as $b) $byCat[$b['cat_id']][] = $b;
+try {
+  $cats = $pdo->query('SELECT id, name FROM board_cats ORDER BY sort, id')->fetchAll();
+  $boards = $pdo->query(
+    'SELECT b.id, b.cat_id, b.name, b.descr,
+       (SELECT COUNT(*) FROM topics t WHERE t.board_id = b.id) AS topics,
+       (SELECT COUNT(*) FROM posts p JOIN topics t ON t.id = p.topic_id WHERE t.board_id = b.id) AS posts
+     FROM boards b ORDER BY b.sort, b.id')->fetchAll();
+  foreach ($boards as $b) $byCat[$b['cat_id']][] = $b;
+} catch (Throwable $e) {}
 ?>
 <div class="panel">
   <h2>Message Boards</h2>
