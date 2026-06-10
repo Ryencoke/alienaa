@@ -59,13 +59,11 @@ try {
   <div id="chatroom" class="chatroom-full">
     <?php if ($rows): foreach ($rows as $r):
       $col = chat_color($r['role'], $r['chat_color']);
-      $isSub = !empty($r['sub_until']) && $r['sub_until'] >= date('Y-m-d');
       $isStaffR = in_array($r['role'] ?? 'member', ['chatmod','moderator','admin','manager'], true);
     ?>
       <div class="chatline-full">
         <span class="chattime-full"><?= e(date('H:i', strtotime($r['created_at']))) ?></span>
         <div class="chatline-body">
-          <?php if ($isSub): ?><span style="color:#e8d44d;font-size:10px;vertical-align:middle">&#9733;</span><?php endif; ?>
           <?php if ($isStaffR): ?><em style="font-size:10px;font-style:italic;color:<?= e(chat_color($r['role'],'')) ?>;vertical-align:middle;margin-right:2px"><?= e(role_label($r['role'])) ?></em><?php endif; ?>
           <a href="index.php?p=profile&id=<?= (int)$r['uid'] ?>" style="color:<?= e($col) ?>;font-weight:700"><?= e($r['username']) ?></a><span style="color:var(--muted)">:</span>
           <span style="color:var(--text)"><?= bbcode($r['body']) ?></span>
@@ -108,9 +106,7 @@ try {
       var line=document.createElement('div'); line.className='chatline-full';
       var t=document.createElement('span'); t.className='chattime-full'; t.textContent=m.time;
       var body=document.createElement('div'); body.className='chatline-body';
-      var stars='';
-      if(m.sub) stars+='<span style="color:#e8d44d;font-size:10px;vertical-align:middle">&#9733;</span>';
-      body.innerHTML=stars+'<a href="index.php?p=profile&id='+m.id+'" style="color:'+(m.name_color||m.color)+';font-weight:700">'+m.username+'</a><span style="color:var(--muted)">:</span> <span style="color:'+(m.color||'var(--text)')+'">'+m.html+'</span>';
+      body.innerHTML='<a href="index.php?p=profile&id='+m.id+'" style="color:'+m.color+';font-weight:700">'+m.username+'</a><span style="color:var(--muted)">:</span> <span style="color:var(--text)">'+m.html+'</span>';
       line.appendChild(t); line.appendChild(body);
       room.appendChild(line);
     });

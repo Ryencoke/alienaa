@@ -66,6 +66,17 @@ try {
   try { $pdo->exec("ALTER TABLE syndicates ADD COLUMN announcement TEXT NULL, ADD COLUMN announcement_at DATETIME NULL"); } catch (Throwable $e) {}
   // Add threaded replies support
   try { $pdo->exec("ALTER TABLE syndicate_posts ADD COLUMN parent_id INT NULL DEFAULT NULL"); } catch (Throwable $e) {}
+  // Add last_post_at for board topic sorting
+  try { $pdo->exec("ALTER TABLE syndicate_posts ADD COLUMN last_post_at DATETIME NULL"); } catch (Throwable $e) {}
+
+  $pdo->exec("CREATE TABLE IF NOT EXISTS syndicate_applications (
+    id INT AUTO_INCREMENT PRIMARY KEY, syndicate_id INT NOT NULL,
+    player_id INT NOT NULL, message VARCHAR(400) NULL,
+    status ENUM('pending','accepted','denied') NOT NULL DEFAULT 'pending',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_app (syndicate_id, player_id, status),
+    INDEX idx_syn (syndicate_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (Throwable $e) {}
 
 define('SYNDICATE_CREATE_COST', 50);
@@ -90,6 +101,17 @@ function syn_can($rank, $perm) {
 
 function syn_log($pdo, $sid, $pid, $actorId, $action, $detail = '') {
   try { $pdo->prepare('INSERT INTO syndicate_log (syndicate_id,player_id,actor_id,action,detail) VALUES (?,?,?,?,?)')->execute([$sid,$pid,$actorId,$action,$detail]); } catch (Throwable $e) {}
+}
+function syn_add_sidebar($pdo, $playerId, $key) {
+  try {
+    $sq = $pdo->prepare('SELECT sidebar FROM players WHERE id=?'); $sq->execute([$playerId]);
+    $current = trim((string)$sq->fetchColumn());
+    $keys = $current !== '' ? explode(',', $current) : default_sidebar();
+    if (!in_array($key, $keys, true)) {
+      $keys[] = $key;
+      $pdo->prepare('UPDATE players SET sidebar=? WHERE id=?')->execute([implode(',', $keys), $playerId]);
+    }
+  } catch (Throwable $e) {}
 }
 
 // ── Load membership ──
@@ -120,31 +142,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('INSERT INTO syndicate_members (syndicate_id,player_id,rank) VALUES (?,?,?)')->execute([$sid,$pid,'leader']);
       $pdo->commit();
       syn_log($pdo, $sid, $pid, $pid, 'founded', "Founded \"{$name}\"");
+      syn_add_sidebar($pdo, $pid, 'guilds');
       $msg = 'Syndicate "' . $name . '" [' . $tag . '] created.';
       $q->execute([$pid]); $mySyn = $q->fetch() ?: null; if ($mySyn) $myRank = $mySyn['rank'];
 
-    } elseif ($act === 'join') {
+    } elseif ($act === 'apply') {
       if ($mySyn) throw new RuntimeException('You already belong to a Syndicate.');
       $sid = (int)($_POST['syn_id'] ?? 0);
+      $appmsg = mb_substr(trim($_POST['app_message'] ?? ''), 0, 400);
       $sq = $pdo->prepare('SELECT id,name FROM syndicates WHERE id=?'); $sq->execute([$sid]); $syn = $sq->fetch();
       if (!$syn) throw new RuntimeException('Syndicate not found.');
-      $pdo->prepare('INSERT INTO syndicate_members (syndicate_id,player_id,rank) VALUES (?,?,?)')->execute([$sid,$pid,'member']);
-      $pdo->prepare('UPDATE syndicates SET xp=xp+50 WHERE id=?')->execute([$sid]);
-      syn_log($pdo, $sid, $pid, $pid, 'joined', $player['username'].' joined the syndicate');
-      $msg = 'Joined ' . $syn['name'] . '.';
-      $q->execute([$pid]); $mySyn = $q->fetch() ?: null; if ($mySyn) $myRank = $mySyn['rank'];
+      // Check no pending application already
+      $chk = $pdo->prepare("SELECT id FROM syndicate_applications WHERE syndicate_id=? AND player_id=? AND status='pending'");
+      $chk->execute([$sid,$pid]);
+      if ($chk->fetch()) throw new RuntimeException('You already have a pending application.');
+      $pdo->prepare('INSERT INTO syndicate_applications (syndicate_id,player_id,message) VALUES (?,?,?)')->execute([$sid,$pid,$appmsg ?: null]);
+      $msg = 'Application sent to ' . $syn['name'] . '. Await leadership approval.';
+
+    } elseif ($act === 'approve_app') {
+      if (!$mySyn || !syn_can($myRank,'manage_members')) throw new RuntimeException('No permission.');
+      $appId = (int)($_POST['app_id'] ?? 0);
+      $aq = $pdo->prepare("SELECT * FROM syndicate_applications WHERE id=? AND syndicate_id=? AND status='pending'");
+      $aq->execute([$appId, $mySyn['syndicate_id']]); $app = $aq->fetch();
+      if (!$app) throw new RuntimeException('Application not found.');
+      // Check applicant not already in a syndicate
+      $mc = $pdo->prepare('SELECT syndicate_id FROM syndicate_members WHERE player_id=?'); $mc->execute([$app['player_id']]); if ($mc->fetchColumn()) throw new RuntimeException('Player already joined a Syndicate.');
+      $pdo->prepare('INSERT INTO syndicate_members (syndicate_id,player_id,rank) VALUES (?,?,?)')->execute([$mySyn['syndicate_id'],$app['player_id'],'member']);
+      $pdo->prepare('UPDATE syndicates SET xp=xp+50 WHERE id=?')->execute([$mySyn['syndicate_id']]);
+      $pdo->prepare("UPDATE syndicate_applications SET status='accepted' WHERE id=?")->execute([$appId]);
+      $uname = $pdo->prepare('SELECT username FROM players WHERE id=?'); $uname->execute([$app['player_id']]); $un = $uname->fetchColumn() ?: '?';
+      syn_log($pdo,$mySyn['syndicate_id'],$app['player_id'],$pid,'joined',$un.' accepted and joined the syndicate');
+      syn_add_sidebar($pdo, $app['player_id'], 'guilds');
+      $msg = $un . ' has been accepted.';
+
+    } elseif ($act === 'deny_app') {
+      if (!$mySyn || !syn_can($myRank,'manage_members')) throw new RuntimeException('No permission.');
+      $appId = (int)($_POST['app_id'] ?? 0);
+      $pdo->prepare("UPDATE syndicate_applications SET status='denied' WHERE id=? AND syndicate_id=?")->execute([$appId, $mySyn['syndicate_id']]);
+      $msg = 'Application denied.';
 
     } elseif ($act === 'leave') {
       if (!$mySyn) throw new RuntimeException('You are not in a Syndicate.');
-      if ($myRank === 'leader') throw new RuntimeException('Transfer leadership before leaving.');
+      if (in_array($myRank, ['leader','coleader'], true)) throw new RuntimeException('Leaders and co-leaders must transfer or be demoted before leaving.');
+      $leavemsg = mb_substr(trim($_POST['leave_message'] ?? ''), 0, 200);
       $sid = (int)$mySyn['syndicate_id'];
       // Auto-return all loaned items
       $loans = $pdo->prepare('SELECT sl.id,sl.player_gear_id FROM syndicate_loans sl WHERE sl.syndicate_id=? AND sl.player_id=? AND sl.returned_at IS NULL');
       $loans->execute([$sid,$pid]); $loanRows = $loans->fetchAll();
       foreach ($loanRows as $ln) {
         if ($ln['player_gear_id']) {
-          $pdo->prepare('DELETE FROM settings WHERE k IN (?,?)')->execute(["equipped_weapon:{$pid}","equipped_armor:{$pid}"]);
-          // Only remove if equipped ID matches
           foreach (['weapon','armor'] as $sl2) { $gq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(["equipped_{$sl2}:{$pid}"]); if ((int)($gq->fetchColumn()?:0) === (int)$ln['player_gear_id']) $pdo->prepare('DELETE FROM settings WHERE k=?')->execute(["equipped_{$sl2}:{$pid}"]); }
           $pdo->prepare('DELETE FROM player_gear WHERE id=? AND player_id=?')->execute([$ln['player_gear_id'],$pid]);
         }
@@ -152,7 +198,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare('UPDATE syndicate_stockpile SET available=1 WHERE id=(SELECT stockpile_id FROM syndicate_loans WHERE id=?)')->execute([$ln['id']]);
       }
       $pdo->prepare('DELETE FROM syndicate_members WHERE player_id=?')->execute([$pid]);
-      syn_log($pdo, $sid, $pid, $pid, 'left', $player['username'].' left the syndicate');
+      $leaveDetail = $player['username'].' left the syndicate' . ($leavemsg ? ': "'.$leavemsg.'"' : '');
+      syn_log($pdo, $sid, $pid, $pid, 'left', $leaveDetail);
       $mySyn = null; $myRank = ''; $msg = 'You left the Syndicate.';
 
     } elseif ($act === 'donate') {
@@ -299,8 +346,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $tab = $_GET['tab'] ?? '';
+$boardTid = (int)($_GET['tid'] ?? 0); // board: topic detail view
 $validTabs = $mySyn ? ['home','board','members','stockpile','log','search'] : ['search','create'];
 if (!in_array($tab, $validTabs, true)) $tab = $mySyn ? 'home' : 'search';
+
+// Pending applications count for badge
+$pendingApps = 0;
+if ($mySyn && syn_can($myRank, 'manage_members')) {
+  try { $pa = $pdo->prepare("SELECT COUNT(*) FROM syndicate_applications WHERE syndicate_id=? AND status='pending'"); $pa->execute([$mySyn['syndicate_id']]); $pendingApps = (int)$pa->fetchColumn(); } catch (Throwable $e) {}
+}
 ?>
 
 <?php if ($msg): ?>
@@ -327,8 +381,9 @@ if (!in_array($tab, $validTabs, true)) $tab = $mySyn ? 'home' : 'search';
 <!-- Tabs -->
 <div style="display:flex;gap:6px;flex-wrap:wrap">
   <?php
+  $membersLabel = '&#128101; Members' . ($pendingApps ? ' <span style="background:var(--neon2);color:#000;border-radius:10px;padding:1px 6px;font-size:9px;font-weight:700">'.$pendingApps.'</span>' : '');
   $tabDefs = $mySyn
-    ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','members'=>'&#128101; Members','stockpile'=>'&#9874; Stockpile','log'=>'&#128196; Log','search'=>'&#128269; Browse']
+    ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','members'=>$membersLabel,'stockpile'=>'&#9874; Stockpile','log'=>'&#128196; Log','search'=>'&#128269; Browse']
     : ['search'=>'&#128269; Find Syndicate','create'=>'&#43; Create'];
   foreach ($tabDefs as $tk=>$tl):
     $show = isset($tabDefs[$tk]);
@@ -429,103 +484,127 @@ if ($tab === 'home' && $mySyn):
 <?php endif; ?>
 
 <!-- Leave -->
-<?php if ($myRank !== 'leader'): ?>
-<div class="panel">
-  <form method="post" style="margin:0"><input type="hidden" name="action" value="leave">
-    <button type="submit" style="background:rgba(255,45,149,.08);border-color:rgba(255,45,149,.25);color:var(--neon2);font-size:12px" onclick="return confirm('Leave your Syndicate? Any loaned items will be returned.')">Leave Syndicate</button>
+<?php if (!in_array($myRank, ['leader','coleader'], true)): ?>
+<div class="panel" style="border:1px solid rgba(255,45,149,.15)">
+  <h4 style="margin:0 0 10px;font-size:12px;color:var(--neon2)">Leave Syndicate</h4>
+  <form method="post" onsubmit="return confirm('Leave your Syndicate? Any loaned items will be returned.')">
+    <input type="hidden" name="action" value="leave">
+    <textarea name="leave_message" maxlength="200" placeholder="Optional: reason for leaving..." style="width:100%;min-height:50px;font-size:12px;margin-bottom:8px"></textarea>
+    <button type="submit" style="background:rgba(255,45,149,.08);border-color:rgba(255,45,149,.25);color:var(--neon2);font-size:12px">Leave Syndicate</button>
   </form>
+</div>
+<?php elseif (in_array($myRank, ['leader','coleader'], true)): ?>
+<div class="panel" style="background:rgba(232,163,61,.04);border:1px solid rgba(232,163,61,.2)">
+  <p style="font-size:12px;color:#e8a33d;margin:0">&#9888; Leaders and co-leaders must transfer or be demoted before leaving the Syndicate.</p>
 </div>
 <?php endif; ?>
 
 
 <?php // ══ BOARD ══════════════════════════════════════════
 elseif ($tab === 'board' && $mySyn):
-  // Fetch all posts (top-level + replies) for this syndicate
-  $allBoardPosts = [];
+
+if ($boardTid) {
+  // ── Topic detail view ──────────────────────────────
+  $topicPost = null;
   try {
-    $pq = $pdo->prepare('SELECT sp.*,p.username,p.role,p.chat_color FROM syndicate_posts sp JOIN players p ON p.id=sp.author_id WHERE sp.syndicate_id=? ORDER BY sp.created_at ASC');
-    $pq->execute([$mySyn['syndicate_id']]); $allBoardPosts = $pq->fetchAll();
+    $tpq = $pdo->prepare('SELECT sp.*,p.username,p.role,p.chat_color FROM syndicate_posts sp JOIN players p ON p.id=sp.author_id WHERE sp.id=? AND sp.syndicate_id=? AND (sp.parent_id IS NULL OR sp.parent_id=0)');
+    $tpq->execute([$boardTid, $mySyn['syndicate_id']]); $topicPost = $tpq->fetch() ?: null;
   } catch (Throwable $e) {}
-
-  // Group into threads: top-level posts, then replies keyed by parent_id
-  $threads = []; $repliesMap = [];
-  foreach ($allBoardPosts as $bp) {
-    $parentId = (int)($bp['parent_id'] ?? 0);
-    if ($parentId) $repliesMap[$parentId][] = $bp;
-    else $threads[] = $bp;
-  }
-  // Sort threads by latest activity (latest reply or own post time)
-  usort($threads, function($a, $b) use ($repliesMap) {
-    $aLast = !empty($repliesMap[(int)$a['id']]) ? strtotime(end($repliesMap[(int)$a['id']])['created_at']) : strtotime($a['created_at']);
-    $bLast = !empty($repliesMap[(int)$b['id']]) ? strtotime(end($repliesMap[(int)$b['id']])['created_at']) : strtotime($b['created_at']);
-    return $bLast - $aLast;
-  });
-?>
-
-<!-- Existing threads -->
-<?php if (empty($threads)): ?>
-<div class="panel" style="color:var(--muted);text-align:center;padding:24px">No discussions yet. Start one below.</div>
-<?php else: foreach ($threads as $thread):
-  $replies = $repliesMap[(int)$thread['id']] ?? [];
-  $tc = chat_color($thread['role'],$thread['chat_color']);
-  $tr = role_label($thread['role'] ?? '');
-  $replyCount = count($replies);
-?>
-<div class="panel" style="padding:0;overflow:hidden">
-  <!-- Thread header -->
-  <div style="padding:14px;border-bottom:1px solid var(--line)">
-    <div style="font-weight:700;font-size:14px;margin-bottom:6px;color:var(--text)"><?= e($thread['title']) ?></div>
-    <div style="font-size:13px;line-height:1.6;margin-bottom:8px;white-space:pre-wrap"><?= bbcode($thread['body']) ?></div>
-    <div style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <a href="index.php?p=profile&id=<?= (int)$thread['author_id'] ?>" style="color:<?= e($tc) ?>;font-weight:700"><?= e($thread['username']) ?></a>
-      <?php if ($tr): ?><em style="font-size:10px;color:<?= e(chat_color($thread['role'],'')) ?>"><?= e($tr) ?></em><?php endif; ?>
-      <span>&middot; <?= e(date('M j Y, g:ia', strtotime($thread['created_at']))) ?></span>
-      <?php if ($replyCount): ?><span style="color:var(--accent)">&#128172; <?= $replyCount ?> repl<?= $replyCount===1?'y':'ies' ?></span><?php endif; ?>
-    </div>
-  </div>
-
-  <!-- Replies -->
-  <?php foreach ($replies as $rp):
-    $rc = chat_color($rp['role'],$rp['chat_color']);
-    $rr = role_label($rp['role'] ?? '');
+  if (!$topicPost): ?>
+  <div class="panel"><p class="muted">Topic not found. <a href="index.php?p=guilds&tab=board">Back to board</a></p></div>
+  <?php else:
+    $reps = [];
+    try { $rq = $pdo->prepare('SELECT sp.*,p.username,p.role,p.chat_color FROM syndicate_posts sp JOIN players p ON p.id=sp.author_id WHERE sp.syndicate_id=? AND sp.parent_id=? ORDER BY sp.created_at ASC'); $rq->execute([$mySyn['syndicate_id'], $boardTid]); $reps = $rq->fetchAll(); } catch (Throwable $e) {}
+    $tc = chat_color($topicPost['role'],$topicPost['chat_color']);
   ?>
-  <div style="padding:12px 14px 12px 28px;border-bottom:1px solid rgba(255,255,255,.04);background:rgba(0,0,0,.08)">
-    <div style="font-size:13px;line-height:1.6;margin-bottom:6px;white-space:pre-wrap"><?= bbcode($rp['body']) ?></div>
-    <div style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <a href="index.php?p=profile&id=<?= (int)$rp['author_id'] ?>" style="color:<?= e($rc) ?>;font-weight:700"><?= e($rp['username']) ?></a>
-      <?php if ($rr): ?><em style="font-size:10px;color:<?= e(chat_color($rp['role'],'')) ?>"><?= e($rr) ?></em><?php endif; ?>
-      <span>&middot; <?= e(date('M j Y, g:ia', strtotime($rp['created_at']))) ?></span>
+  <div class="panel">
+    <p class="muted" style="margin-top:0"><a href="index.php?p=guilds&tab=board">&laquo; Board</a></p>
+    <h3 style="margin-top:0"><?= e($topicPost['title']) ?></h3>
+    <div style="font-size:13px;line-height:1.7;white-space:pre-wrap;margin-bottom:10px"><?= bbcode($topicPost['body']) ?></div>
+    <div style="font-size:11px;color:var(--muted)">
+      <a href="index.php?p=profile&id=<?= (int)$topicPost['author_id'] ?>" style="color:<?= e($tc) ?>;font-weight:700"><?= e($topicPost['username']) ?></a>
+      <?php if (role_label($topicPost['role']??'')): ?><em style="font-size:10px;color:<?= e(chat_color($topicPost['role'],'')) ?>"><?= e(role_label($topicPost['role'])) ?></em><?php endif; ?>
+      &middot; <?= e(date('M j Y, g:ia', strtotime($topicPost['created_at']))) ?>
     </div>
   </div>
+
+  <?php if (!empty($reps)): ?>
+  <div class="panel" style="padding:0;overflow:hidden">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)"><?= count($reps) ?> repl<?= count($reps)===1?'y':'ies' ?></div>
+    <?php foreach ($reps as $rp):
+      $rc = chat_color($rp['role'],$rp['chat_color']); ?>
+    <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.04)">
+      <div style="font-size:13px;line-height:1.6;white-space:pre-wrap;margin-bottom:6px"><?= bbcode($rp['body']) ?></div>
+      <div style="font-size:11px;color:var(--muted)">
+        <a href="index.php?p=profile&id=<?= (int)$rp['author_id'] ?>" style="color:<?= e($rc) ?>;font-weight:700"><?= e($rp['username']) ?></a>
+        <?php if (role_label($rp['role']??'')): ?><em style="font-size:10px;color:<?= e(chat_color($rp['role'],'')) ?>"><?= e(role_label($rp['role'])) ?></em><?php endif; ?>
+        &middot; <?= e(date('M j Y, g:ia', strtotime($rp['created_at']))) ?>
+      </div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
+
+  <div class="panel" id="replyform">
+    <h4 style="margin-top:0">Post a Reply</h4>
+    <form method="post">
+      <input type="hidden" name="action" value="post">
+      <input type="hidden" name="parent_id" value="<?= $boardTid ?>">
+      <textarea name="post_body" style="width:100%;min-height:80px" placeholder="Write your reply..."></textarea>
+      <button type="submit" style="margin-top:8px">Post Reply</button>
+    </form>
+  </div>
+  <?php endif;
+
+} else {
+  // ── Topics list ────────────────────────────────────
+  $topics = [];
+  try {
+    $tq = $pdo->prepare('SELECT sp.id, sp.title, sp.created_at, sp.author_id, p.username, p.role, p.chat_color,
+      (SELECT COUNT(*) FROM syndicate_posts r WHERE r.parent_id=sp.id) AS replies,
+      (SELECT MAX(r2.created_at) FROM syndicate_posts r2 WHERE r2.parent_id=sp.id) AS last_reply_at
+      FROM syndicate_posts sp JOIN players p ON p.id=sp.author_id
+      WHERE sp.syndicate_id=? AND (sp.parent_id IS NULL OR sp.parent_id=0)
+      ORDER BY COALESCE((SELECT MAX(r3.created_at) FROM syndicate_posts r3 WHERE r3.parent_id=sp.id), sp.created_at) DESC
+      LIMIT 50');
+    $tq->execute([$mySyn['syndicate_id']]); $topics = $tq->fetchAll();
+  } catch (Throwable $e) {}
+?>
+
+<?php if (empty($topics)): ?>
+<div class="panel" style="color:var(--muted);text-align:center;padding:24px">No posts yet. Start a discussion below.</div>
+<?php else: ?>
+<div class="panel" style="padding:0;overflow:hidden">
+  <div style="padding:8px 14px;border-bottom:1px solid var(--line);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px"><?= count($topics) ?> discussion<?= count($topics)!==1?'s':'' ?></div>
+  <?php foreach ($topics as $t):
+    $tc = chat_color($t['role'], $t['chat_color']);
+    $lastAt = $t['last_reply_at'] ?: $t['created_at'];
+  ?>
+  <a href="index.php?p=guilds&tab=board&tid=<?= (int)$t['id'] ?>" style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.04);text-decoration:none;color:var(--text)">
+    <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;margin-top:2px"></div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= e($t['title']) ?></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">by <span style="color:<?= e($tc) ?>"><?= e($t['username']) ?></span></div>
+    </div>
+    <div style="text-align:right;flex:none">
+      <div style="font-size:13px;font-weight:700"><?= (int)$t['replies'] ?> <span style="font-size:10px;color:var(--muted);font-weight:400">repl<?= $t['replies']==1?'y':'ies' ?></span></div>
+      <div style="font-size:10px;color:var(--muted)"><?= e(date('M j, Y', strtotime($lastAt))) ?></div>
+    </div>
+  </a>
   <?php endforeach; ?>
-
-  <!-- Reply form (toggled) -->
-  <div style="padding:10px 14px;background:rgba(0,0,0,.12)">
-    <button type="button" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.style.display='none'" style="font-size:11px;padding:4px 12px;background:rgba(25,240,199,.07);border-color:rgba(25,240,199,.2);color:var(--accent)">&#8617; Reply</button>
-    <div style="display:none;margin-top:8px">
-      <form method="post">
-        <input type="hidden" name="action" value="post">
-        <input type="hidden" name="parent_id" value="<?= (int)$thread['id'] ?>">
-        <textarea name="post_body" style="width:100%;min-height:60px;font-size:12px" placeholder="Write a reply..."></textarea>
-        <div style="display:flex;gap:8px;margin-top:6px">
-          <button type="submit" style="font-size:12px">Post Reply</button>
-        </div>
-      </form>
-    </div>
-  </div>
 </div>
-<?php endforeach; endif; ?>
+<?php endif; ?>
 
-<!-- New Discussion form -->
 <div class="panel" style="border:1px solid rgba(25,240,199,.15)">
-  <h3 style="margin-top:0;font-size:13px;color:var(--accent)">&#43; Start a Discussion</h3>
+  <h3 style="margin-top:0;font-size:13px;color:var(--accent)">&#43; New Discussion</h3>
   <form method="post">
     <input type="hidden" name="action" value="post">
     <div class="field"><span>Title</span><input type="text" name="post_title" maxlength="120" placeholder="Discussion title..."></div>
     <div class="field" style="margin-top:8px"><span>Body</span><textarea name="post_body" style="min-height:80px" placeholder="What's on your mind?"></textarea></div>
-    <button type="submit" style="margin-top:8px">Start Discussion</button>
+    <button type="submit" style="margin-top:8px">Post</button>
   </form>
 </div>
+<?php } // end topics list ?>
 
 
 <?php // ══ MEMBERS ════════════════════════════════════════
@@ -533,6 +612,9 @@ elseif ($tab === 'members' && $mySyn):
   $members = [];
   try { $mq = $pdo->prepare('SELECT sm.player_id,sm.rank,sm.joined_at,p.username,p.level,p.role,p.chat_color FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? ORDER BY FIELD(sm.rank,"leader","coleader","treasurer","armourer","librarian","advisor","member"),p.username'); $mq->execute([$mySyn['syndicate_id']]); $members = $mq->fetchAll(); } catch (Throwable $e) {}
   $canManage = syn_can($myRank,'manage_members');
+  // Pending applications
+  $apps = [];
+  if ($canManage) { try { $aq = $pdo->prepare("SELECT sa.*,p.username,p.level FROM syndicate_applications sa JOIN players p ON p.id=sa.player_id WHERE sa.syndicate_id=? AND sa.status='pending' ORDER BY sa.created_at ASC"); $aq->execute([$mySyn['syndicate_id']]); $apps = $aq->fetchAll(); } catch (Throwable $e) {} }
 ?>
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)"><?= count($members) ?> member<?= count($members)!==1?'s':'' ?></div>
@@ -566,6 +648,26 @@ elseif ($tab === 'members' && $mySyn):
   </div>
   <?php endforeach; ?>
 </div>
+
+<!-- Pending Applications -->
+<?php if ($canManage && !empty($apps)): ?>
+<div class="panel" style="border:1px solid rgba(25,240,199,.2);padding:0;overflow:hidden">
+  <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700;color:var(--accent)">&#128235; Pending Applications (<?= count($apps) ?>)</div>
+  <?php foreach ($apps as $app): ?>
+  <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
+    <div style="flex:1;min-width:160px">
+      <div><a href="index.php?p=profile&id=<?= (int)$app['player_id'] ?>" style="font-weight:700;color:var(--accent)"><?= e($app['username']) ?></a> <span class="muted" style="font-size:11px">Lv<?= (int)$app['level'] ?></span></div>
+      <?php if ($app['message']): ?><div style="font-size:12px;color:var(--muted);margin-top:3px;font-style:italic">"<?= e($app['message']) ?>"</div><?php endif; ?>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px"><?= e(date('M j, Y g:ia', strtotime($app['created_at']))) ?></div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <form method="post" style="margin:0"><input type="hidden" name="action" value="approve_app"><input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>"><button type="submit" style="font-size:11px;padding:4px 12px;background:rgba(59,207,99,.08);border-color:rgba(59,207,99,.3);color:#3bcf63">Accept</button></form>
+      <form method="post" style="margin:0"><input type="hidden" name="action" value="deny_app"><input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>"><button type="submit" style="font-size:11px;padding:4px 12px;background:rgba(255,45,149,.08);border-color:rgba(255,45,149,.25);color:var(--neon2)">Deny</button></form>
+    </div>
+  </div>
+  <?php endforeach; ?>
+</div>
+<?php endif; ?>
 
 
 <?php // ══ STOCKPILE ══════════════════════════════════════
@@ -704,8 +806,24 @@ elseif ($tab === 'search'):
         <div style="font-size:12px;color:var(--muted);margin-top:4px"><?= e(mb_substr($s['description'],0,120)) ?></div>
         <?php endif; ?>
       </div>
-      <?php if (!$mySyn && !$isMem): ?>
-      <form method="post" style="margin:0"><input type="hidden" name="action" value="join"><input type="hidden" name="syn_id" value="<?= (int)$s['id'] ?>"><button type="submit" style="font-size:12px;padding:6px 16px">Join</button></form>
+      <?php if (!$mySyn && !$isMem):
+        // Check for existing pending application
+        $hasApp = false;
+        try { $ap = $pdo->prepare("SELECT id FROM syndicate_applications WHERE syndicate_id=? AND player_id=? AND status='pending'"); $ap->execute([$s['id'], $pid]); $hasApp = (bool)$ap->fetchColumn(); } catch (Throwable $e) {}
+      ?>
+      <?php if ($hasApp): ?>
+        <span style="font-size:11px;color:#e8a33d">&#9679; Application pending</span>
+      <?php else: ?>
+        <button type="button" onclick="this.nextElementSibling.style.display='block';this.style.display='none'" style="font-size:12px;padding:6px 16px">Apply</button>
+        <div style="display:none;margin-top:8px">
+          <form method="post" style="display:flex;flex-direction:column;gap:6px">
+            <input type="hidden" name="action" value="apply">
+            <input type="hidden" name="syn_id" value="<?= (int)$s['id'] ?>">
+            <textarea name="app_message" maxlength="400" placeholder="Optional message to the leaders..." style="font-size:12px;min-height:50px"></textarea>
+            <button type="submit" style="font-size:12px;padding:5px 14px">Send Application</button>
+          </form>
+        </div>
+      <?php endif; ?>
       <?php elseif ($isMem): ?><span style="font-size:11px;color:var(--accent)">&#10003; Your Syndicate</span><?php endif; ?>
     </div>
   </div>

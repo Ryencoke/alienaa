@@ -86,10 +86,15 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
       if (!$it) continue; ?>
     <div style="flex:1;min-width:180px;background:<?= $bg ?>;border:1px solid <?= $bord ?>;border-radius:7px;padding:10px 13px;display:flex;align-items:center;gap:10px">
       <span style="font-size:22px"><?= $icon ?></span>
-      <div>
+      <div style="flex:1">
         <div style="font-weight:700;font-size:13px"><?= e($it['name']) ?></div>
         <div style="font-size:11px;color:var(--muted)">+<?= $bonus ?> <?= $stat ?></div>
       </div>
+      <form method="post" style="margin:0">
+        <input type="hidden" name="action" value="unequip">
+        <input type="hidden" name="slot" value="<?= $slot ?>">
+        <button class="btn btn-sm btn-ghost" type="submit" style="font-size:10px;padding:3px 8px">Unequip</button>
+      </form>
     </div>
     <?php endforeach; ?>
   </div>
@@ -118,20 +123,14 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
         <?php elseif ($r['slot'] === 'armor'): ?><div class="st">+<?= (int)$r['def'] ?> DEF</div><?php endif; ?>
       </div>
       <div class="act">
-        <?php if (in_array($r['slot'], ['weapon','armor'], true)): ?>
-          <?php if ($isEq): ?>
-            <form method="post" style="margin:0">
-              <input type="hidden" name="action" value="unequip">
-              <input type="hidden" name="slot" value="<?= e($r['slot']) ?>">
-              <button class="btn btn-sm btn-ghost" type="submit">Unequip</button>
-            </form>
-          <?php else: ?>
-            <form method="post" style="margin:0">
-              <input type="hidden" name="action" value="equip">
-              <input type="hidden" name="item_id" value="<?= (int)$r['id'] ?>">
-              <button class="btn btn-sm btn-primary" type="submit">Equip</button>
-            </form>
-          <?php endif; ?>
+        <?php if (in_array($r['slot'], ['weapon','armor'], true) && !$isEq): ?>
+          <form method="post" style="margin:0">
+            <input type="hidden" name="action" value="equip">
+            <input type="hidden" name="item_id" value="<?= (int)$r['id'] ?>">
+            <button class="btn btn-sm btn-primary" type="submit">Equip</button>
+          </form>
+        <?php elseif ($isEq): ?>
+          <span style="font-size:11px;color:var(--accent)">Equipped</span>
         <?php endif; ?>
       </div>
     </div>

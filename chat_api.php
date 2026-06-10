@@ -51,8 +51,7 @@ foreach (array_reverse($rows) as $r) {
     'id'       => (int)$r['uid'],
     'time'     => date('H:i', strtotime($r['created_at'])),
     'username' => $r['username'],
-    'color'    => chat_color($r['role'], $r['chat_color']),  // body text color (includes custom)
-    'name_color' => chat_color($r['role'], ''),               // username: role-based only
+    'color'    => chat_color($r['role'], $r['chat_color']),
     'sub'      => (!empty($r['sub_until']) && $r['sub_until'] >= date('Y-m-d')),
     'html'     => bbcode($r['body']),     // escaped + whitelisted BBCode = safe innerHTML
   ];

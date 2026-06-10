@@ -1,2 +1,4 @@
 <?php /* pages/logout.php */
-session_destroy(); header('Location: index.php'); exit;
+session_destroy();
+echo '<script>location.replace("index.php");</script>';
+exit;

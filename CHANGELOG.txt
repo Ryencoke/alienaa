@@ -50,6 +50,46 @@ LIBRARY (library.php)
 ---------------------
 - No structural changes; content is already current with all weapons/armor/consumables/skills
 
+--- SESSION: 2026-06-10 (continued) ---
+
+BUG FIXES
+---------
+- [index.php] attachCounters now respects data-no-counter attribute — suppresses char counter on search/find inputs
+- [admin.php] Find-by-handle input no longer shows char counter (data-no-counter)
+- [admin.php sec=createuser] After creation, redirects directly to editplayer instead of broken link
+- [chat.php] Subscriber star icon removed from chat (PHP render + JS render)
+- [chat_api.php] Chat color now correctly reflects member's custom color (name_color removed; color used for both)
+- [friends.php] Search input now full width and no char counter
+- [logout.php] JS redirect (location.replace) instead of PHP header() which failed after output
+
+STASH (stash.php)
+-----------------
+- Unequip buttons moved to Active Loadout area — items in the Backpack only show Equip button; already-equipped items show "Equipped" badge
+
+ADMIN (admin.php)
+-----------------
+- Edit Players: added Username, Birthday, Bio fields to the edit form
+- Removed City Hall card from admin hub
+
+HOME (home.php)
+---------------
+- Removed Fabrication and Combat Arena quick-links from the Loadout panel
+
+GUILDS (guilds.php)
+-------------------
+- Applications system: players apply to join with optional message; leaders/co-leaders approve or deny
+- Pending application count badge shown on Members tab
+- syndicate_applications table added
+- Leave with message: players submit a reason when leaving; message is logged
+- Leaders AND co-leaders are blocked from leaving without transferring role first
+- Guild sidebar quicklink ('Syndicate') auto-added when player creates or is accepted into a Syndicate
+- Board reworked to boards.php style: topic list → click into topic → see replies; separate ?tid= for topic detail
+- Search tab: Join replaced with Apply button + optional message textarea; shows pending badge if already applied
+
+LIB (lib.php)
+-------------
+- 'guilds' added to nav_links() so Syndicate can appear in customizable sidebar
+
 PENDING / DEFERRED
 ------------------
 - [account.php] "Add a Link" pages — update to include all current game pages

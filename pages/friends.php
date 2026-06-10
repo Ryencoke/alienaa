@@ -73,7 +73,7 @@ $friendIds = array_column($friends, 'id');
   <h3>Find Players</h3>
   <form method="get" style="display:flex;gap:8px;align-items:center">
     <input type="hidden" name="p" value="friends">
-    <input type="text" name="q" value="<?= e($q) ?>" placeholder="Search username..." style="flex:1" autocomplete="off" maxlength="32">
+    <input type="text" name="q" value="<?= e($q) ?>" placeholder="Search username..." style="flex:1;min-width:0" autocomplete="off" maxlength="32" data-no-counter>
     <button type="submit">Search</button>
   </form>
   <?php if ($q !== '' && empty($searchResults)): ?>

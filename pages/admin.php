@@ -63,16 +63,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($nr, ['member','chatmod','moderator','admin','manager'], true)) $nr = $old['role'];
         $sub = trim($_POST['sub_until'] ?? '');
         if ($sub !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $sub)) $sub = (string)($old['sub_until'] ?? '');
-        $emailEdit = trim($_POST['edit_email'] ?? '');
+        $emailEdit    = trim($_POST['edit_email'] ?? '');
         if ($emailEdit !== '' && !filter_var($emailEdit, FILTER_VALIDATE_EMAIL)) $emailEdit = '';
+        $usernameEdit = trim($_POST['edit_username'] ?? '');
+        if ($usernameEdit !== '' && !preg_match('/^[A-Za-z0-9_]{3,32}$/', $usernameEdit)) $usernameEdit = '';
+        $birthdayEdit = trim($_POST['edit_birthday'] ?? '');
+        if ($birthdayEdit !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $birthdayEdit)) $birthdayEdit = '';
+        $bioEdit = mb_substr(trim($_POST['edit_bio'] ?? ''), 0, 200);
 
         $set = []; $params = [];
         foreach ($intf as $f) { $set[] = ($f === 'signal' ? '`signal`' : $f) . '=?'; $params[] = $new[$f]; }
         $set[] = 'role=?';      $params[] = $nr;
         $set[] = 'sub_until=?'; $params[] = ($sub === '' ? null : $sub);
-        // Add email column if not exists, then include it
+        $set[] = 'bio=?';       $params[] = $bioEdit;
         try { $pdo->exec('ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR(255) NULL'); } catch (Throwable $e) {}
-        if ($emailEdit !== '') { $set[] = 'email=?'; $params[] = $emailEdit; }
+        try { $pdo->exec('ALTER TABLE players ADD COLUMN IF NOT EXISTS birthday DATE NULL'); } catch (Throwable $e) {}
+        if ($emailEdit !== '')    { $set[] = 'email=?';    $params[] = $emailEdit; }
+        if ($usernameEdit !== '') { $set[] = 'username=?'; $params[] = $usernameEdit; }
+        if ($birthdayEdit !== '') { $set[] = 'birthday=?'; $params[] = $birthdayEdit; }
         $params[] = $uid;
         $pdo->prepare('UPDATE players SET ' . implode(',', $set) . ' WHERE id=?')->execute($params);
 
@@ -90,6 +98,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($intf as $f) $log($f, $old[$f] ?? '', $new[$f]);
         $log('role', $old['role'] ?? '', $nr);
         $log('sub_until', $old['sub_until'] ?? '', $sub);
+        if ($usernameEdit) $log('username', $old['username'] ?? '', $usernameEdit);
+        if ($birthdayEdit) $log('birthday', $old['birthday'] ?? '', $birthdayEdit);
+        $log('bio', $old['bio'] ?? '', $bioEdit);
 
         $editId = $uid; $msg = 'Player updated.';
       } else { $msg = 'No such player.'; }
@@ -106,7 +117,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($chk->fetch()) throw new RuntimeException('Username or email already taken.');
       $pdo->prepare('INSERT INTO players (username,email,pass_hash) VALUES (?,?,?)')->execute([$nu,$ne,password_hash($np,PASSWORD_DEFAULT)]);
       $editId = (int)$pdo->lastInsertId();
-      $msg = "User #{$editId} created. <a href=\"index.php?p=admin&sec=editplayer&u={$editId}\">Edit them</a>.";
+      $msg = "User #{$editId} ({$nu}) created.";
+      // Redirect straight to edit page so the link works
+      echo '<script>location.replace("index.php?p=admin&sec=editplayer&u='.$editId.'");</script>'; return;
     }
     elseif ($a === 'trigger_reset' && $role === 'manager') {
       // Run daily reset for all players
@@ -156,7 +169,7 @@ if ($sec === 'editplayer' && $canAdmin) {
       <input type="hidden" name="action" value="find">
       <label>Find by handle</label>
       <div style="position:relative;max-width:240px">
-        <p style="display:flex;gap:6px;margin:0"><input type="text" name="handle" id="adminFind" autocomplete="off" maxlength="32"><button type="submit">Find</button></p>
+        <p style="display:flex;gap:6px;margin:0"><input type="text" name="handle" id="adminFind" autocomplete="off" maxlength="32" data-no-counter><button type="submit">Find</button></p>
         <div id="adminAC" style="position:absolute;left:0;right:42px;top:34px;background:var(--panel);border:1px solid var(--accent);border-radius:4px;z-index:20;display:none;max-height:200px;overflow:auto"></div>
       </div>
     </form>
@@ -214,6 +227,14 @@ if ($sec === 'editplayer' && $canAdmin) {
           <label style="font-size:11px">Email</label>
           <input type="email" name="edit_email" value="<?= e($t['email'] ?? '') ?>" placeholder="(optional)">
         </div>
+        <div>
+          <label style="font-size:11px">Username</label>
+          <input type="text" name="edit_username" value="<?= e($t['username'] ?? '') ?>" maxlength="32" data-no-counter>
+        </div>
+        <div>
+          <label style="font-size:11px">Birthday</label>
+          <input type="date" name="edit_birthday" value="<?= e($t['birthday'] ?? '') ?>">
+        </div>
         <div><label style="font-size:11px">Role</label>
           <select name="role">
             <?php foreach (['member','chatmod','moderator','admin','manager'] as $rr): ?>
@@ -221,6 +242,10 @@ if ($sec === 'editplayer' && $canAdmin) {
             <?php endforeach; ?>
           </select></div>
         <div><label style="font-size:11px">Subscription until</label><input type="date" name="sub_until" value="<?= e($t['sub_until'] ?? '') ?>"></div>
+        <div style="grid-column:1/-1">
+          <label style="font-size:11px">Bio</label>
+          <textarea name="edit_bio" maxlength="200" style="width:100%;min-height:50px"><?= e($t['bio'] ?? '') ?></textarea>
+        </div>
       </div>
 
       <h4 style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Combat Stats (PvP)</h4>
@@ -621,11 +646,6 @@ try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='
   <a class="staffcard" href="index.php?p=jail">
     <span class="ic">&#128274;</span><h4>Confinement Grid</h4>
     <p>Jail players for violations. Set reason and duration. Release early.</p>
-    <span class="req">Admin+</span>
-  </a>
-  <a class="staffcard" href="index.php?p=cityhall">
-    <span class="ic">&#127963;</span><h4>City Hall</h4>
-    <p>Staff roster, subscriber list, jail records, and game rules.</p>
     <span class="req">Admin+</span>
   </a>
   <a class="staffcard" href="index.php?p=admin&sec=createuser">

@@ -225,10 +225,6 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
       </div>
     </div>
     <?php endforeach; ?>
-    <div style="display:flex;gap:6px;margin-top:4px">
-      <a href="index.php?p=weaponcraft" style="flex:1;text-align:center;padding:6px;font-size:11px;border:1px solid var(--line);border-radius:5px;color:var(--muted);text-decoration:none;background:var(--panel2)">&#9874; Fabrication</a>
-      <a href="index.php?p=pvp" style="flex:1;text-align:center;padding:6px;font-size:11px;border:1px solid var(--line);border-radius:5px;color:var(--muted);text-decoration:none;background:var(--panel2)">&#9876; Combat Arena</a>
-    </div>
   </div>
 
 </div>

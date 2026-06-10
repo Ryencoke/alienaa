@@ -540,7 +540,7 @@ try {
 
     /* ── Character counters ── */
     function attachCounters(root){
-      (root||document).querySelectorAll('textarea[maxlength],input[maxlength]:not([type=hidden]):not(#chatinput):not(#chatinput-full)').forEach(function(el){
+      (root||document).querySelectorAll('textarea[maxlength],input[maxlength]:not([type=hidden]):not(#chatinput):not(#chatinput-full):not([data-no-counter])').forEach(function(el){
         if(el._cc) return; el._cc=true;
         var max=parseInt(el.getAttribute('maxlength'),10); if(!max||max>10000) return;
         var c=document.createElement('span'); c.className='char-count';

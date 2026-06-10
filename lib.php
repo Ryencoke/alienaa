@@ -83,6 +83,7 @@ function nav_links() {
     'datacore' => ['Datacore',       'index.php?p=datacore&act=lab'],
     'library'  => ['Library',        'index.php?p=library'],
     'account'  => ['Account',        'index.php?p=account'],
+    'guilds'   => ['Syndicate',      'index.php?p=guilds'],
     'updates'  => ['Updates',        'index.php?p=updates'],
   ];
 }
