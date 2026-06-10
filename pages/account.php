@@ -8,7 +8,7 @@ try { $pdo->exec("ALTER TABLE players ADD UNIQUE KEY uq_player_email (email)"); 
 $all_themes    = themes();
 $all_countries = countries();
 
-$secs = ['profile'=>'Profile','sidebar'=>'Sidebar','schemes'=>'Appearance','chat'=>'Chat','boards'=>'Boards','account'=>'Credentials','premium'=>'Subscribe','shards'=>'Shards'];
+$secs = ['profile'=>'Profile','sidebar'=>'Sidebar','schemes'=>'Appearance','chat'=>'Chat','boards'=>'Boards','account'=>'Credentials','goals'=>'Goals','premium'=>'Subscribe','shards'=>'Shards'];
 $sec = $_GET['sec'] ?? 'profile';
 if (!isset($secs[$sec])) $sec = 'profile';
 
@@ -72,12 +72,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($action === 'handle') {
       $newu = trim($_POST['new_username'] ?? ''); $cur = $_POST['current_password'] ?? '';
-      if (!password_verify($cur, $player['pass_hash']))      $msg = 'Current passkey is wrong.';
-      elseif (!preg_match('/^[A-Za-z0-9_]{3,32}$/', $newu)) $msg = 'Handle must be 3-32 letters, numbers, or underscore.';
+      if (!password_verify($cur, $player['pass_hash'])) $msg = 'Current passkey is wrong.';
+      elseif (!preg_match('/^[A-Za-z0-9_]{3,32}$/', $newu)) $msg = 'Handle must be 3–32 characters (letters, numbers, underscore).';
       else {
-        try { $pdo->prepare('UPDATE players SET username = ? WHERE id = ?')->execute([$newu, $pid]); $msg = 'Handle changed to ' . $newu . '.'; $player = current_player(); }
-        catch (PDOException $e) { $msg = 'That handle is taken.'; }
+        $dup = $pdo->prepare('SELECT COUNT(*) FROM players WHERE LOWER(username)=LOWER(?) AND id!=?');
+        $dup->execute([$newu, $pid]);
+        if ((int)$dup->fetchColumn() > 0) {
+          $msg = 'That handle is already taken.';
+        } else {
+          // Block handles too similar to staff names (same letters after stripping digits/symbols)
+          $staffQ = $pdo->prepare("SELECT username FROM players WHERE role IN ('admin','manager','moderator','chatmod')");
+          $staffQ->execute(); $staffNames = $staffQ->fetchAll(PDO::FETCH_COLUMN);
+          $newLetters = preg_replace('/[^a-z]/','',strtolower($newu));
+          $staffBlocked = false;
+          foreach ($staffNames as $sn) {
+            if (strtolower($newu) === strtolower($sn)) { $msg = 'That handle matches a staff member\'s name.'; $staffBlocked = true; break; }
+            $snLetters = preg_replace('/[^a-z]/','',strtolower($sn));
+            if ($newLetters !== '' && $snLetters !== '' && $newLetters === $snLetters) { $msg = 'That handle is too similar to a staff member\'s name.'; $staffBlocked = true; break; }
+          }
+          if (!$staffBlocked) {
+            try { $pdo->prepare('UPDATE players SET username=? WHERE id=?')->execute([$newu,$pid]); $msg='Handle changed to '.$newu.'.'; $player=current_player(); }
+            catch (PDOException $e) { $msg='That handle is taken.'; }
+          }
+        }
       }
+    }
+    elseif ($action === 'add_goal') {
+      $gtype   = $_POST['goal_type']   ?? 'custom';
+      $gtarget = max(0,(int)($_POST['goal_target'] ?? 0));
+      $glabel  = trim(mb_substr($_POST['goal_label'] ?? '',0,100));
+      $validGTypes = ['level','credits_pocket','credits_bank','combat_wins','custom'];
+      if (!in_array($gtype,$validGTypes,true)) $gtype='custom';
+      if ($gtype !== 'custom' && $gtarget < 1) throw new RuntimeException('Enter a target value greater than 0.');
+      if ($gtype === 'custom' && $glabel === '') throw new RuntimeException('Enter a description for your custom goal.');
+      if ($glabel === '') {
+        $autoLabels = ['level'=>'Reach level '.$gtarget,'credits_pocket'=>'Save '.number_format($gtarget).' credits (pocket)','credits_bank'=>'Store '.number_format($gtarget).' in bank','combat_wins'=>'Win '.$gtarget.' fights'];
+        $glabel = $autoLabels[$gtype] ?? 'Goal';
+      }
+      $goalsRaw = '';
+      try { $gq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(['goals:'.$pid]); $goalsRaw=(string)$gq->fetchColumn(); } catch(Throwable $e){}
+      $goals = ($goalsRaw && $goalsRaw !== '0') ? (json_decode($goalsRaw,true) ?: []) : [];
+      $goals[] = ['id'=>time().'_'.mt_rand(1000,9999),'type'=>$gtype,'label'=>$glabel,'target'=>$gtype==='custom'?null:$gtarget,'completed'=>false];
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['goals:'.$pid,json_encode($goals)]);
+      $msg = 'Goal added.';
+    }
+    elseif ($action === 'del_goal') {
+      $gid = $_POST['goal_id'] ?? '';
+      $goalsRaw = '';
+      try { $gq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(['goals:'.$pid]); $goalsRaw=(string)$gq->fetchColumn(); } catch(Throwable $e){}
+      $goals = ($goalsRaw && $goalsRaw !== '0') ? (json_decode($goalsRaw,true) ?: []) : [];
+      $goals = array_values(array_filter($goals,fn($g)=>($g['id']??'')!==$gid));
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['goals:'.$pid,json_encode($goals)]);
+      $msg = 'Goal removed.';
+    }
+    elseif ($action === 'complete_goal') {
+      $gid = $_POST['goal_id'] ?? '';
+      $goalsRaw = '';
+      try { $gq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(['goals:'.$pid]); $goalsRaw=(string)$gq->fetchColumn(); } catch(Throwable $e){}
+      $goals = ($goalsRaw && $goalsRaw !== '0') ? (json_decode($goalsRaw,true) ?: []) : [];
+      foreach ($goals as &$g) { if(($g['id']??'')===$gid){$g['completed']=true;break;} } unset($g);
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['goals:'.$pid,json_encode($goals)]);
+      $msg = 'Goal marked complete!';
     }
     elseif ($action === 'password') {
       $cur = $_POST['current_password'] ?? ''; $n1 = $_POST['new_password'] ?? ''; $n2 = $_POST['new_password2'] ?? '';
@@ -115,17 +170,18 @@ $curAccent = $player['accent_color'] ?? '';
 
 <?php if ($sec === 'profile'): ?>
   <h3>Member Profile</h3>
-  <form method="post">
+  <div id="profile-msg" style="display:none;background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.3);border-radius:6px;padding:8px 14px;font-size:13px;color:var(--accent);margin-bottom:10px"></div>
+  <form method="post" id="profile-form">
     <input type="hidden" name="action" value="profile">
     <div class="field">
       <span>Country</span>
-      <select name="country" style="max-width:280px">
+      <select name="country" id="profile-country" style="max-width:280px">
         <option value="">&mdash; none &mdash;</option>
         <?php foreach ($all_countries as $code => $cn): ?>
           <option value="<?= $code ?>" <?= ($player['country'] ?? '') === $code ? 'selected' : '' ?>><?= e($cn) ?></option>
         <?php endforeach; ?>
       </select>
-      <span class="muted" style="font-size:11px;text-transform:none;letter-spacing:0">Your flag shows on your Hideout and profile (not in chat).</span>
+      <span class="muted" style="font-size:11px;text-transform:none;letter-spacing:0">Your flag shows on your Hideout and profile.</span>
     </div>
     <div class="field">
       <span>Bio / Tagline <span class="muted" style="text-transform:none;letter-spacing:0">(200 max)</span></span>
@@ -134,6 +190,37 @@ $curAccent = $player['accent_color'] ?? '';
     <p style="margin-bottom:12px"><a href="index.php?p=profile&id=<?= (int)$player['id'] ?>">View my profile &rarr;</a></p>
     <button type="submit">Save Profile</button>
   </form>
+  <script>
+  (function(){
+    var form=document.getElementById('profile-form'), msgDiv=document.getElementById('profile-msg');
+    if(!form) return;
+    form.addEventListener('submit',function(e){
+      e.preventDefault();
+      var fd=new FormData(form), country=(fd.get('country')||'').toLowerCase();
+      fetch('index.php?p=account&sec=profile',{method:'POST',body:fd,credentials:'same-origin'})
+        .then(function(r){ return r.ok; })
+        .then(function(ok){
+          msgDiv.textContent=ok?'Profile saved.':'Save failed — try again.';
+          msgDiv.style.display='';
+          clearTimeout(msgDiv._t); msgDiv._t=setTimeout(function(){ msgDiv.style.display='none'; },3000);
+          // Update flag in sidebar name div
+          var nameDiv=document.querySelector('.name');
+          if(nameDiv){
+            var old=nameDiv.querySelector('img[src*="flagcdn"]'); if(old) old.remove();
+            if(country&&/^[a-z]{2}$/.test(country)){
+              var img=document.createElement('img');
+              img.src='https://flagcdn.com/20x15/'+country+'.png';
+              img.width=20; img.height=15; img.alt=country.toUpperCase();
+              img.style.cssText='border-radius:2px;vertical-align:middle;box-shadow:0 1px 3px rgba(0,0,0,.3);margin-right:4px';
+              var link=nameDiv.querySelector('a'); if(link) link.after(img); else nameDiv.prepend(img);
+            }
+          }
+        }).catch(function(){
+          msgDiv.textContent='Save failed — try again.'; msgDiv.style.display='';
+        });
+    });
+  })();
+  </script>
 
 <?php elseif ($sec === 'sidebar'):
   $current = player_sidebar($player);
@@ -152,7 +239,11 @@ $curAccent = $player['accent_color'] ?? '';
           <span class="sbmove" data-dir="up">&#9650;</span>
           <span class="sbmove" data-dir="down">&#9660;</span>
           <span class="sblabel"><?= e($nl[$k][0]) ?></span>
-          <span class="sbdel">&times;</span>
+          <?php if ($k === 'account'): ?>
+            <span style="font-size:10px;color:var(--muted);padding:0 5px" title="Account cannot be removed">&#128274;</span>
+          <?php else: ?>
+            <span class="sbdel">&times;</span>
+          <?php endif; ?>
         </div>
       <?php endforeach; ?>
     </div>
@@ -166,7 +257,6 @@ $curAccent = $player['accent_color'] ?? '';
         <?php endif; endforeach; ?>
       </select>
     </div>
-    <button type="submit">Save Sidebar</button>
   </form>
   <form method="post" action="index.php?p=account&sec=sidebar" style="margin-top:8px">
     <input type="hidden" name="action" value="sidebar_reset">
@@ -184,54 +274,50 @@ $curAccent = $player['accent_color'] ?? '';
   ?>
   <h3 style="margin-top:24px">Visible Stats</h3>
   <p class="muted">Choose which stats appear in your character card. Level is always shown.</p>
-  <form method="post" action="index.php?p=account&sec=sidebar">
-    <input type="hidden" name="action" value="sidebar_bars">
-    <div class="stat-toggle-grid">
-      <?php foreach ($barLabels as $key => $lbl): $chk = in_array($key, $activeBars, true); ?>
-      <label class="stat-toggle">
-        <input type="checkbox" name="bars[]" value="<?= e($key) ?>" <?= $chk ? 'checked' : '' ?>>
-        <span class="st-label"><?= e($lbl) ?></span>
-      </label>
-      <?php endforeach; ?>
-    </div>
-    <button type="submit" style="margin-top:12px">Save Stat Display</button>
-  </form>
+  <div class="stat-toggle-grid" id="stat-bars-grid">
+    <?php foreach ($barLabels as $key => $lbl): $chk = in_array($key, $activeBars, true); ?>
+    <label class="stat-toggle">
+      <input type="checkbox" class="bars-chk" value="<?= e($key) ?>" <?= $chk ? 'checked' : '' ?>>
+      <span class="st-label"><?= e($lbl) ?></span>
+    </label>
+    <?php endforeach; ?>
+  </div>
 
   <h3 style="margin-top:24px">Navigation Display</h3>
-  <form method="post" action="index.php?p=account&sec=sidebar" id="topbar-toggle-form">
-    <input type="hidden" name="action" value="sidebar_topbar">
-    <label class="stat-toggle" style="margin-bottom:12px">
-      <input type="checkbox" id="hide-topbar-chk" name="hide_topbar" value="1" <?= $hideTopbar ? 'checked' : '' ?>>
-      <span class="st-label">Hide top navigation bar</span>
-    </label>
-    <div><button type="submit">Save Display</button></div>
-  </form>
+  <label class="stat-toggle">
+    <input type="checkbox" id="hide-topbar-chk" <?= $hideTopbar ? 'checked' : '' ?>>
+    <span class="st-label">Hide top navigation bar</span>
+  </label>
 
   <script>
   (function(){
-    var cbx=document.querySelectorAll('input[name="bars[]"]');
-    if(!cbx.length) return;
+    // ── Stat bar toggles (realtime, no button) ──────────────────────────────
+    var cbx=document.querySelectorAll('#stat-bars-grid .bars-chk');
     function applyLive(key,show){
-      // Text stats
-      var stat=document.querySelector('[data-stat="'+key+'"]');
-      if(stat) stat.style.display=show?'':'none';
-      // Meter bars
-      var bar=document.querySelector('[data-bar="'+key+'"]');
-      if(bar) bar.style.display=show?'':'none';
+      var stat=document.querySelector('[data-stat="'+key+'"]'); if(stat) stat.style.display=show?'':'none';
+      var bar=document.querySelector('[data-bar="'+key+'"]');  if(bar)  bar.style.display=show?'':'none';
     }
     function saveAndApply(){
       var chosen=[];
       cbx.forEach(function(c){ if(c.checked) chosen.push(c.value); applyLive(c.value,c.checked); });
-      var fd=new FormData();
-      fd.append('action','sidebar_bars');
+      var fd=new FormData(); fd.append('action','sidebar_bars');
       chosen.forEach(function(v){ fd.append('bars[]',v); });
       fetch('index.php?p=account&sec=sidebar',{method:'POST',body:fd,credentials:'same-origin'}).catch(function(){});
     }
     cbx.forEach(function(c){ c.addEventListener('change',saveAndApply); });
-  })();
-  </script>
-  <script>
-  (function(){
+
+    // ── Topbar toggle (realtime, no button) ─────────────────────────────────
+    var htChk=document.getElementById('hide-topbar-chk');
+    if(htChk){
+      htChk.addEventListener('change',function(){
+        var hide=htChk.checked;
+        var tn=document.getElementById('topnav'); if(tn) tn.style.display=hide?'none':'';
+        var fd=new FormData(); fd.append('action','sidebar_topbar'); fd.append('hide_topbar',hide?'1':'0');
+        fetch('index.php?p=account&sec=sidebar',{method:'POST',body:fd,credentials:'same-origin'}).catch(function(){});
+      });
+    }
+
+    // ── Quick-links drag/reorder (realtime, no Save button) ─────────────────
     var list=document.getElementById('sblist'), form=document.getElementById('sbform'),
         order=document.getElementById('sborder'), add=document.getElementById('sbadd');
     if(!list) return;
@@ -239,8 +325,13 @@ $curAccent = $player['accent_color'] ?? '';
     var navData=<?= json_encode(array_map(function($v){ return ['text'=>$v[0],'href'=>$v[1]]; }, $nl)) ?>;
     list.addEventListener('click',function(e){
       var row=e.target.closest('.sbrow'); if(!row) return;
-      if(e.target.classList.contains('sbdel')){ var k=row.getAttribute('data-key'); row.remove();
-        var o=document.createElement('option'); o.value=k; o.textContent=labels[k]||k; add.appendChild(o); return; }
+      if(e.target.classList.contains('sbdel')){
+        var k=row.getAttribute('data-key');
+        if(k==='account') return; // account link is permanent
+        row.remove();
+        var o=document.createElement('option'); o.value=k; o.textContent=labels[k]||k; add.appendChild(o);
+        return;
+      }
       if(e.target.classList.contains('sbmove')){
         var dir=e.target.getAttribute('data-dir');
         if(dir==='up'&&row.previousElementSibling) list.insertBefore(row,row.previousElementSibling);
@@ -266,9 +357,8 @@ $curAccent = $player['accent_color'] ?? '';
         var li=document.createElement('li'); li.setAttribute('data-navkey',k);
         var active=navData[k].href.indexOf('p='+curP)!==-1; if(active) li.className='active';
         var a=document.createElement('a'); a.href=navData[k].href; a.textContent=navData[k].text;
-        li.appendChild(a); menu.insertBefore(li, adminLi||null);
+        li.appendChild(a); menu.insertBefore(li,adminLi||null);
       });
-      // Mirror to topnav
       var topnav=document.getElementById('topnav'); if(!topnav) return;
       topnav.querySelectorAll('a[data-navkey]').forEach(function(a){ a.remove(); });
       var logoutA=topnav.querySelector('a[href*="p=logout"]');
@@ -277,20 +367,19 @@ $curAccent = $player['accent_color'] ?? '';
         var a=document.createElement('a'); a.href=navData[k].href; a.setAttribute('data-navkey',k);
         a.textContent=navData[k].text;
         if(navData[k].href.indexOf('p='+curP)!==-1) a.className='active';
-        topnav.insertBefore(a, logoutA||null);
+        topnav.insertBefore(a,logoutA||null);
       });
     }
     var saveTimer;
     function autoSave(){
-      var keys=getKeys(); order.value=keys.join(',');
-      rebuildMenu(keys);
+      var keys=getKeys(); order.value=keys.join(','); rebuildMenu(keys);
       clearTimeout(saveTimer);
       saveTimer=setTimeout(function(){
         var fd=new FormData(); fd.append('action','sidebar'); fd.append('order',keys.join(','));
         fetch('index.php?p=account&sec=sidebar',{method:'POST',body:fd,credentials:'same-origin'}).catch(function(){});
       },400);
     }
-    list.addEventListener('click',function(e){ /* re-hook after moves/deletes */
+    list.addEventListener('click',function(e){
       if(e.target.classList.contains('sbdel')||e.target.classList.contains('sbmove')) setTimeout(autoSave,0);
     });
     add.addEventListener('change',function(){ setTimeout(autoSave,0); });
@@ -335,25 +424,23 @@ $curAccent = $player['accent_color'] ?? '';
   ?>
   <hr style="border:none;border-top:1px solid var(--line);margin:20px 0">
   <h3 style="margin-bottom:12px">Font Style</h3>
-  <p class="muted" style="font-size:12px;margin-bottom:14px">Changes the body font across the whole site. Preview updates live. Headings and stats always use Orbitron.</p>
-  <form method="post" id="fontForm">
-    <input type="hidden" name="action" value="font">
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:14px">
-      <?php foreach ($fontOptions as $fk => $fo): ?>
-      <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid <?= $curFont===$fk ? 'var(--accent)' : 'var(--line)' ?>;border-radius:7px;cursor:pointer;background:<?= $curFont===$fk ? 'rgba(25,240,199,.05)' : 'var(--panel2)' ?>" id="font-label-<?= $fk ?>">
-        <input type="radio" name="font_choice" value="<?= $fk ?>" <?= $curFont===$fk ? 'checked' : '' ?> style="width:auto;accent-color:var(--accent)" onchange="previewFont('<?= $fk ?>')">
-        <div>
-          <div style="font-family:<?= $fo['stack'] ?>;font-weight:600;font-size:13px"><?= $fo['label'] ?></div>
-          <div style="font-family:<?= $fo['stack'] ?>;font-size:11px;color:var(--muted)">The quick brown fox 0123</div>
-        </div>
-      </label>
-      <?php endforeach; ?>
-    </div>
-    <button type="submit">Save Font</button>
-  </form>
+  <p class="muted" style="font-size:12px;margin-bottom:14px">Changes the body font across the whole site. Selects save instantly. Headings and stats always use Orbitron.</p>
+  <div id="font-msg" style="display:none;font-size:12px;color:var(--accent);margin-bottom:8px">&#10003; Font saved.</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:4px">
+    <?php foreach ($fontOptions as $fk => $fo): ?>
+    <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid <?= $curFont===$fk ? 'var(--accent)' : 'var(--line)' ?>;border-radius:7px;cursor:pointer;background:<?= $curFont===$fk ? 'rgba(25,240,199,.05)' : 'var(--panel2)' ?>" id="font-label-<?= $fk ?>">
+      <input type="radio" name="font_choice" value="<?= $fk ?>" <?= $curFont===$fk ? 'checked' : '' ?> style="width:auto;accent-color:var(--accent)" onchange="previewFont('<?= $fk ?>')">
+      <div>
+        <div style="font-family:<?= $fo['stack'] ?>;font-weight:600;font-size:13px"><?= $fo['label'] ?></div>
+        <div style="font-family:<?= $fo['stack'] ?>;font-size:11px;color:var(--muted)">The quick brown fox 0123</div>
+      </div>
+    </label>
+    <?php endforeach; ?>
+  </div>
   <script>
   var fontImports = <?= json_encode(array_combine(array_keys($fontOptions), array_column($fontOptions, 'import'))) ?>;
   var fontStacks  = <?= json_encode(array_combine(array_keys($fontOptions), array_column($fontOptions, 'stack'))) ?>;
+  var fontMsg = document.getElementById('font-msg');
   function previewFont(fk) {
     var imp = fontImports[fk], stack = fontStacks[fk];
     if (!imp) return;
@@ -363,12 +450,17 @@ $curAccent = $player['accent_color'] ?? '';
       lk.href = 'https://fonts.googleapis.com/css2?family='+imp+'&display=swap';
     }
     document.body.style.fontFamily = stack;
-    // Update card borders
     document.querySelectorAll('[id^="font-label-"]').forEach(function(el){
       var sel = el.querySelector('input[type=radio]').value === fk;
       el.style.borderColor = sel ? 'var(--accent)' : 'var(--line)';
       el.style.background  = sel ? 'rgba(25,240,199,.05)' : 'var(--panel2)';
     });
+    // AJAX save
+    var fd=new FormData(); fd.append('action','font'); fd.append('font_choice',fk);
+    fetch('index.php?p=account&sec=schemes',{method:'POST',body:fd,credentials:'same-origin'})
+      .then(function(r){
+        if(fontMsg){ fontMsg.style.display=''; clearTimeout(fontMsg._t); fontMsg._t=setTimeout(function(){ fontMsg.style.display='none'; },2000); }
+      }).catch(function(){});
   }
   </script>
 
@@ -443,7 +535,8 @@ $curAccent = $player['accent_color'] ?? '';
     <input type="hidden" name="action" value="handle">
     <div class="field">
       <span>New handle</span>
-      <input type="text" name="new_username" value="<?= e($player['username']) ?>" maxlength="32" style="max-width:280px">
+      <input type="text" name="new_username" id="handle-input" value="<?= e($player['username']) ?>" data-no-counter style="max-width:280px" autocomplete="off">
+      <span id="handle-warn" style="display:none;font-size:11px;color:var(--neon2);margin-top:3px">Handle must be 3–32 characters.</span>
     </div>
     <div class="field">
       <span>Current passkey (to confirm)</span>
@@ -490,6 +583,133 @@ $curAccent = $player['accent_color'] ?? '';
     inp.type=inp.type==='password'?'text':'password';
     btn.textContent=inp.type==='password'?'👁':'🙈';
   }
+  (function(){
+    var hi=document.getElementById('handle-input'), hw=document.getElementById('handle-warn');
+    if(!hi||!hw) return;
+    hi.addEventListener('input',function(){
+      var v=hi.value, ok=/^[A-Za-z0-9_]{3,32}$/.test(v);
+      hw.textContent = v.length > 32 ? 'Too long — max 32 characters.' : (v.length < 3 && v.length > 0 ? 'Too short — min 3 characters.' : '');
+      hw.style.display = !ok && v.length > 0 ? '' : 'none';
+    });
+  })();
+  </script>
+
+<?php elseif ($sec === 'goals'):
+  // Load goals
+  $goalsRaw = '';
+  try { $gq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(['goals:'.$pid]); $goalsRaw=(string)$gq->fetchColumn(); } catch(Throwable $e){}
+  $goals = ($goalsRaw && $goalsRaw !== '0') ? (json_decode($goalsRaw,true) ?: []) : [];
+  // Load progress values
+  $currentLevel   = (int)$player['level'];
+  $currentPocket  = (int)$player['creds_pocket'];
+  $currentBank    = (int)$player['creds_bank'];
+  $currentWins    = 0;
+  try { $wq=$pdo->prepare('SELECT COUNT(*) FROM pvp_log WHERE winner_id=?'); $wq->execute([$pid]); $currentWins=(int)$wq->fetchColumn(); } catch(Throwable $e){}
+  $progressMap    = ['level'=>$currentLevel,'credits_pocket'=>$currentPocket,'credits_bank'=>$currentBank,'combat_wins'=>$currentWins];
+  $typeLabels     = ['level'=>'Level','credits_pocket'=>'Credits (pocket)','credits_bank'=>'Credits (bank)','combat_wins'=>'Combat wins','custom'=>'Custom'];
+?>
+  <h3 style="margin-bottom:4px">&#127919; Goals</h3>
+  <p class="muted" style="font-size:12px;margin-bottom:16px">Set personal goals and track your progress. Goals are private to you.</p>
+
+  <?php if (!empty($goals)):
+    $active    = array_filter($goals, fn($g)=>!($g['completed']??false));
+    $completed = array_filter($goals, fn($g)=> ($g['completed']??false));
+  ?>
+  <?php foreach ($active as $g):
+    $type     = $g['type'] ?? 'custom';
+    $target   = (int)($g['target'] ?? 0);
+    $current  = $progressMap[$type] ?? null;
+    $pct      = ($type !== 'custom' && $target > 0 && $current !== null) ? min(100, round($current / $target * 100)) : null;
+    $done     = $pct !== null && $pct >= 100;
+  ?>
+  <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:8px">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:<?= $pct !== null ? '8' : '0' ?>px">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:<?= $done ? 'var(--accent)' : 'var(--text)' ?>"><?= e($g['label']) ?></div>
+        <?php if ($type !== 'custom' && $target > 0): ?>
+        <div style="font-size:11px;color:var(--muted)">
+          <?= $typeLabels[$type] ?? $type ?> &middot;
+          <?= number_format($current ?? 0) ?> / <?= number_format($target) ?>
+          <?php if ($done): ?><span style="color:var(--accent)"> &#10003; Complete!</span><?php endif; ?>
+        </div>
+        <?php endif; ?>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <?php if (!$done): ?>
+        <form method="post" style="margin:0">
+          <input type="hidden" name="action" value="complete_goal">
+          <input type="hidden" name="goal_id" value="<?= e($g['id']) ?>">
+          <button type="submit" style="font-size:11px;padding:3px 10px;background:rgba(25,240,199,.07);border-color:rgba(25,240,199,.25);color:var(--accent)">&#10003; Done</button>
+        </form>
+        <?php endif; ?>
+        <form method="post" style="margin:0">
+          <input type="hidden" name="action" value="del_goal">
+          <input type="hidden" name="goal_id" value="<?= e($g['id']) ?>">
+          <button type="submit" style="font-size:11px;padding:3px 10px;background:rgba(255,45,149,.05);border-color:rgba(255,45,149,.2);color:var(--neon2)">&times;</button>
+        </form>
+      </div>
+    </div>
+    <?php if ($pct !== null): ?>
+    <div style="height:6px;background:rgba(0,0,0,.3);border-radius:3px;overflow:hidden">
+      <div style="height:100%;width:<?= $pct ?>%;background:<?= $done ? 'var(--accent)' : 'var(--neon2)' ?>;border-radius:3px;transition:width .3s"></div>
+    </div>
+    <?php endif; ?>
+  </div>
+  <?php endforeach; ?>
+
+  <?php if (!empty($completed)): ?>
+  <div style="margin-top:12px;margin-bottom:4px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Completed</div>
+  <?php foreach ($completed as $g): ?>
+  <div style="background:rgba(25,240,199,.03);border:1px solid rgba(25,240,199,.15);border-radius:7px;padding:9px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+    <div style="font-size:12px;color:var(--muted);text-decoration:line-through"><?= e($g['label']) ?></div>
+    <form method="post" style="margin:0">
+      <input type="hidden" name="action" value="del_goal">
+      <input type="hidden" name="goal_id" value="<?= e($g['id']) ?>">
+      <button type="submit" style="font-size:11px;padding:2px 8px;background:transparent;border-color:rgba(255,45,149,.15);color:rgba(255,45,149,.5)">&times;</button>
+    </form>
+  </div>
+  <?php endforeach; ?>
+  <?php endif; ?>
+  <?php endif; ?>
+
+  <!-- Add new goal -->
+  <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px;margin-top:<?= empty($goals) ? '0' : '14' ?>px">
+    <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">+ New Goal</div>
+    <form method="post" id="goal-form">
+      <input type="hidden" name="action" value="add_goal">
+      <div class="field" style="max-width:280px;margin-bottom:8px">
+        <span>Type</span>
+        <select name="goal_type" id="goal-type-sel">
+          <option value="level">Reach a level</option>
+          <option value="credits_pocket">Credits in pocket</option>
+          <option value="credits_bank">Credits in bank</option>
+          <option value="combat_wins">Combat wins</option>
+          <option value="custom">Custom (text only)</option>
+        </select>
+      </div>
+      <div id="goal-target-wrap" class="field" style="max-width:200px;margin-bottom:8px">
+        <span>Target value</span>
+        <input type="number" name="goal_target" id="goal-target" min="1" placeholder="e.g. 25">
+      </div>
+      <div class="field" style="max-width:400px;margin-bottom:10px">
+        <span id="goal-label-lbl">Custom label <span class="muted" style="text-transform:none;letter-spacing:0">(optional — auto-generated if blank)</span></span>
+        <input type="text" name="goal_label" id="goal-label" maxlength="100" data-no-counter placeholder="e.g. Hit the big leagues">
+      </div>
+      <button type="submit" style="padding:8px 20px">Add Goal</button>
+    </form>
+  </div>
+  <script>
+  (function(){
+    var sel=document.getElementById('goal-type-sel');
+    var tw=document.getElementById('goal-target-wrap');
+    var ll=document.getElementById('goal-label-lbl');
+    if(!sel) return;
+    sel.addEventListener('change',function(){
+      var isCustom=sel.value==='custom';
+      if(tw) tw.style.display=isCustom?'none':'';
+      if(ll) ll.childNodes[0].nodeValue=isCustom?'Goal description':'Custom label ';
+    });
+  })();
   </script>
 
 <?php elseif ($sec === 'premium'):

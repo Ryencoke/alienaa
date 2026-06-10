@@ -2,6 +2,22 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-10 BATCH-11 ---
+
+ACCOUNT SETTINGS OVERHAUL
+--------------------------
+- [account.php sidebar] Removed "Save Sidebar" button — already realtime via autoSave
+- [account.php sidebar] Removed "Save Stat Display" button — already realtime on checkbox change
+- [account.php sidebar] Removed "Save Display" button — topbar toggle now realtime on checkbox change
+- [account.php sidebar] Account link locked from deletion (lock icon, JS guard); users can't remove it
+- [account.php schemes] Font selection saves via AJAX on radio change; inline "Font saved." confirmation shown, no page reload needed
+- [account.php profile] Save is now AJAX; inline success message shown without page reload; country flag updates live in sidebar
+- [account.php credentials] Handle input: removed maxlength, realtime too-long/too-short warning shown below field
+- [account.php credentials] Handle change: explicit duplicate check (case-insensitive) before attempting UPDATE
+- [account.php credentials] Handle change: blocks names identical to staff after stripping digits/symbols (e.g. Ryencok3 → ryencok matches staff ryencok)
+- [account.php goals] NEW: Goals tab added — set level/credits/combat wins/custom goals with progress tracking
+- [account.php goals] Goals stored in settings table as JSON; progress bars for trackable goal types; complete/delete buttons per goal
+
 --- SESSION: 2026-06-10 BATCH-10 ---
 
 PVP COMBAT OVERHAUL
