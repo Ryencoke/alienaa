@@ -14,7 +14,7 @@ if (!$prof) {
 $role  = $prof['role'] ?? 'member';
 $ccol  = $prof['chat_color'] ?? '#c9d1e0';
 $bio   = trim($prof['bio'] ?? '');
-$col   = chat_color($role, $ccol);
+$col   = chat_color($role, '');
 $rlbl  = role_label($role);
 $isMe  = ((int)$prof['id'] === (int)($_SESSION['pid'] ?? 0));
 $country = strtolower(trim($prof['country'] ?? ''));

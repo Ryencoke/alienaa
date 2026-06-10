@@ -15,45 +15,67 @@ try {
   $pdo->exec('CREATE TABLE IF NOT EXISTS chat_messages (
     id         INT AUTO_INCREMENT PRIMARY KEY,
     player_id  INT          NOT NULL,
+    room       VARCHAR(40)  NOT NULL DEFAULT \'public\',
     body       VARCHAR(240) NOT NULL,
     created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_player (player_id),
-    INDEX idx_id     (id)
+    INDEX idx_room_id (room, id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+  try { $pdo->exec("ALTER TABLE chat_messages ADD COLUMN room VARCHAR(40) NOT NULL DEFAULT 'public' AFTER player_id"); } catch (Throwable $e) {}
+  try { $pdo->exec("ALTER TABLE chat_messages ADD INDEX idx_room_id (room, id)"); } catch (Throwable $e) {}
 } catch (Throwable $e) {}
 
+// Valid rooms + access check
+function resolve_room(string $raw, array $player, $pdo): string {
+  if (in_array($raw, ['public','trading','help'], true)) return $raw;
+  if (preg_match('/^syn_(\d+)$/', $raw, $m)) {
+    $synId = (int)$m[1];
+    $q = $pdo->prepare('SELECT 1 FROM syndicate_members WHERE syndicate_id=? AND player_id=?');
+    $q->execute([$synId, $player['id']]);
+    if ($q->fetchColumn()) return $raw;
+  }
+  return 'public';
+}
+
 $action = $_POST['action'] ?? $_GET['action'] ?? 'list';
+$room   = resolve_room((string)($_POST['room'] ?? $_GET['room'] ?? 'public'), $player, $pdo);
 
 if ($action === 'say' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $body = trim($_POST['body'] ?? '');
   if ($body === '') { echo json_encode(['ok' => false, 'error' => 'empty']); exit; }
   if (mb_strlen($body) > 240) $body = mb_substr($body, 0, 240);
 
-  // Light flood guard: ~1 message per second per player.
-  $last = $pdo->prepare('SELECT created_at FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT 1');
-  $last->execute([$player['id']]);
+  $last = $pdo->prepare('SELECT created_at FROM chat_messages WHERE player_id=? AND room=? ORDER BY id DESC LIMIT 1');
+  $last->execute([$player['id'], $room]);
   $t = $last->fetchColumn();
   if ($t && (time() - strtotime($t)) < 1) { echo json_encode(['ok' => false, 'error' => 'slow down']); exit; }
 
-  $pdo->prepare('INSERT INTO chat_messages (player_id, body, created_at) VALUES (?,?,NOW())')
-      ->execute([$player['id'], $body]);
+  $pdo->prepare('INSERT INTO chat_messages (player_id, room, body, created_at) VALUES (?,?,?,NOW())')
+      ->execute([$player['id'], $room, $body]);
   echo json_encode(['ok' => true]); exit;
 }
 
+if ($action === 'active') {
+  $aq = $pdo->prepare('SELECT DISTINCT p.id, p.username, p.role, p.chat_color FROM chat_messages c JOIN players p ON p.id=c.player_id WHERE c.room=? AND c.created_at >= NOW() - INTERVAL 5 MINUTE ORDER BY p.username');
+  $aq->execute([$room]);
+  $active = [];
+  foreach ($aq as $r) $active[] = ['id'=>(int)$r['id'],'name'=>$r['username'],'color'=>chat_color($r['role'],'')];
+  echo json_encode(['ok'=>true,'active'=>$active]); exit;
+}
+
 // List recent messages (oldest-first). Optional &n= up to 100.
-$n = min(100, max(10, (int)($_GET['n'] ?? 30)));
-$rows = $pdo->query('SELECT c.id, c.body, c.created_at, p.id AS uid, p.username, p.role, p.chat_color, p.sub_until
-                     FROM chat_messages c JOIN players p ON p.id = c.player_id
-                     ORDER BY c.id DESC LIMIT ' . (int)$n)->fetchAll();
+$n = min(150, max(10, (int)($_GET['n'] ?? 50)));
+$rows = $pdo->prepare('SELECT c.id, c.body, c.created_at, p.id AS uid, p.username, p.role, p.chat_color FROM chat_messages c JOIN players p ON p.id = c.player_id WHERE c.room=? ORDER BY c.id DESC LIMIT ' . (int)$n);
+$rows->execute([$room]); $rows = $rows->fetchAll();
 $msgs = [];
 foreach (array_reverse($rows) as $r) {
   $msgs[] = [
-    'id'       => (int)$r['uid'],
-    'time'     => date('H:i', strtotime($r['created_at'])),
-    'username' => $r['username'],
-    'color'    => chat_color($r['role'], $r['chat_color']),
-    'sub'      => (!empty($r['sub_until']) && $r['sub_until'] >= date('Y-m-d')),
-    'html'     => bbcode($r['body']),     // escaped + whitelisted BBCode = safe innerHTML
+    'id'         => (int)$r['uid'],
+    'time'       => date('H:i', strtotime($r['created_at'])),
+    'username'   => $r['username'],
+    'name_color' => chat_color($r['role'], ''),             // username: role color only
+    'color'      => chat_color($r['role'], $r['chat_color']), // text: custom or role color
+    'html'       => bbcode($r['body']),
   ];
 }
 echo json_encode(['ok' => true, 'messages' => $msgs]);

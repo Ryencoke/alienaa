@@ -365,3 +365,27 @@ NOTIFICATIONS
 - player_notifications table: (id, player_id, type, body, is_read, created_at)
 - home.php newsFeed now includes unread player_notifications; marks as read on view
 - friend_add type added to notification icon/color map
+
+--- SESSION: 2026-06-10 (eighth batch) ---
+
+BUG FIXES
+---------
+- [chat_api.php + chat.php] Chat color bug fixed: font color setting now applies to MESSAGE TEXT, not username. Username always shows role-based color (staff = fixed, members = default #c9d1e0)
+- [boards.php] Username color in posts now role-based only (custom chat color no longer bleeds onto board usernames)
+- [profile.php] Username color on profile now role-based only (custom chat color removed from display)
+- [chat.php + index.php quickchat JS] name_color field added to API response; quickchat already used m.name_color for username — now correctly populated
+
+CHAT (chat.php + chat_api.php)
+--------------------------------
+- Multi-room chat: Public Channel, Trading Chat, Game Help — switchable via room tabs
+- Syndicate Chat room auto-added as tab if player is in a syndicate (room key: syn_{id})
+- Access control: syndicate rooms validated server-side (must be a member to post/read)
+- Active chatters panel shown beside chat feed (players who posted in the current room in last 5 min)
+- Right-side quickchat panel hidden when viewing chat.php; restored on navigation away
+- chat_messages table: room column added (VARCHAR 40, DEFAULT 'public'); existing messages stay in 'public' room
+- chat_api.php: room param added to list/say/active actions; resolve_room() validates access
+
+GUILDS (guilds.php)
+-------------------
+- "Chat" tab added to Syndicate page — embedded syndicate chat (polls chat_api.php with syn_{id} room)
+- Live chat with AJAX polling every 4 seconds; send button submits via fetch

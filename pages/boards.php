@@ -119,7 +119,7 @@ function votebox_html($postId, $score, $myVote = 0) {
 // Recursively render a reply and its children.
 if (!function_exists('render_post')) {
   function render_post($p, $children, $scores, $tid, $depth, $canModB = false, $myVotes = []) {
-    $col = chat_color($p['role'], $p['chat_color']);
+    $col = chat_color($p['role'], '');
     echo '<div class="post" style="margin-left:' . ($depth * 22) . 'px">';
     echo votebox_html($p['id'], $scores[$p['id']] ?? 0, $myVotes[$p['id']] ?? 0);
     echo '<div class="postbody"><div class="posthead">';
@@ -284,7 +284,7 @@ if ($tid) {
     <p class="muted"><a href="index.php?p=boards">Message Boards</a> &raquo;
       <a href="index.php?p=boards&b=<?= (int)$topic['board_id'] ?>"><?= e($topic['board_name']) ?></a></p>
     <?= $flash ?>
-    <?php if ($op): $col = chat_color($op['role'], $op['chat_color']); ?>
+    <?php if ($op): $col = chat_color($op['role'], ''); ?>
     <div class="post">
       <?= votebox_html($op['id'], $scores[$op['id']] ?? 0, $myVotes[$op['id']] ?? 0) ?>
       <div class="postbody">

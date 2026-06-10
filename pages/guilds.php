@@ -417,7 +417,7 @@ if ($mySyn && syn_can($myRank, 'manage_members')) {
   <?php
   $membersLabel = '&#128101; Members' . ($pendingApps ? ' <span style="background:var(--neon2);color:#000;border-radius:10px;padding:1px 6px;font-size:9px;font-weight:700">'.$pendingApps.'</span>' : '');
   $tabDefs = $mySyn
-    ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','members'=>$membersLabel,'staff'=>'&#128737; Staff','stockpile'=>'&#9874; Stockpile','log'=>'&#128196; Log']
+    ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','chat'=>'&#128172; Chat','members'=>$membersLabel,'staff'=>'&#128737; Staff','stockpile'=>'&#9874; Stockpile','log'=>'&#128196; Log']
     : ['search'=>'&#128269; Find Syndicate','create'=>'&#43; Create'];
   foreach ($tabDefs as $tk=>$tl):
     $show = isset($tabDefs[$tk]);
@@ -643,6 +643,80 @@ elseif ($tab === 'board' && $mySyn): ?>
   </form>
 </div>
 <?php } // end topics list ?>
+
+
+<?php // ══ CHAT ═════════════════════════════════════════
+elseif ($tab === 'chat' && $mySyn):
+  $synChatRoom = 'syn_' . (int)$mySyn['syndicate_id'];
+  $synChatRows = [];
+  try {
+    $scq = $pdo->prepare('SELECT c.body, c.created_at, p.id AS uid, p.username, p.role, p.chat_color FROM chat_messages c JOIN players p ON p.id=c.player_id WHERE c.room=? ORDER BY c.id DESC LIMIT 100');
+    $scq->execute([$synChatRoom]); $synChatRows = array_reverse($scq->fetchAll());
+  } catch (Throwable $e) {}
+?>
+<div class="panel" style="padding:0;overflow:hidden">
+  <div id="syn-chatroom" class="chatroom-full">
+    <?php if ($synChatRows): foreach ($synChatRows as $r):
+      $col     = chat_color($r['role'], '');
+      $textCol = chat_color($r['role'], $r['chat_color']);
+    ?>
+      <div class="chatline-full">
+        <span class="chattime-full"><?= e(date('H:i', strtotime($r['created_at']))) ?></span>
+        <div class="chatline-body">
+          <a href="index.php?p=profile&id=<?= (int)$r['uid'] ?>" style="color:<?= e($col) ?>;font-weight:700"><?= e($r['username']) ?></a><span style="color:var(--muted)">:</span>
+          <span style="color:<?= e($textCol) ?>"><?= bbcode($r['body']) ?></span>
+        </div>
+      </div>
+    <?php endforeach; else: ?>
+      <div style="text-align:center;padding:32px;color:var(--muted)">
+        <div style="font-size:28px;margin-bottom:8px">&#128172;</div>
+        <div>No messages yet. Start the conversation.</div>
+      </div>
+    <?php endif; ?>
+  </div>
+  <div style="border-top:1px solid var(--line);padding:10px 14px;background:var(--panel2)">
+    <form id="syn-chatform" style="display:flex;gap:8px;align-items:center">
+      <input type="hidden" id="syn-chat-room" value="<?= e($synChatRoom) ?>">
+      <input type="text" id="syn-chatinput" maxlength="240" autocomplete="off" placeholder="Message syndicate..." style="flex:1">
+      <button type="submit" style="flex:none;padding:8px 16px">Send</button>
+    </form>
+  </div>
+</div>
+<script>
+(function(){
+  var room=document.getElementById('syn-chatroom'),
+      form=document.getElementById('syn-chatform'),
+      inp=document.getElementById('syn-chatinput'),
+      rk=document.getElementById('syn-chat-room').value;
+  if(!room||!form) return;
+  function render(msgs){
+    if(!msgs||!msgs.length) return;
+    room.innerHTML='';
+    msgs.forEach(function(m){
+      var line=document.createElement('div'); line.className='chatline-full';
+      var t=document.createElement('span'); t.className='chattime-full'; t.textContent=m.time;
+      var body=document.createElement('div'); body.className='chatline-body';
+      body.innerHTML='<a href="index.php?p=profile&id='+m.id+'" style="color:'+(m.name_color||'#c9d1e0')+';font-weight:700">'+m.username+'</a><span style="color:var(--muted)">:</span> <span style="color:'+(m.color||'#c9d1e0')+'">'+m.html+'</span>';
+      line.appendChild(t); line.appendChild(body); room.appendChild(line);
+    });
+    room.scrollTop=room.scrollHeight;
+  }
+  function load(){
+    fetch('chat_api.php?action=list&n=100&room='+encodeURIComponent(rk),{credentials:'same-origin'})
+      .then(function(r){return r.json();}).then(function(d){ if(d&&d.messages) render(d.messages); }).catch(function(){});
+  }
+  form.addEventListener('submit',function(ev){
+    ev.preventDefault();
+    var t=inp.value.trim(); if(!t) return;
+    var fd=new FormData(); fd.append('action','say'); fd.append('body',t); fd.append('room',rk);
+    fetch('chat_api.php',{method:'POST',body:fd,credentials:'same-origin'})
+      .then(function(r){return r.json();}).then(function(){ inp.value=''; load(); }).catch(function(){});
+  });
+  room.scrollTop=room.scrollHeight; load();
+  if(window.__synChatInterval) clearInterval(window.__synChatInterval);
+  window.__synChatInterval=setInterval(load,4000);
+})();
+</script>
 
 
 <?php // ══ MEMBERS ════════════════════════════════════════

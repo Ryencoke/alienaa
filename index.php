@@ -274,9 +274,9 @@ try {
       tick();
     })();
     </script>
-    <div class="panel">
+    <div class="panel" id="quickchat-panel">
       <h3>Public Channel <a href="index.php?p=chat" style="font-size:11px;float:right;font-weight:normal">[full chat]</a></h3>
-      <div id="chatfeed" style="max-height:220px;overflow-y:auto;font-size:12px"></div>
+      <div id="chatfeed" style="max-height:200px;overflow-y:auto;font-size:12px"></div>
       <form id="chatform" style="margin-top:8px;display:flex;gap:4px">
         <input type="text" id="chatinput" maxlength="240" autocomplete="off" placeholder="say something...">
         <button type="submit">Say</button>
@@ -298,7 +298,7 @@ try {
           var who=document.createElement('a'); who.href='index.php?p=profile&id='+m.id;
           who.textContent=m.username+': '; who.style.color=m.name_color||'#c9d1e0'; who.style.fontWeight='bold';
           var body=document.createElement('span');
-          body.style.color=m.color; body.innerHTML=m.html;   // server-sanitized (escaped + whitelisted BBCode)
+          body.style.color=m.color||'#c9d1e0'; body.innerHTML=m.html;   // server-sanitized
           line.appendChild(who); line.appendChild(body);
           feed.appendChild(line);
         });
