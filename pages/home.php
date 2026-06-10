@@ -91,8 +91,8 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
     <span style="float:right;background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700"><?= count($newsFeed) ?></span>
   </h3>
   <?php foreach (array_slice($newsFeed,0,8) as $item):
-    $nicon = ['message'=>'&#9993;','transfer'=>'&#128178;','news'=>'&#128203;','levelup'=>'&#11088;','friend_add'=>'&#128101;'][$item['type']] ?? '&#8226;';
-    $ncol  = ['message'=>'var(--accent)','transfer'=>'#3bcf63','news'=>'#e8d44d','levelup'=>'#e8d44d','friend_add'=>'var(--accent)'][$item['type']] ?? 'var(--muted)';
+    $nicon = ['message'=>'&#9993;','transfer'=>'&#128178;','news'=>'&#128203;','levelup'=>'&#11088;','friend_add'=>'&#128101;','pvp'=>'&#9876;'][$item['type']] ?? '&#8226;';
+    $ncol  = ['message'=>'var(--accent)','transfer'=>'#3bcf63','news'=>'#e8d44d','levelup'=>'#e8d44d','friend_add'=>'var(--accent)','pvp'=>'var(--neon2)'][$item['type']] ?? 'var(--muted)';
     $rawHtml = $item['type']==='levelup';
   ?>
   <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)<?= $rawHtml?';background:rgba(232,212,77,.04);margin:-1px -4px;padding:7px 4px;border-radius:4px':'' ?>">

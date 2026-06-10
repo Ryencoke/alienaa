@@ -46,10 +46,14 @@ try {
     id INT AUTO_INCREMENT PRIMARY KEY, attacker_id INT NOT NULL, defender_id INT NOT NULL,
     winner_id INT NOT NULL, rounds INT NOT NULL DEFAULT 1,
     atk_xp INT NOT NULL DEFAULT 0, def_xp INT NOT NULL DEFAULT 0,
+    credits_looted INT NOT NULL DEFAULT 0,
+    log_data TEXT NULL,
     fought_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_atk (attacker_id), INDEX idx_def (defender_id)
   ) ENGINE=InnoDB");
 } catch (Throwable $e) {}
+try { $pdo->exec("ALTER TABLE pvp_log ADD COLUMN log_data TEXT NULL"); } catch (Throwable $e) {}
+try { $pdo->exec("ALTER TABLE pvp_log ADD COLUMN credits_looted INT NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
 
 // Load / auto-init my stats
 try {
@@ -79,14 +83,14 @@ function pvp_calc_stats($p, $stats, $pdo) {
   $spd  = (int)($stats['spd_pts'] ?? 5);
   $end  = (int)($stats['end_pts'] ?? 5);
 
-  // Gear bonuses (from Fabrication Lab crafted equipment)
-  $weaponAtk = 0; $armorDef = 0;
+  // Gear bonuses — also retrieve names for battle log display
+  $weaponAtk = 0; $armorDef = 0; $weaponName = null; $armorName = null;
   try {
     $gq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
     $gq->execute(["equipped_weapon:{$pid2}"]); $wid = (int)$gq->fetchColumn();
-    if ($wid > 0) { $gq2 = $pdo->prepare('SELECT atk_bonus FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$wid,$pid2]); $v=$gq2->fetchColumn(); $weaponAtk=$v!==false?(int)$v:0; }
+    if ($wid > 0) { $gq2 = $pdo->prepare('SELECT name, atk_bonus FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$wid,$pid2]); $wr=$gq2->fetch(); if($wr){$weaponAtk=(int)$wr['atk_bonus'];$weaponName=$wr['name'];} }
     $gq->execute(["equipped_armor:{$pid2}"]); $aid = (int)$gq->fetchColumn();
-    if ($aid > 0) { $gq2 = $pdo->prepare('SELECT def_bonus FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$aid,$pid2]); $v=$gq2->fetchColumn(); $armorDef=$v!==false?(int)$v:0; }
+    if ($aid > 0) { $gq2 = $pdo->prepare('SELECT name, def_bonus FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$aid,$pid2]); $ar=$gq2->fetch(); if($ar){$armorDef=(int)$ar['def_bonus'];$armorName=$ar['name'];} }
   } catch (Throwable $e) {}
 
   // Active buffs
@@ -100,13 +104,14 @@ function pvp_calc_stats($p, $stats, $pdo) {
   } catch (Throwable $e) {}
 
   return [
-    'atk'   => max(1, $str * 3 + $weaponAtk + $buffAtk + (int)$p['atk']),
-    'def'   => max(1, $end * 2 + $armorDef  + $buffDef  + (int)$p['def']),
-    'spd'   => $spd,
-    'hp'    => max(1, (int)$p['integrity_max'] + $end * 5),
-    'str'   => $str, 'end'=>$end,
-    'weapon_atk'=>$weaponAtk, 'armor_def'=>$armorDef,
-    'buff_atk'=>$buffAtk, 'buff_def'=>$buffDef,
+    'atk'        => max(1, $str * 3 + $weaponAtk + $buffAtk + (int)($p['atk'] ?? 0)),
+    'def'        => max(1, $end * 2 + $armorDef  + $buffDef  + (int)($p['def'] ?? 0)),
+    'spd'        => $spd,
+    'hp'         => max(10, (int)$p['integrity'] + $end * 5),
+    'str'        => $str, 'end' => $end,
+    'weapon_atk' => $weaponAtk, 'armor_def'   => $armorDef,
+    'buff_atk'   => $buffAtk,   'buff_def'    => $buffDef,
+    'weapon_name'=> $weaponName, 'armor_name' => $armorName,
   ];
 }
 
@@ -184,7 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       if (!$defStats) $defStats = ['str_pts'=>5,'spd_pts'=>5,'end_pts'=>5,'unspent'=>0];
 
-      $atkStats = pvp_calc_stats($player, $myStats, $pdo);
+      $atkStats  = pvp_calc_stats($player, $myStats, $pdo);
       $defStats2 = pvp_calc_stats($defPlayer, $defStats, $pdo);
       $result    = pvp_simulate($player, $atkStats, $defPlayer, $defStats2);
       $won       = $result['winner'] === 'atk';
@@ -193,18 +198,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $atkXp = $won ? mt_rand(8, 20) + (int)$defPlayer['level'] * 2 : mt_rand(2, 6);
       $defXp = !$won ? mt_rand(5, 15) + (int)$player['level'] * 2   : mt_rand(1, 4);
 
-      $pdo->prepare('INSERT INTO pvp_log (attacker_id, defender_id, winner_id, rounds, atk_xp, def_xp) VALUES (?,?,?,?,?,?)')->execute([$pid, (int)$defPlayer['id'], $won ? $pid : (int)$defPlayer['id'], $result['total_rounds'], $atkXp, $defXp]);
+      // Credit transfer — loser drops 10% of pocket credits to winner
+      $creditsLooted = 0;
+      if ($won) {
+        $creditsLooted = max(0, (int)floor((int)$defPlayer['creds_pocket'] * 0.10));
+        if ($creditsLooted > 0) {
+          $pdo->prepare('UPDATE players SET creds_pocket = GREATEST(0, creds_pocket - ?) WHERE id=?')->execute([$creditsLooted, (int)$defPlayer['id']]);
+          $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$creditsLooted, $pid]);
+        }
+      } else {
+        $creditsLooted = max(0, (int)floor((int)$player['creds_pocket'] * 0.10));
+        if ($creditsLooted > 0) {
+          $pdo->prepare('UPDATE players SET creds_pocket = GREATEST(0, creds_pocket - ?) WHERE id=?')->execute([$creditsLooted, $pid]);
+          $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$creditsLooted, (int)$defPlayer['id']]);
+        }
+      }
+
+      // Integrity damage — proportional to HP lost in combat, applied to both players
+      $atkHpLost  = max(0, $atkStats['hp'] - max(0, (int)$result['atk_final_hp']));
+      $defHpLost  = max(0, $defStats2['hp'] - max(0, (int)$result['def_final_hp']));
+      $atkIntLoss = min((int)$player['integrity'], max(1, $atkHpLost));
+      $defIntLoss = min((int)$defPlayer['integrity'], max(1, $defHpLost));
+      $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id=?')->execute([$atkIntLoss, $pid]);
+      $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id=?')->execute([$defIntLoss, (int)$defPlayer['id']]);
+
+      // Store round log + record fight
+      $logJson = json_encode(['rounds'=>$result['rounds'],'atk_s'=>$atkStats,'def_s'=>$defStats2]);
+      $pdo->prepare('INSERT INTO pvp_log (attacker_id,defender_id,winner_id,rounds,atk_xp,def_xp,credits_looted,log_data) VALUES (?,?,?,?,?,?,?,?)')->execute([$pid,(int)$defPlayer['id'],$won?$pid:(int)$defPlayer['id'],$result['total_rounds'],$atkXp,$defXp,$creditsLooted,$logJson]);
+      $logId = (int)$pdo->lastInsertId();
+
       grant_xp($pid, $atkXp);
-      // Apply integrity damage (attacker loses 5–15% of max)
-      $intLoss = max(1, (int)round((int)$player['integrity_max'] * mt_rand(5,15) / 100));
-      $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id=?')->execute([$intLoss, $pid]);
       $player = current_player();
 
+      // Notify defender
+      try {
+        $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+        $atkName = $player['username'];
+        if ($won) {
+          $notifBody = $atkName . ' attacked and defeated you. -' . $defIntLoss . ' HP' . ($creditsLooted > 0 ? ', -' . number_format($creditsLooted) . ' credits' : '') . '.';
+        } else {
+          $notifBody = $atkName . ' attacked you and was defeated. +' . $defXp . ' XP' . ($creditsLooted > 0 ? ', +' . number_format($creditsLooted) . ' credits looted' : '') . '.';
+        }
+        $pdo->prepare("INSERT INTO player_notifications (player_id,type,body) VALUES (?,?,?)")->execute([(int)$defPlayer['id'],'pvp',$notifBody]);
+      } catch (Throwable $ex) {}
+
       $battleResult = array_merge($result, [
-        'won'=>$won, 'atk_xp'=>$atkXp, 'def_xp'=>$defXp,
-        'atk_p'=>$player, 'def_p'=>$defPlayer,
-        'atk_s'=>$atkStats, 'def_s'=>$defStats2,
-        'int_lost'=>$intLoss,
+        'won'            => $won,
+        'atk_xp'         => $atkXp,        'def_xp'    => $defXp,
+        'atk_p'          => $player,        'def_p'     => $defPlayer,
+        'atk_s'          => $atkStats,      'def_s'     => $defStats2,
+        'int_lost'       => $atkIntLoss,    'def_int_lost' => $defIntLoss,
+        'credits_looted' => $creditsLooted, 'log_id'    => $logId,
       ]);
     }
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
@@ -220,6 +264,18 @@ try {
     WHERE l.attacker_id=? OR l.defender_id=? ORDER BY l.fought_at DESC LIMIT 20");
   $q->execute([$pid, $pid]); $recentPvp = $q->fetchAll();
 } catch (Throwable $e) {}
+
+// Log detail view
+$logDetail = null;
+if (($tab === 'log') && isset($_GET['detail'])) {
+  $did = (int)$_GET['detail'];
+  try {
+    $dq = $pdo->prepare("SELECT l.*, a.username AS atk_name, d.username AS def_name, w.username AS winner_name
+      FROM pvp_log l JOIN players a ON a.id=l.attacker_id JOIN players d ON d.id=l.defender_id JOIN players w ON w.id=l.winner_id
+      WHERE l.id=? AND (l.attacker_id=? OR l.defender_id=?)");
+    $dq->execute([$did, $pid, $pid]); $logDetail = $dq->fetch();
+  } catch (Throwable $e) {}
+}
 ?>
 
 <!-- Header -->
@@ -254,17 +310,19 @@ try {
   </div>
 
   <!-- Combatant comparison -->
-  <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:16px;padding:12px;background:rgba(0,0,0,.2);border-radius:8px">
+  <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:12px;padding:12px;background:rgba(0,0,0,.2);border-radius:8px">
     <div style="text-align:center">
-      <div style="font-weight:700;font-size:14px;color:var(--accent)"><?= e($player['username']) ?></div>
-      <div style="font-size:11px;color:var(--muted)">ATK: <?= $r['atk_s']['atk'] ?> &middot; DEF: <?= $r['atk_s']['def'] ?></div>
-      <div style="font-size:11px;color:var(--muted)">HP: <?= $r['atk_final_hp'] ?>/<?= $r['atk_s']['hp'] ?></div>
+      <div style="font-weight:700;font-size:14px;color:var(--accent)"><?= e($r['atk_p']['username']) ?></div>
+      <div style="font-size:11px;color:var(--muted)">STR <?= $r['atk_s']['str'] ?> &middot; END <?= $r['atk_s']['end'] ?> &middot; SPD <?= $r['atk_s']['spd'] ?></div>
+      <div style="font-size:11px;color:var(--muted)">ATK <?= $r['atk_s']['atk'] ?> &middot; DEF <?= $r['atk_s']['def'] ?></div>
+      <div style="font-size:11px;color:<?= $r['atk_final_hp'] > 0 ? 'var(--accent)' : 'var(--neon2)' ?>">HP: <?= max(0,$r['atk_final_hp']) ?> / <?= $r['atk_s']['hp'] ?></div>
     </div>
     <div style="font-size:24px;text-align:center">&#9876;</div>
     <div style="text-align:center">
       <div style="font-weight:700;font-size:14px;color:var(--neon2)"><?= e($r['def_p']['username']) ?></div>
-      <div style="font-size:11px;color:var(--muted)">ATK: <?= $r['def_s']['atk'] ?> &middot; DEF: <?= $r['def_s']['def'] ?></div>
-      <div style="font-size:11px;color:var(--muted)">HP: <?= $r['def_final_hp'] ?>/<?= $r['def_s']['hp'] ?></div>
+      <div style="font-size:11px;color:var(--muted)">STR <?= $r['def_s']['str'] ?> &middot; END <?= $r['def_s']['end'] ?> &middot; SPD <?= $r['def_s']['spd'] ?></div>
+      <div style="font-size:11px;color:var(--muted)">ATK <?= $r['def_s']['atk'] ?> &middot; DEF <?= $r['def_s']['def'] ?></div>
+      <div style="font-size:11px;color:<?= $r['def_final_hp'] > 0 ? 'var(--accent)' : 'var(--neon2)' ?>">HP: <?= max(0,$r['def_final_hp']) ?> / <?= $r['def_s']['hp'] ?></div>
     </div>
   </div>
 
@@ -277,9 +335,27 @@ try {
       <div style="font-size:12px;color:<?= $ev['color'] ?>;margin-bottom:2px;padding-left:10px">&#8250; <?= e($ev['text']) ?></div>
       <?php endforeach; ?>
       <div style="font-size:10px;color:var(--muted);margin-top:3px;padding-left:10px">
-        <?= e($player['username']) ?>: <?= max(0,(int)$rnd['atk_hp']) ?> HP &nbsp;&nbsp;
+        <?= e($r['atk_p']['username']) ?>: <?= max(0,(int)$rnd['atk_hp']) ?> HP &nbsp;|&nbsp;
         <?= e($r['def_p']['username']) ?>: <?= max(0,(int)$rnd['def_hp']) ?> HP
       </div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+
+  <!-- Equipment effects -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;padding:10px;background:rgba(0,0,0,.15);border-radius:6px">
+    <?php foreach ([['atk_p','atk_s','var(--accent)'],['def_p','def_s','var(--neon2)']] as [$pp,$ss,$cc]): ?>
+    <div style="font-size:11px">
+      <div style="color:<?= $cc ?>;font-weight:700;margin-bottom:4px"><?= e($r[$pp]['username']) ?> — Loadout</div>
+      <?php if ($r[$ss]['weapon_name']): ?>
+        <div>&#9876; <?= e($r[$ss]['weapon_name']) ?> <span style="color:var(--neon2)">+<?= $r[$ss]['weapon_atk'] ?> ATK</span></div>
+      <?php else: ?><div style="color:var(--muted)">&#9876; No weapon</div><?php endif; ?>
+      <?php if ($r[$ss]['armor_name']): ?>
+        <div>&#128737; <?= e($r[$ss]['armor_name']) ?> <span style="color:var(--accent)">+<?= $r[$ss]['armor_def'] ?> DEF</span></div>
+      <?php else: ?><div style="color:var(--muted)">&#128737; No armor</div><?php endif; ?>
+      <?php if ($r[$ss]['buff_atk'] || $r[$ss]['buff_def']): ?>
+        <div style="color:#e8a33d">&#9889; Buff: +<?= $r[$ss]['buff_atk'] ?> ATK / +<?= $r[$ss]['buff_def'] ?> DEF</div>
+      <?php endif; ?>
     </div>
     <?php endforeach; ?>
   </div>
@@ -287,13 +363,24 @@ try {
   <!-- Rewards -->
   <div style="display:flex;justify-content:center;gap:20px;margin-top:14px;flex-wrap:wrap">
     <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:#e8a33d">+<?= $r['atk_xp'] ?> XP</div><div style="font-size:10px;color:var(--muted)">XP Earned</div></div>
-    <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:var(--neon2)">-<?= $r['int_lost'] ?> INT</div><div style="font-size:10px;color:var(--muted)">Health Lost</div></div>
+    <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:var(--neon2)">-<?= $r['int_lost'] ?> HP</div><div style="font-size:10px;color:var(--muted)">Health Lost</div></div>
+    <?php if (($r['credits_looted'] ?? 0) > 0): ?>
+    <div style="text-align:center">
+      <div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:<?= $r['won'] ? '#3bcf63' : 'var(--neon2)' ?>">
+        <?= $r['won'] ? '+' : '-' ?><?= number_format($r['credits_looted']) ?>¢
+      </div>
+      <div style="font-size:10px;color:var(--muted)">Credits <?= $r['won'] ? 'Looted' : 'Lost' ?></div>
+    </div>
+    <?php endif; ?>
   </div>
+  <?php if (!empty($r['log_id'])): ?>
+  <div style="text-align:center;margin-top:10px"><a href="index.php?p=pvp&tab=log&detail=<?= (int)$r['log_id'] ?>" style="font-size:11px;color:var(--muted);text-decoration:underline">&#128203; View in combat log</a></div>
+  <?php endif; ?>
 </div>
 <?php endif; ?>
 
 <!-- ── ARENA ── -->
-<?php if ($tab === 'arena'): ?>
+<?php if ($tab === 'arena' && !$battleResult): ?>
 <div class="panel">
   <h3 style="margin-top:0">Challenge a Ghost</h3>
   <p class="muted" style="font-size:13px;margin-bottom:12px">Combat draws from your STR, SPD, END, gear, and active stim buffs. Your stats remain hidden from others unless they use a <b>Spy Protocol</b> item. Each fight costs Health — rest to recover.</p>
@@ -307,7 +394,7 @@ try {
     <input type="hidden" name="action" value="challenge">
     <div class="ac-wrap" style="flex:1;position:relative">
       <input type="text" id="pvpTarget" name="target" placeholder="Ghost's handle"
-             autocomplete="off" maxlength="32"
+             autocomplete="off" maxlength="32" data-no-counter
              style="width:100%" <?= (int)$player['integrity'] < 10 ? 'disabled' : '' ?>>
       <div class="ac-list" id="pvpAcList" style="display:none"></div>
     </div>
@@ -350,7 +437,7 @@ try {
 try {
   $arenaLatest = $pdo->query("SELECT l.*, a.username AS atk_name, d.username AS def_name, w.username AS winner_name FROM pvp_log l JOIN players a ON a.id=l.attacker_id JOIN players d ON d.id=l.defender_id JOIN players w ON w.id=l.winner_id ORDER BY l.fought_at DESC LIMIT 10")->fetchAll();
 } catch (Throwable $e) { $arenaLatest = []; }
-if (!empty($arenaLatest)): ?>
+if (!empty($arenaLatest) && !$battleResult): ?>
 <div class="panel">
   <h3 style="margin-top:0">Recent Battles</h3>
   <div style="overflow-x:auto">
@@ -424,26 +511,85 @@ if (!empty($arenaLatest)): ?>
 
 <!-- ── LOG ── -->
 <?php elseif ($tab === 'log'): ?>
+
+<?php if ($logDetail): ?>
+<?php
+  $ldData = [];
+  try { $ldData = json_decode($logDetail['log_data'] ?? '', true) ?: []; } catch (Throwable $e) {}
+  $ldRounds = $ldData['rounds'] ?? [];
+  $ldAtkS   = $ldData['atk_s']  ?? [];
+  $ldDefS   = $ldData['def_s']  ?? [];
+  $ldIAtk   = (int)$logDetail['attacker_id'] === $pid;
+  $ldIWon   = (int)$logDetail['winner_id']   === $pid;
+?>
+<div style="margin-bottom:8px"><a href="index.php?p=pvp&tab=log" style="font-size:12px;color:var(--muted)">&#8592; Back to log</a></div>
+<div class="panel" style="border:1px solid <?= $ldIWon?'rgba(25,240,199,.3)':'rgba(255,45,149,.3)' ?>">
+  <h3 style="margin-top:0;font-size:14px">&#128203; Battle Detail — <?= e($logDetail['atk_name']) ?> vs <?= e($logDetail['def_name']) ?></h3>
+  <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+    <?= e(date('M j, Y g:ia', strtotime($logDetail['fought_at']))) ?> &middot;
+    <?= (int)$logDetail['rounds'] ?> round<?= $logDetail['rounds']!=1?'s':'' ?> &middot;
+    Winner: <strong style="color:<?= $ldIWon?'var(--accent)':'var(--neon2)' ?>"><?= e($logDetail['winner_name']) ?></strong>
+    <?php if ((int)$logDetail['credits_looted'] > 0): ?>
+    &middot; <?= number_format((int)$logDetail['credits_looted']) ?>¢ looted
+    <?php endif; ?>
+  </div>
+  <?php if ($ldAtkS): ?>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;padding:10px;background:rgba(0,0,0,.15);border-radius:6px">
+    <?php foreach ([[$logDetail['atk_name'],$ldAtkS,'var(--accent)'],[$logDetail['def_name'],$ldDefS,'var(--neon2)']] as [$un,$us,$uc]): ?>
+    <div style="font-size:11px">
+      <div style="color:<?= $uc ?>;font-weight:700;margin-bottom:3px"><?= e($un) ?></div>
+      <div style="color:var(--muted)">STR <?= (int)($us['str']??0) ?> &middot; END <?= (int)($us['end']??0) ?> &middot; SPD <?= (int)($us['spd']??0) ?></div>
+      <div style="color:var(--muted)">ATK <?= (int)($us['atk']??0) ?> &middot; DEF <?= (int)($us['def']??0) ?> &middot; HP <?= (int)($us['hp']??0) ?></div>
+      <?php if (!empty($us['weapon_name'])): ?><div>&#9876; <?= e($us['weapon_name']) ?> <span style="color:var(--neon2)">+<?= (int)$us['weapon_atk'] ?> ATK</span></div><?php endif; ?>
+      <?php if (!empty($us['armor_name'])): ?><div>&#128737; <?= e($us['armor_name']) ?> <span style="color:var(--accent)">+<?= (int)$us['armor_def'] ?> DEF</span></div><?php endif; ?>
+    </div>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
+  <?php if ($ldRounds): ?>
+  <div style="max-height:400px;overflow-y:auto;border:1px solid var(--line);border-radius:6px;padding:10px">
+    <?php foreach ($ldRounds as $rnd): ?>
+    <div style="margin-bottom:10px">
+      <div style="font-size:10px;font-family:'Orbitron',sans-serif;color:var(--muted);text-transform:uppercase;margin-bottom:3px">Round <?= $rnd['num'] ?></div>
+      <?php foreach ($rnd['events'] as $ev): ?>
+      <div style="font-size:12px;color:<?= $ev['color'] ?>;margin-bottom:2px;padding-left:10px">&#8250; <?= e($ev['text']) ?></div>
+      <?php endforeach; ?>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px;padding-left:10px">
+        <?= e($logDetail['atk_name']) ?>: <?= max(0,(int)$rnd['atk_hp']) ?> HP &nbsp;|&nbsp;
+        <?= e($logDetail['def_name']) ?>: <?= max(0,(int)$rnd['def_hp']) ?> HP
+      </div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+  <?php else: ?>
+  <p class="muted" style="font-size:12px">No round data recorded for this fight.</p>
+  <?php endif; ?>
+</div>
+
+<?php else: ?>
 <div class="panel" style="padding:0;overflow:hidden">
   <?php if (empty($recentPvp)): ?>
     <div style="padding:24px;text-align:center;color:var(--muted)">No battles yet.</div>
   <?php else: ?>
-  <div style="display:grid;grid-template-columns:120px 120px 120px 60px 100px 80px;padding:8px 14px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line);font-weight:700">
-    <span>Attacker</span><span>Defender</span><span>Winner</span><span>Rounds</span><span>XP</span><span>Date</span>
+  <div style="display:grid;grid-template-columns:110px 110px 110px 55px 90px 80px 70px;padding:8px 14px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line);font-weight:700">
+    <span>Attacker</span><span>Defender</span><span>Winner</span><span>Rds</span><span>XP</span><span>Date</span><span></span>
   </div>
   <?php foreach ($recentPvp as $l):
     $iAtk = (int)$l['attacker_id'] === $pid; $iWon = (int)$l['winner_id'] === $pid;
     $myXp = $iAtk ? $l['atk_xp'] : $l['def_xp'];
   ?>
-  <div style="display:grid;grid-template-columns:120px 120px 120px 60px 100px 80px;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;align-items:center;background:<?= $iWon?'rgba(25,240,199,.03)':($iAtk||true?'transparent':'') ?>">
-    <span><a href="index.php?p=profile&id=<?= (int)$l['attacker_id'] ?>"><?= e($l['atk_name']) ?></a><?= $iAtk?' (you)':'' ?></span>
-    <span><a href="index.php?p=profile&id=<?= (int)$l['defender_id'] ?>"><?= e($l['def_name']) ?></a><?= !$iAtk?' (you)':'' ?></span>
+  <div style="display:grid;grid-template-columns:110px 110px 110px 55px 90px 80px 70px;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;align-items:center;background:<?= $iWon?'rgba(25,240,199,.03)':'transparent' ?>">
+    <span><a href="index.php?p=profile&id=<?= (int)$l['attacker_id'] ?>"><?= e($l['atk_name']) ?></a><?= $iAtk?' <em style="font-size:10px;color:var(--muted)">(you)</em>':'' ?></span>
+    <span><a href="index.php?p=profile&id=<?= (int)$l['defender_id'] ?>"><?= e($l['def_name']) ?></a><?= !$iAtk?' <em style="font-size:10px;color:var(--muted)">(you)</em>':'' ?></span>
     <span style="font-weight:700;color:<?= $iWon?'var(--accent)':'var(--neon2)' ?>"><?= e($l['winner_name']) ?><?= $iWon?' &#10003;':'' ?></span>
     <span><?= (int)$l['rounds'] ?></span>
     <span style="color:#e8a33d">+<?= (int)$myXp ?> XP</span>
     <span class="muted"><?= e(date('M j', strtotime($l['fought_at']))) ?></span>
+    <span><a href="index.php?p=pvp&tab=log&detail=<?= (int)$l['id'] ?>" style="font-size:11px;color:var(--muted);text-decoration:underline">Details</a></span>
   </div>
   <?php endforeach; ?>
   <?php endif; ?>
 </div>
+<?php endif; ?>
+
 <?php endif; ?>

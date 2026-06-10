@@ -2,6 +2,26 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-10 BATCH-10 ---
+
+PVP COMBAT OVERHAUL
+-------------------
+- [pvp.php] pvp_calc_stats: HP now uses current integrity (not integrity_max) so low-health players fight at a disadvantage
+- [pvp.php] pvp_calc_stats: now retrieves weapon/armor names for battle log display
+- [pvp.php] Credit transfer on loss: loser drops 10% of pocket credits to winner
+- [pvp.php] Integrity damage now applied to BOTH players based on actual HP lost in combat
+- [pvp.php] pvp_log: added log_data (full round JSON) and credits_looted columns
+- [pvp.php] Full round log stored in pvp_log.log_data on every fight
+- [pvp.php] Battle result: combatant comparison shows STR/END/SPD/ATK/DEF/HP for both
+- [pvp.php] Battle result: equipment loadout panel after rounds showing gear + stat bonuses for both players
+- [pvp.php] Battle result: credit looted/lost shown in rewards section
+- [pvp.php] Arena tab + Recent Battles hidden when battle result is displayed
+- [pvp.php] Ghost handle input: removed character limit display (data-no-counter)
+- [pvp.php tab=log] Added Details link per row → full round log detail view
+- [pvp.php tab=log] Detail view shows: both player stats, gear loadouts, full round-by-round events
+- [pvp.php] Defender receives player_notification on attack (won/lost, HP lost, credits looted)
+- [home.php] pvp notification type added to icon/color maps (sword icon, neon2 color)
+
 --- SESSION: 2026-06-10 BATCH-9 ---
 
 ACCORD & ADMIN
