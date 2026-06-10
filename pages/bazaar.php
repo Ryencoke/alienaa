@@ -83,8 +83,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $player = current_player();
 }
 
+// Ensure market_sales table exists
+try {
+  $pdo->exec("CREATE TABLE IF NOT EXISTS market_sales (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    item_id INT NOT NULL, qty INT NOT NULL DEFAULT 1,
+    unit_price BIGINT NOT NULL DEFAULT 0,
+    seller_id INT NOT NULL, buyer_id INT NOT NULL,
+    sold_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_item (item_id), INDEX idx_sold (sold_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (Throwable $e) {}
+
 $tab = $_GET['tab'] ?? 'browse';
-if (!in_array($tab, ['browse','sell','listings'], true)) $tab = 'browse';
+if (!in_array($tab, ['browse','sell','listings','sales'], true)) $tab = 'browse';
 
 $sorts = ['item_asc'=>'i.name ASC','price_asc'=>'l.unit_price ASC','price_desc'=>'l.unit_price DESC','qty_desc'=>'l.qty DESC','new'=>'l.created_at DESC'];
 $sort  = $_GET['sort'] ?? 'price_asc';
@@ -136,6 +148,7 @@ function bsort_link($key, $label, $cur, $tab, $cat) {
     <a class="tab <?= $tab==='listings'?'is-active':'' ?>" href="index.php?p=bazaar&tab=listings">
       &#128203; My Listings<?php if(count($mine)): ?> <span class="bz-count"><?= count($mine) ?></span><?php endif; ?>
     </a>
+    <a class="tab <?= $tab==='sales'?'is-active':'' ?>" href="index.php?p=bazaar&tab=sales">&#128198; Recent Sales</a>
   </div>
 </div>
 
@@ -253,6 +266,47 @@ function bsort_link($key, $label, $cur, $tab, $cat) {
   </script>
   <?php else: ?>
     <p class="muted" style="text-align:center;padding:40px 0">&#128230; Your stash is empty &mdash; nothing to sell.</p>
+  <?php endif; ?>
+</div>
+
+<?php elseif ($tab === 'sales'): ?>
+<div class="panel" style="padding:0;overflow:hidden">
+  <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700">&#128198; Recent Sales</div>
+  <?php
+    $recentSales = [];
+    try {
+      $rsq = $pdo->query("SELECT ms.id,ms.qty,ms.unit_price,ms.sold_at,i.name AS item_name,i.category,
+        sb.username AS seller_name,sb.id AS seller_id,
+        bu.username AS buyer_name,bu.id AS buyer_id
+        FROM market_sales ms
+        JOIN items i ON i.id=ms.item_id
+        JOIN players sb ON sb.id=ms.seller_id
+        JOIN players bu ON bu.id=ms.buyer_id
+        ORDER BY ms.sold_at DESC LIMIT 60");
+      $recentSales = $rsq->fetchAll();
+    } catch (Throwable $e) {}
+  ?>
+  <?php if (empty($recentSales)): ?>
+    <div style="padding:32px;text-align:center;color:var(--muted)">No sales recorded yet.</div>
+  <?php else: ?>
+  <div style="padding:8px 14px;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr 80px 100px 120px 90px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700">
+    <span>Item</span><span>Qty</span><span>Unit Price</span><span>Parties</span><span>Date</span>
+  </div>
+  <?php foreach ($recentSales as $rs): ?>
+  <div style="display:grid;grid-template-columns:1fr 80px 100px 120px 90px;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center;font-size:12px">
+    <div>
+      <span style="font-weight:700"><?= e($rs['item_name']) ?></span>
+      <span class="bz-badge" style="margin-left:6px;font-size:10px"><?= e(ucfirst($rs['category'])) ?></span>
+    </div>
+    <span style="color:var(--muted)"><?= number_format($rs['qty']) ?></span>
+    <span style="color:var(--accent);font-weight:600"><?= number_format($rs['unit_price']) ?> cr</span>
+    <div style="font-size:11px;line-height:1.5">
+      <div><span style="color:var(--muted)">S:</span> <a href="index.php?p=profile&id=<?= (int)$rs['seller_id'] ?>" style="color:var(--text)"><?= e($rs['seller_name']) ?></a></div>
+      <div><span style="color:var(--muted)">B:</span> <a href="index.php?p=profile&id=<?= (int)$rs['buyer_id'] ?>" style="color:var(--text)"><?= e($rs['buyer_name']) ?></a></div>
+    </div>
+    <span style="color:var(--muted);font-size:11px"><?= e(date('M j, g:ia', strtotime($rs['sold_at']))) ?></span>
+  </div>
+  <?php endforeach; ?>
   <?php endif; ?>
 </div>
 

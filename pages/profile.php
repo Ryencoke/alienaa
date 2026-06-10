@@ -74,17 +74,10 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
         <?php if (!empty($prof['created_at'])): ?>
           <span class="prof-meta-item">&#128197; Joined <?= e(date('M Y', strtotime($prof['created_at']))) ?></span>
         <?php endif; ?>
-        <span class="prof-meta-item">&#128465; ID #<?= (int)$prof['id'] ?></span>
         <?php
           $lastSeenTs = strtotime($prof['last_seen'] ?? '');
-          if ($lastSeenTs):
-            $lsStr = $isOnline ? '<span style="color:#3bcf63">Online now</span>' : e(date('M j, g:ia', $lastSeenTs));
+          $lsStr = $isOnline ? '<span style="color:#3bcf63">Online now</span>' : ($lastSeenTs ? e(date('M j, g:ia', $lastSeenTs)) : '');
         ?>
-          <span class="prof-meta-item">&#128337; <?= $lsStr ?></span>
-        <?php endif; ?>
-        <?php if (!empty($prof['birthday'])): ?>
-          <span class="prof-meta-item">&#127874; <?= e(date('M j', strtotime($prof['birthday']))) ?></span>
-        <?php endif; ?>
       </div>
 
       <?php if ($bio !== ''): ?>
@@ -121,28 +114,38 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
       <div class="lbl">Board Posts</div>
     </div>
     <div class="prof-stat">
-      <div class="val"><?= $msgCount ?></div>
-      <div class="lbl">Messages Sent</div>
+      <div class="val" style="color:var(--muted);font-size:16px">#<?= (int)$prof['id'] ?></div>
+      <div class="lbl">Player ID</div>
     </div>
   </div>
+  <?php if ($lsStr !== '' || !empty($prof['birthday'])): ?>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)">
+    <?php if ($lsStr !== ''): ?><span>&#128337; <?= $lsStr ?></span><?php endif; ?>
+    <?php if (!empty($prof['birthday'])): ?><span>&#127874; <?= e(date('M j', strtotime($prof['birthday']))) ?></span><?php endif; ?>
+  </div>
+  <?php endif; ?>
 </div>
 
 <div class="panel">
-  <h3 style="margin-bottom:12px">&#9876; Combat Record</h3>
-  <div class="prof-grid">
-    <div class="prof-stat">
-      <div class="val" style="color:var(--accent)"><?= $totalWins ?></div>
-      <div class="lbl">Wins</div>
+  <h3 style="margin-bottom:10px">&#9876; Combat Record</h3>
+  <?php if (($totalWins + $totalLoss) > 0): ?>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+    <div style="text-align:center;min-width:48px">
+      <div style="font-size:22px;font-weight:700;color:var(--accent)"><?= $totalWins ?></div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Wins</div>
     </div>
-    <div class="prof-stat">
-      <div class="val" style="color:var(--neon2)"><?= $totalLoss ?></div>
-      <div class="lbl">Losses</div>
+    <div style="flex:1;height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;border:1px solid var(--line)">
+      <div style="height:100%;width:<?= $winRate ?>%;background:<?= $winRate >= 50 ? 'var(--accent)' : 'var(--neon2)' ?>;border-radius:4px"></div>
     </div>
-    <div class="prof-stat">
-      <div class="val" style="color:<?= $winRate >= 50 ? 'var(--accent)' : 'var(--neon2)' ?>"><?= $winRate ?>%</div>
-      <div class="lbl">Win Rate</div>
+    <div style="text-align:center;min-width:48px">
+      <div style="font-size:22px;font-weight:700;color:var(--neon2)"><?= $totalLoss ?></div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Losses</div>
     </div>
   </div>
+  <div style="text-align:center;font-size:12px;color:var(--muted)"><?= $winRate ?>% win rate &middot; <?= $totalWins + $totalLoss ?> fights total</div>
+  <?php else: ?>
+  <p class="muted" style="text-align:center;margin:0">No combat history yet.</p>
+  <?php endif; ?>
 </div>
 
 <?php

@@ -122,12 +122,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       echo '<script>location.replace("index.php?p=admin&sec=editplayer&u='.$editId.'");</script>'; return;
     }
     elseif ($a === 'trigger_reset' && $role === 'manager') {
+      // Capture pre-reset counts for summary
+      $rTotal   = (int)$pdo->query('SELECT COUNT(*) FROM players')->fetchColumn();
+      $rHealth  = (int)$pdo->query('SELECT COUNT(*) FROM players WHERE integrity < integrity_max')->fetchColumn();
+      $rSignal  = (int)$pdo->query('SELECT COUNT(*) FROM players WHERE signal < signal_max')->fetchColumn();
+      $rDriveNs = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE (sub_until IS NULL OR sub_until < CURDATE()) AND cycles < 500")->fetchColumn();
+      $rDriveSb = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE sub_until >= CURDATE() AND cycles < 1500")->fetchColumn();
       // Run daily reset for all players
       $pdo->exec("UPDATE players SET integrity = integrity_max, signal = signal_max,
         cycles = LEAST(CASE WHEN sub_until >= CURDATE() THEN 1500 ELSE 500 END, cycles + 250)");
       // Clear per-player daily_reset keys so lazy-eval doesn't skip them
       $pdo->exec("DELETE FROM settings WHERE k LIKE 'daily_reset:%'");
-      $msg = 'Daily reset triggered for all players.';
+      $msg = "Daily reset triggered. {$rTotal} players affected: "
+           . "{$rHealth} had Health restored, {$rSignal} had Signal restored, "
+           . ($rDriveNs+$rDriveSb) . " received +250 Drive ({$rDriveSb} subscribers, {$rDriveNs} non-subscribers).";
     }
     elseif ($a === 'del_chat' && $canMod) {
       $pdo->prepare('DELETE FROM chat_messages WHERE id=?')->execute([(int)($_POST['id'] ?? 0)]); $msg = 'Chat message deleted.';

@@ -155,37 +155,55 @@ if ($sec === 'help') {
 
 /* ============================ HUB MENU ============================ */
 ?>
-<div class="panel">
-  <h2>Admin Spire</h2>
-  <div style="margin:0 -14px 8px">
-  <svg viewBox="0 0 800 180" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg"
-       style="width:100%;height:auto;max-height:200px;display:block;border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
-    <style>.cb{fill:var(--bg)} .cp{fill:var(--panel);stroke:var(--line);stroke-width:1.5}
-      .cp2{fill:var(--panel2);stroke:var(--line);stroke-width:2} .ca{fill:none;stroke:var(--accent);stroke-width:1.5}
-      .cw{fill:var(--accent)} .cs{fill:var(--accent);font:bold 22px Verdana,Arial,sans-serif;letter-spacing:6px}</style>
-    <defs><filter id="cglow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
-    <rect width="800" height="180" class="cb"/>
-    <rect x="320" y="40" width="160" height="140" class="cp2"/>
-    <polygon points="320,40 480,40 400,8" class="cp"/>
-    <rect x="250" y="90" width="60" height="90" class="cp"/>
-    <rect x="490" y="90" width="60" height="90" class="cp"/>
-    <line x1="400" y1="8" x2="400" y2="-12" class="ca"/><circle cx="400" cy="-12" r="3" class="cw" filter="url(#cglow)"/>
-    <g class="cw" opacity=".8"><rect x="340" y="60" width="7" height="10"/><rect x="360" y="60" width="7" height="10"/><rect x="380" y="60" width="7" height="10"/><rect x="400" y="60" width="7" height="10"/><rect x="420" y="60" width="7" height="10"/><rect x="440" y="60" width="7" height="10"/></g>
-    <text x="400" y="120" text-anchor="middle" class="cs" filter="url(#cglow)">CITY HALL</text>
-  </svg>
+<div class="panel" style="padding:0;overflow:hidden">
+  <div style="height:3px;background:linear-gradient(90deg,var(--accent),var(--neon2),transparent)"></div>
+  <div style="padding:20px 20px 16px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <span style="font-size:28px;line-height:1">&#127963;</span>
+      <div>
+        <h2 style="margin:0;font-family:'Orbitron',sans-serif;letter-spacing:2px">CITY HALL</h2>
+        <p class="muted" style="margin:2px 0 0;font-size:12px">The Grid Authority runs the Sprawl on paper. In practice, it runs on bribes and downtime.</p>
+      </div>
+    </div>
   </div>
-  <p class="muted">The Grid Authority runs the Sprawl on paper. In practice it runs on bribes and downtime.</p>
 </div>
 
-<div class="districts">
-  <div class="district panel"><h4>Offices</h4><ul>
-    <li><a href="index.php?p=cityhall&sec=offices">Presidential Offices</a> <span class="muted">&mdash; staff &amp; roles</span></li>
-    <li><a href="index.php?p=cityhall&sec=records">Records Hall</a> <span class="muted">&mdash; player census</span></li>
-    <li><a href="index.php?p=cityhall&sec=cryo">Cryogenic Storage</a> <span class="muted">&mdash; freeze your ghost</span></li>
-  </ul></div>
-  <div class="district panel"><h4>Civic</h4><ul>
-    <li><a href="index.php?p=updates">City Planning</a> <span class="muted">&mdash; game updates</span></li>
-    <li><a href="index.php?p=cityhall&sec=laws">Game Laws</a> <span class="muted">&mdash; the rules</span></li>
-    <li><a href="index.php?p=cityhall&sec=help">Game Help</a> <span class="muted">&mdash; how to play</span></li>
-  </ul></div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+
+  <a href="index.php?p=cityhall&sec=offices" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--line)'">
+    <span style="font-size:22px">&#128737;</span>
+    <div style="font-weight:700;font-size:13px;color:var(--text)">Presidential Offices</div>
+    <div style="font-size:12px;color:var(--muted)">Meet the staff &mdash; admins, mods, and who runs what.</div>
+  </a>
+
+  <a href="index.php?p=cityhall&sec=records" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--line)'">
+    <span style="font-size:22px">&#128202;</span>
+    <div style="font-weight:700;font-size:13px;color:var(--text)">Records Hall</div>
+    <div style="font-size:12px;color:var(--muted)">Live census of the Sprawl &mdash; population and activity stats.</div>
+  </a>
+
+  <a href="index.php?p=cityhall&sec=cryo" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--line)'">
+    <span style="font-size:22px">&#10052;</span>
+    <div style="font-weight:700;font-size:13px;color:var(--text)">Cryogenic Storage</div>
+    <div style="font-size:12px;color:var(--muted)">Freeze your ghost while you're away. Subscribers only.</div>
+  </a>
+
+  <a href="index.php?p=updates" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--neon2)'" onmouseout="this.style.borderColor='var(--line)'">
+    <span style="font-size:22px">&#128221;</span>
+    <div style="font-weight:700;font-size:13px;color:var(--text)">City Planning</div>
+    <div style="font-size:12px;color:var(--muted)">Game updates, patch notes, and upcoming changes.</div>
+  </a>
+
+  <a href="index.php?p=cityhall&sec=laws" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--neon2)'" onmouseout="this.style.borderColor='var(--line)'">
+    <span style="font-size:22px">&#9878;</span>
+    <div style="font-weight:700;font-size:13px;color:var(--text)">Game Laws</div>
+    <div style="font-size:12px;color:var(--muted)">The rules. If it's not written here, it's not a rule.</div>
+  </a>
+
+  <a href="index.php?p=cityhall&sec=help" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--neon2)'" onmouseout="this.style.borderColor='var(--line)'">
+    <span style="font-size:22px">&#128218;</span>
+    <div style="font-weight:700;font-size:13px;color:var(--text)">Game Help</div>
+    <div style="font-size:12px;color:var(--muted)">New to the Sprawl? Start here for a full breakdown.</div>
+  </a>
+
 </div>

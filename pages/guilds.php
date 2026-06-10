@@ -347,7 +347,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $tab = $_GET['tab'] ?? '';
 $boardTid = (int)($_GET['tid'] ?? 0); // board: topic detail view
-$validTabs = $mySyn ? ['home','board','members','stockpile','log','search'] : ['search','create'];
+$validTabs = $mySyn ? ['home','board','members','staff','stockpile','log'] : ['search','create'];
 if (!in_array($tab, $validTabs, true)) $tab = $mySyn ? 'home' : 'search';
 
 // Pending applications count for badge
@@ -383,7 +383,7 @@ if ($mySyn && syn_can($myRank, 'manage_members')) {
   <?php
   $membersLabel = '&#128101; Members' . ($pendingApps ? ' <span style="background:var(--neon2);color:#000;border-radius:10px;padding:1px 6px;font-size:9px;font-weight:700">'.$pendingApps.'</span>' : '');
   $tabDefs = $mySyn
-    ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','members'=>$membersLabel,'stockpile'=>'&#9874; Stockpile','log'=>'&#128196; Log','search'=>'&#128269; Browse']
+    ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','members'=>$membersLabel,'staff'=>'&#128737; Staff','stockpile'=>'&#9874; Stockpile','log'=>'&#128196; Log']
     : ['search'=>'&#128269; Find Syndicate','create'=>'&#43; Create'];
   foreach ($tabDefs as $tk=>$tl):
     $show = isset($tabDefs[$tk]);
@@ -475,7 +475,7 @@ if ($tab === 'home' && $mySyn):
   <h3 style="margin-top:0;font-size:13px">&#128196; Recent Activity</h3>
   <?php foreach ($recentLog as $le): ?>
   <div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);color:var(--muted)">
-    <span style="color:var(--accent)"><?= e($le['username'] ?? 'System') ?></span> — <?= e($le['detail'] ?? $le['action']) ?>
+    <?php if (!empty($le['actor_id'])): ?><a href="index.php?p=profile&id=<?= (int)$le['actor_id'] ?>" style="color:var(--accent);font-weight:700"><?= e($le['username'] ?? '?') ?></a><?php else: ?><span style="color:var(--accent)">System</span><?php endif; ?> — <?= e($le['detail'] ?? $le['action']) ?>
     <span style="float:right;font-size:10px"><?= e(date('M j g:ia',strtotime($le['created_at']))) ?></span>
   </div>
   <?php endforeach; ?>
@@ -670,6 +670,35 @@ elseif ($tab === 'members' && $mySyn):
 <?php endif; ?>
 
 
+<?php // ══ STAFF PAGE ═════════════════════════════════════
+elseif ($tab === 'staff' && $mySyn):
+  $staffByRank = [];
+  try {
+    $sfq = $pdo->prepare("SELECT sm.rank,sm.player_id,p.username,p.level FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? AND sm.rank != 'member' ORDER BY FIELD(sm.rank,'leader','coleader','treasurer','armourer','librarian','advisor')");
+    $sfq->execute([$mySyn['syndicate_id']]);
+    foreach ($sfq->fetchAll() as $sfm) $staffByRank[$sfm['rank']][] = $sfm;
+  } catch (Throwable $e) {}
+?>
+<div class="panel" style="padding:0;overflow:hidden">
+  <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700;color:var(--neon2)">&#128737; Syndicate Officers</div>
+  <?php foreach (['leader','coleader','treasurer','armourer','librarian','advisor'] as $ork):
+    $holders = $staffByRank[$ork] ?? [];
+    $rc = $SYN_RANK_COLORS[$ork] ?? 'var(--muted)';
+    $rl = $SYN_RANK_LABELS[$ork] ?? ucfirst($ork);
+  ?>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.04)">
+    <div style="width:100px;flex:none;font-size:11px;font-weight:700;font-style:italic;color:<?= $rc ?>"><?= e($rl) ?></div>
+    <?php if (empty($holders)): ?>
+      <span style="font-size:12px;color:var(--muted);font-style:italic">Vacant</span>
+    <?php else: foreach ($holders as $ho): ?>
+      <a href="index.php?p=profile&id=<?= (int)$ho['player_id'] ?>" style="font-weight:700;font-size:13px;color:<?= e($rc) ?>"><?= e($ho['username']) ?></a>
+      <span style="font-size:11px;color:var(--muted)">Lv<?= (int)$ho['level'] ?></span>
+    <?php endforeach; endif; ?>
+  </div>
+  <?php endforeach; ?>
+</div>
+
+
 <?php // ══ STOCKPILE ══════════════════════════════════════
 elseif ($tab === 'stockpile' && $mySyn):
   $stockpile = [];
@@ -774,7 +803,7 @@ elseif ($tab === 'log' && $mySyn && (syn_can($myRank,'view_log') || $isAdmin)):
   <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.04)">
     <span style="font-size:14px;flex:none;color:var(--accent)"><?= $licon ?></span>
     <div style="flex:1;min-width:0;font-size:12px">
-      <?php if ($le['actor_name']): ?><b style="color:var(--accent)"><?= e($le['actor_name']) ?></b> <?php endif; ?>
+      <?php if ($le['actor_name']): ?><a href="index.php?p=profile&id=<?= (int)$le['actor_id'] ?>" style="color:var(--accent);font-weight:700"><?= e($le['actor_name']) ?></a> <?php endif; ?>
       <?= e($le['detail'] ?: $le['action']) ?>
     </div>
     <span style="font-size:10px;color:var(--muted);flex:none;white-space:nowrap"><?= e(date('M j g:ia',strtotime($le['created_at']))) ?></span>

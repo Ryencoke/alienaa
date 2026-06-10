@@ -90,6 +90,46 @@ LIB (lib.php)
 -------------
 - 'guilds' added to nav_links() so Syndicate can appear in customizable sidebar
 
+--- SESSION: 2026-06-10 (third batch) ---
+
+BUG FIXES
+---------
+- [tickets.php] Status column grid widened (130px) + white-space:nowrap on badge to prevent overlap with "Updated"
+- [style.css] Sidebar .name row now flex row — flag and subscriber star always beside username, never underneath
+
+PROFILE (profile.php)
+---------------------
+- Removed "Messages Sent" stat
+- Moved Player ID into the Stats panel (was in header meta strip)
+- Moved Last Active and Birthday from header into a sub-row inside the Stats panel
+- Combat Record redesigned: wins/losses shown with a win-rate progress bar instead of three raw stat cards
+
+GUILDS (guilds.php)
+-------------------
+- Recent Activity usernames in Overview now link to player profiles
+- Full Log actor names also link to player profiles
+- "Browse" tab removed when player is already in a syndicate
+- "Staff" tab added — shows all officer positions (Overseer, Underlord, Vault Keeper, etc.) with name or "Vacant"
+
+SYNDICATES — ONLINE (state_api.php)
+-------------------------------------
+- Player ID 1 always included in the online list returned to clients
+
+BAZAAR (bazaar.php)
+-------------------
+- "Recent Sales" tab added — shows last 60 completed transactions with item, qty, price, seller, buyer, date
+- market_sales table auto-created on first load
+
+ADMIN (admin.php sec=maintenance)
+-----------------------------------
+- Trigger Daily Reset now shows a full summary: players affected, how many had Health/Signal restored, how many received Drive (split sub vs non-sub)
+
+CITY HALL (cityhall.php)
+------------------------
+- Full hub redesign: replaced district list layout with a clean card grid
+- Each entry has icon, title, and description; hover accent highlight
+- Removed the SVG building illustration
+
 PENDING / DEFERRED
 ------------------
 - [account.php] "Add a Link" pages — update to include all current game pages

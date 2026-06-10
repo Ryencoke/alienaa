@@ -47,6 +47,15 @@ try {
     $online[] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],'')];
 }
 
+// Player ID 1 always appears online
+if (!in_array(1, array_column($online, 'id'), true)) {
+  try {
+    $p1q = $pdo->prepare('SELECT id,username,role,chat_color FROM players WHERE id=1');
+    $p1q->execute(); $p1row = $p1q->fetch();
+    if ($p1row) array_unshift($online, ['id'=>1,'name'=>$p1row['username'],'color'=>chat_color($p1row['role'],$p1row['chat_color'])]);
+  } catch (Throwable $e) {}
+}
+
 echo json_encode([
   'ok' => true,
   's'  => [

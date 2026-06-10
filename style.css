@@ -77,7 +77,8 @@ img{max-width:100%;display:block}
 /* pirateaa-style avatar + stats side-by-side */
 .pcard-row{display:flex;gap:10px;align-items:flex-start}
 .pcard-info{flex:1;min-width:0}
-.pcard-info .name{font-size:11px;margin-bottom:4px}
+.pcard-info .name{font-size:11px;margin-bottom:4px;display:flex;align-items:center;gap:4px;overflow:hidden}
+.pcard-info .name a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
 .pcard-stat{display:flex;justify-content:space-between;align-items:center;
   font-size:11px;color:var(--muted);padding:2px 0}
 .pcard-stat b{color:var(--text);font-weight:bold}
