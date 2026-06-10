@@ -240,10 +240,10 @@ try {
   }
   } // end jail else block
 ?>
-  </main>
-  <div style="padding:10px 14px 4px;text-align:left">
+  <div style="padding:4px 0 10px;text-align:left">
     <button onclick="history.back()" style="font-size:11px;padding:5px 14px;background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:5px;cursor:pointer">&#8592; Back</button>
   </div>
+  </main>
 
   <aside class="right">
     <?php
