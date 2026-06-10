@@ -38,10 +38,15 @@ function equipped_item($pdo, $id) {
   $q = $pdo->prepare('SELECT id, name, atk, def FROM items WHERE id = ?');
   $q->execute([$id]); return $q->fetch() ?: null;
 }
-$ew = equipped_item($pdo, $player['equipped_weapon'] ?? null);
-$ea = equipped_item($pdo, $player['equipped_armor'] ?? null);
-$gearAtk = $ew ? (int)$ew['atk'] : 0;
-$gearDef = $ea ? (int)$ea['def'] : 0;
+// Equipped gear from Fabrication Lab (new system)
+$ew = $ea = null; $gearAtk = $gearDef = 0;
+try {
+  $gq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
+  $gq->execute(["equipped_weapon:{$pid}"]); $wid = (int)$gq->fetchColumn();
+  if ($wid > 0) { $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$wid,$pid]); $ew = $gq2->fetch() ?: null; $gearAtk = $ew ? (int)$ew['atk'] : 0; }
+  $gq->execute(["equipped_armor:{$pid}"]); $aid = (int)$gq->fetchColumn();
+  if ($aid > 0) { $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$aid,$pid]); $ea = $gq2->fetch() ?: null; $gearDef = $ea ? (int)$ea['def'] : 0; }
+} catch (Throwable $e) {}
 
 $inv = $pdo->prepare(
   'SELECT i.id, i.name, i.category, i.tier, i.slot, i.atk, i.def, i.descr, pi.qty
@@ -59,21 +64,27 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
 </div>
 
 <div class="panel">
-  <h3>Equipment Bonuses</h3>
-  <p style="font-size:14px"><span style="color:var(--neon2)">&#9876; +<?= $gearAtk ?> ATK</span>
-     &nbsp;&nbsp; <span style="color:var(--accent)">&#128737; +<?= $gearDef ?> DEF</span></p>
-</div>
-
-<div class="panel">
-  <h3>Equipped</h3>
-  <?php if ($ew || $ea): foreach ([['weapon',$ew],['armor',$ea]] as $pair): [$sn,$it] = $pair; if (!$it) continue; ?>
-    <div class="itemcard">
-      <div class="ic"><?= $sn === 'weapon' ? '&#9876;' : '&#128737;' ?></div>
-      <div class="body"><div class="nm"><?= e($it['name']) ?> <span class="muted">(<?= ucfirst($sn) ?>)</span></div>
-        <div class="st"><?= $sn === 'weapon' ? '+'.(int)$it['atk'].' ATK' : '+'.(int)$it['def'].' DEF' ?></div></div>
-      <div class="act"><form method="post" style="margin:0"><input type="hidden" name="action" value="unequip"><input type="hidden" name="slot" value="<?= $sn ?>"><button>Unequip</button></form></div>
+  <h3 style="margin-bottom:12px">&#9876; Active Loadout
+    <a href="index.php?p=weaponcraft" style="float:right;font-size:11px;font-weight:400;color:var(--accent)">Manage at Fabrication Lab &rarr;</a>
+  </h3>
+  <?php if ($ew || $ea): ?>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+    <?php foreach ([['weapon','&#9876;',$ew,$gearAtk,'ATK','rgba(255,45,149,.08)','rgba(255,45,149,.25)'],
+                   ['armor','&#128737;',$ea,$gearDef,'DEF','rgba(25,240,199,.06)','rgba(25,240,199,.2)']] as [$slot,$icon,$it,$bonus,$stat,$bg,$bord]):
+      if (!$it) continue; ?>
+    <div style="flex:1;min-width:180px;background:<?= $bg ?>;border:1px solid <?= $bord ?>;border-radius:7px;padding:10px 13px;display:flex;align-items:center;gap:10px">
+      <span style="font-size:22px"><?= $icon ?></span>
+      <div>
+        <div style="font-weight:700;font-size:13px"><?= e($it['name']) ?></div>
+        <div style="font-size:11px;color:var(--muted)">+<?= $bonus ?> <?= $stat ?></div>
+      </div>
     </div>
-  <?php endforeach; else: ?><p class="muted">Nothing equipped.</p><?php endif; ?>
+    <?php endforeach; ?>
+  </div>
+  <div style="font-size:12px;color:var(--muted)"><span style="color:var(--neon2)">+<?= $gearAtk ?> ATK</span> &nbsp; <span style="color:var(--accent)">+<?= $gearDef ?> DEF</span> &mdash; total gear bonus</div>
+  <?php else: ?>
+  <p class="muted" style="font-size:13px">No gear equipped. <a href="index.php?p=weaponcraft">Visit the Fabrication Lab</a> to craft and equip weapons &amp; armor.</p>
+  <?php endif; ?>
 </div>
 
 <div class="panel">
@@ -95,8 +106,9 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
         <?php elseif ($r['slot'] === 'armor'): ?><div class="st">+<?= (int)$r['def'] ?> DEF</div><?php endif; ?>
       </div>
       <div class="act">
-        <?php if ($r['slot'] !== ''): if ($isEq): ?><span class="muted">equipped</span>
-          <?php else: ?><form method="post" style="margin:0"><input type="hidden" name="action" value="equip"><input type="hidden" name="item_id" value="<?= (int)$r['id'] ?>"><button>Equip</button></form><?php endif; endif; ?>
+        <?php if (in_array($r['slot'], ['weapon','armor'], true)): ?>
+          <a href="index.php?p=weaponcraft" class="muted" style="font-size:11px" title="Manage loadout at Fabrication Lab">&#9874; equip</a>
+        <?php endif; ?>
       </div>
     </div>
     <?php endforeach; ?>

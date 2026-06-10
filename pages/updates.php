@@ -92,10 +92,14 @@ function uvote($uid, $dir, $glyph, $myVote) {
   <?php if ($rows): ?>
     <?php foreach ($rows as $r): ?>
     <div class="updrow">
-      <div class="upddate"><?= e($r['created_at']) ?></div>
+      <div class="upddate">
+        <?php $uts = strtotime($r['created_at']); ?>
+        <div><?= date('M j, Y', $uts) ?></div>
+        <div style="font-size:10px;font-weight:400;color:var(--muted);margin-top:2px"><?= date('g:i a', $uts) ?></div>
+      </div>
       <div class="updbody">
         <?= bbcode($r['body']) ?>
-        <?php if (trim($r['credit']) !== ''): ?><div class="muted" style="font-style:italic;font-size:11px">Thanks to <?= e($r['credit']) ?></div><?php endif; ?>
+        <?php if (trim($r['credit']) !== ''): ?><div class="muted" style="font-style:italic;font-size:11px;margin-top:6px">&#128172; Thanks to <?= e($r['credit']) ?></div><?php endif; ?>
       </div>
       <div class="updvote">
         <?= uvote($r['id'], 'up', '&#9650;', (int)$r['my_vote']) ?>
@@ -109,10 +113,14 @@ function uvote($uid, $dir, $glyph, $myVote) {
   <?php endif; ?>
 </div>
 
-<?php if ($pages > 1): ?>
-<p class="muted" style="text-align:center">
-  <?php if ($pg > 1): ?><a href="index.php?p=updates&pg=<?= $pg - 1 ?>">&laquo; Prev</a> &nbsp;<?php endif; ?>
-  Page <?= $pg ?> of <?= $pages ?>
-  <?php if ($pg < $pages): ?>&nbsp; <a href="index.php?p=updates&pg=<?= $pg + 1 ?>">Next &raquo;</a><?php endif; ?>
-</p>
-<?php endif; ?>
+<?php if ($pages > 1):
+  $base = 'index.php?p=updates';
+  echo '<div class="pager">';
+  if ($pg > 1) echo '<a href="'.$base.'&pg='.($pg-1).'">&lsaquo;</a>';
+  $start = max(1,$pg-2); $end = min($pages,$pg+2);
+  if ($start>1){echo '<a href="'.$base.'&pg=1">1</a>';if($start>2)echo '<span class="dots">&hellip;</span>';}
+  for($i=$start;$i<=$end;$i++) echo $i===$pg?'<span class="cur">'.$i.'</span>':'<a href="'.$base.'&pg='.$i.'">'.$i.'</a>';
+  if($end<$pages){if($end<$pages-1)echo '<span class="dots">&hellip;</span>';echo '<a href="'.$base.'&pg='.$pages.'">'.$pages.'</a>';}
+  if ($pg < $pages) echo '<a href="'.$base.'&pg='.($pg+1).'">&rsaquo;</a>';
+  echo '</div>';
+endif; ?>

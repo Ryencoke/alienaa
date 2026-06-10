@@ -15,7 +15,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $a = $_POST['action'] ?? '';
   try {
 
-    if ($a === 'find' && $canAdmin) {
+    if ($a === 'impersonate' && $canAdmin) {
+      $tgt = trim($_POST['imp_handle'] ?? '');
+      $iq  = $pdo->prepare('SELECT id, username, role FROM players WHERE username=?'); $iq->execute([$tgt]); $ti = $iq->fetch();
+      if (!$ti) throw new RuntimeException('Ghost not found: ' . htmlspecialchars($tgt, ENT_QUOTES));
+      if (in_array($ti['role'] ?? '', ['admin','manager'], true) && $role !== 'manager') throw new RuntimeException('Cannot impersonate staff.');
+      $_SESSION['real_pid'] = $pid;
+      $_SESSION['pid'] = (int)$ti['id'];
+      if (!headers_sent()) header('Location: index.php?p=home'); exit;
+
+    } elseif ($a === 'role_preview' && $canAdmin) {
+      $rv = $_POST['preview_role'] ?? '';
+      $allowedRoles = ['','member','chatmod','moderator','admin','manager'];
+      if (!in_array($rv, $allowedRoles, true)) throw new RuntimeException('Invalid role.');
+      if ($rv === '') { unset($_SESSION['role_override']); $msg = 'Role preview cleared.'; }
+      else { $_SESSION['role_override'] = $rv; $msg = 'Viewing as: '.$rv; }
+
+    } elseif ($a === 'jail_player' && $canAdmin) {
+      $uid    = (int)($_POST['jail_uid'] ?? 0);
+      $reason = trim($_POST['jail_reason'] ?? '');
+      $days   = max(1, min(365, (int)($_POST['jail_days'] ?? 1)));
+      if (!$reason) throw new RuntimeException('Reason required.');
+      try { $pdo->exec("CREATE TABLE IF NOT EXISTS jail_records (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, reason VARCHAR(500) NOT NULL, days INT NOT NULL DEFAULT 1, jailed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, release_at DATETIME NOT NULL, jailed_by INT NOT NULL, status ENUM('active','released') NOT NULL DEFAULT 'active', released_early_by INT NULL, released_at DATETIME NULL, INDEX idx_player (player_id)) ENGINE=InnoDB"); } catch (Throwable $e) {}
+      $pdo->prepare("UPDATE jail_records SET status='released' WHERE player_id=? AND status='active'")->execute([$uid]);
+      $pdo->prepare("INSERT INTO jail_records (player_id, reason, days, jailed_at, release_at, jailed_by) VALUES (?,?,?,NOW(),DATE_ADD(NOW(), INTERVAL ? DAY),?)")->execute([$uid, $reason, $days, $days, $pid]);
+      $editId = $uid; $msg = "Player jailed for {$days} day(s).";
+
+    } elseif ($a === 'unjail_player' && $canAdmin) {
+      $uid = (int)($_POST['unjail_uid'] ?? 0);
+      $pdo->prepare("UPDATE jail_records SET status='released', released_early_by=?, released_at=NOW() WHERE player_id=? AND status='active'")->execute([$pid, $uid]);
+      $editId = $uid; $msg = 'Player released from jail.';
+
+    } elseif ($a === 'find' && $canAdmin) {
       $h = trim($_POST['handle'] ?? '');
       $r = $pdo->prepare('SELECT id FROM players WHERE username = ?'); $r->execute([$h]);
       $editId = (int)$r->fetchColumn();
@@ -32,13 +63,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($nr, ['member','chatmod','moderator','admin','manager'], true)) $nr = $old['role'];
         $sub = trim($_POST['sub_until'] ?? '');
         if ($sub !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $sub)) $sub = (string)($old['sub_until'] ?? '');
+        $emailEdit = trim($_POST['edit_email'] ?? '');
+        if ($emailEdit !== '' && !filter_var($emailEdit, FILTER_VALIDATE_EMAIL)) $emailEdit = '';
 
         $set = []; $params = [];
         foreach ($intf as $f) { $set[] = ($f === 'signal' ? '`signal`' : $f) . '=?'; $params[] = $new[$f]; }
         $set[] = 'role=?';      $params[] = $nr;
         $set[] = 'sub_until=?'; $params[] = ($sub === '' ? null : $sub);
+        // Add email column if not exists, then include it
+        try { $pdo->exec('ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR(255) NULL'); } catch (Throwable $e) {}
+        if ($emailEdit !== '') { $set[] = 'email=?'; $params[] = $emailEdit; }
         $params[] = $uid;
         $pdo->prepare('UPDATE players SET ' . implode(',', $set) . ' WHERE id=?')->execute($params);
+
+        // Update PvP stats
+        $pvpFields = ['str_pts','spd_pts','end_pts','unspent'];
+        try {
+          $pvpNew = []; foreach ($pvpFields as $f) $pvpNew[$f] = max(0, (int)($_POST[$f] ?? 5));
+          $pdo->prepare('INSERT INTO player_stats (pid, str_pts, spd_pts, end_pts, unspent) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE str_pts=VALUES(str_pts), spd_pts=VALUES(spd_pts), end_pts=VALUES(end_pts), unspent=VALUES(unspent)')->execute([$uid, $pvpNew['str_pts'], $pvpNew['spd_pts'], $pvpNew['end_pts'], $pvpNew['unspent']]);
+        } catch (Throwable $e) {}
 
         $logp = $pdo->prepare('INSERT INTO admin_log (admin_id, target_id, field, old_value, new_value) VALUES (?,?,?,?,?)');
         $log = function ($f, $ov, $nv) use ($logp, $pid, $uid) {
@@ -115,28 +158,80 @@ if ($sec === 'editplayer' && $canAdmin) {
       document.addEventListener('click',function(e){ if(box && !box.contains(e.target) && e.target!==inp) box.style.display='none'; });
     })();
     </script>
-    <?php if ($t): ?>
+    <?php if ($t):
+      // Load PvP stats
+      $pvpS = ['str_pts'=>5,'spd_pts'=>5,'end_pts'=>5,'unspent'=>0];
+      try { $pq = $pdo->prepare('SELECT * FROM player_stats WHERE pid=?'); $pq->execute([(int)$t['id']]); $ps = $pq->fetch(); if ($ps) $pvpS = $ps; } catch (Throwable $e) {}
+      // Load jail status
+      $curJail = null;
+      try { $jq = $pdo->prepare("SELECT j.*, s.username AS staff_name FROM jail_records j JOIN players s ON s.id=j.jailed_by WHERE j.player_id=? AND j.status='active' AND j.release_at>NOW() LIMIT 1"); $jq->execute([(int)$t['id']]); $curJail = $jq->fetch() ?: null; } catch (Throwable $e) {}
+      // Load syndicate
+      $syndName = null;
+      try { $sq = $pdo->prepare('SELECT s.name FROM syndicate_members m JOIN syndicates s ON s.id=m.syndicate_id WHERE m.player_id=? LIMIT 1'); $sq->execute([(int)$t['id']]); $syndName = $sq->fetchColumn() ?: null; } catch (Throwable $e) {}
+    ?>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:16px">
+      <div style="font-size:18px;font-weight:700;color:var(--accent)"><?= e($t['username']) ?></div>
+      <div style="font-size:11px;color:var(--muted)">ID: <?= (int)$t['id'] ?> &middot; Level <?= (int)$t['level'] ?> &middot; Joined: <?= e(date('M j, Y', strtotime($t['created_at'] ?? 'now'))) ?></div>
+      <?php if ($syndName): ?><div style="font-size:11px;color:var(--accent);margin-top:3px">Syndicate: <?= e($syndName) ?></div><?php endif; ?>
+      <?php if ($curJail): ?><div style="font-size:11px;color:var(--neon2);margin-top:3px">&#128274; JAILED — <?= e($curJail['reason']) ?> &middot; <?= ceil((strtotime($curJail['release_at'])-time())/86400) ?>d left</div><?php endif; ?>
+    </div>
+
     <form method="post">
       <input type="hidden" name="action" value="save_player">
       <input type="hidden" name="uid" value="<?= (int)$t['id'] ?>">
-      <p><b><?= e($t['username']) ?></b> &middot; id <?= (int)$t['id'] ?></p>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
-        <?php foreach (['level'=>'Level','creds_pocket'=>'Creds (pocket)','creds_bank'=>'Creds (bank)','shards'=>'Shards',
-                        'integrity'=>'Integrity','integrity_max'=>'Integrity max','xp'=>'XP','xp_next'=>'XP next',
-                        'signal'=>'Signal','signal_max'=>'Signal max','cycles'=>'Cycles','cycles_max'=>'Cycles max',
+
+      <h4 style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Economy &amp; Core Stats</h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:16px">
+        <?php foreach (['level'=>'Level','creds_pocket'=>'Credits (pocket)','creds_bank'=>'Credits (bank)','shards'=>'Shards',
+                        'integrity'=>'Health','integrity_max'=>'Health max','xp'=>'XP','xp_next'=>'XP next',
+                        'signal'=>'Signal','signal_max'=>'Signal max','cycles'=>'Drive','cycles_max'=>'Drive max',
                         'loan'=>'Loan (owed)'] as $k=>$lbl): ?>
-          <div><label><?= $lbl ?></label><input type="number" name="<?= $k ?>" value="<?= (int)($t[$k] ?? 0) ?>"></div>
+          <div><label style="font-size:11px"><?= $lbl ?></label><input type="number" name="<?= $k ?>" value="<?= (int)($t[$k] ?? 0) ?>"></div>
         <?php endforeach; ?>
-        <div><label>Role</label>
+        <div>
+          <label style="font-size:11px">Email</label>
+          <input type="email" name="edit_email" value="<?= e($t['email'] ?? '') ?>" placeholder="(optional)">
+        </div>
+        <div><label style="font-size:11px">Role</label>
           <select name="role">
             <?php foreach (['member','chatmod','moderator','admin','manager'] as $rr): ?>
               <option value="<?= $rr ?>" <?= ($t['role'] ?? 'member') === $rr ? 'selected' : '' ?>><?= $rr ?></option>
             <?php endforeach; ?>
           </select></div>
-        <div><label>Subscription until</label><input type="date" name="sub_until" value="<?= e($t['sub_until'] ?? '') ?>"></div>
+        <div><label style="font-size:11px">Subscription until</label><input type="date" name="sub_until" value="<?= e($t['sub_until'] ?? '') ?>"></div>
       </div>
+
+      <h4 style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Combat Stats (PvP)</h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:16px">
+        <div><label style="font-size:11px">Strength</label><input type="number" name="str_pts" min="1" value="<?= (int)$pvpS['str_pts'] ?>"></div>
+        <div><label style="font-size:11px">Speed</label><input type="number" name="spd_pts" min="1" value="<?= (int)$pvpS['spd_pts'] ?>"></div>
+        <div><label style="font-size:11px">Endurance</label><input type="number" name="end_pts" min="1" value="<?= (int)$pvpS['end_pts'] ?>"></div>
+        <div><label style="font-size:11px">Unspent Points</label><input type="number" name="unspent" min="0" value="<?= (int)$pvpS['unspent'] ?>"></div>
+      </div>
+
       <p><button type="submit">Save Player</button></p>
     </form>
+
+    <!-- Jail Controls -->
+    <div style="background:rgba(255,45,149,.04);border:1px solid rgba(255,45,149,.2);border-radius:8px;padding:14px;margin-top:14px">
+      <h4 style="margin:0 0 12px;color:var(--neon2)">&#128274; Jail Controls</h4>
+      <?php if ($curJail): ?>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Currently jailed by <?= e($curJail['staff_name']) ?> &middot; Reason: <?= e($curJail['reason']) ?> &middot; Releases: <?= e(date('M j, Y', strtotime($curJail['release_at']))) ?></p>
+        <form method="post" style="display:inline">
+          <input type="hidden" name="action" value="unjail_player">
+          <input type="hidden" name="unjail_uid" value="<?= (int)$t['id'] ?>">
+          <button type="submit" style="background:rgba(59,207,99,.08);border-color:rgba(59,207,99,.3);color:#3bcf63">Release from Jail</button>
+        </form>
+      <?php else: ?>
+        <form method="post" style="display:grid;grid-template-columns:1fr 1fr 80px auto;gap:8px;align-items:end">
+          <input type="hidden" name="action" value="jail_player">
+          <input type="hidden" name="jail_uid" value="<?= (int)$t['id'] ?>">
+          <div><label style="font-size:11px">Reason</label><input type="text" name="jail_reason" maxlength="500" placeholder="Reason for detention" style="width:100%"></div>
+          <div><label style="font-size:11px">Days</label><input type="number" name="jail_days" min="1" max="365" value="1" style="width:100%"></div>
+          <div><button type="submit" style="background:rgba(255,45,149,.1);border-color:rgba(255,45,149,.4);color:var(--neon2);width:100%">Jail</button></div>
+        </form>
+      <?php endif; ?>
+    </div>
     <?php endif; ?>
   </div>
   <?php return;
@@ -466,12 +561,19 @@ try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='
     <?php if ($openReports): ?><p style="color:var(--neon2);font-weight:bold">&#9888; <?= $openReports ?> open report(s)</p><?php endif; ?>
     <span class="req">Mod+</span>
   </a>
+  <?php if (in_array($role, ['moderator','admin','manager'], true)): ?>
   <a class="staffcard" href="index.php?p=admin&sec=iplog">
     <span class="ic">&#127758;</span><h4>IP &amp; Access Log</h4>
     <p>Track logins, IP addresses, and flag suspicious session activity.</p>
     <span class="req">Mod+</span>
   </a>
+  <?php endif; ?>
   <?php if ($canAdmin): ?>
+  <a class="staffcard" href="index.php?p=jail">
+    <span class="ic">&#128274;</span><h4>Confinement Grid</h4>
+    <p>Jail players for violations. Set reason and duration. Release early.</p>
+    <span class="req">Admin+</span>
+  </a>
   <a class="staffcard" href="index.php?p=cityhall">
     <span class="ic">&#127963;</span><h4>City Hall</h4>
     <p>Staff roster, subscriber list, jail records, and game rules.</p>
@@ -484,4 +586,34 @@ try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='
   </a>
   <?php endif; ?>
 </div>
+
+<?php if ($canAdmin): ?>
+<div class="panel" style="border:1px solid rgba(255,45,149,.2);background:rgba(255,45,149,.03)">
+  <h3 style="margin-top:0;color:var(--neon2)">&#128737; Impersonation &amp; View Tools</h3>
+  <p class="muted" style="font-size:12px;margin-bottom:14px">Impersonate a player to see the game exactly as they do. Your session is flagged — a stop banner is always shown. You can also preview how the UI looks for a specific staff role.</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;flex-wrap:wrap">
+    <div>
+      <h4 style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.5px">Impersonate Player</h4>
+      <form method="post" style="display:flex;gap:8px">
+        <input type="hidden" name="action" value="impersonate">
+        <input type="text" name="imp_handle" placeholder="Ghost's handle" style="flex:1">
+        <button type="submit" style="background:rgba(255,45,149,.1);border-color:rgba(255,45,149,.4);color:var(--neon2)">Jack In</button>
+      </form>
+    </div>
+    <div>
+      <h4 style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.5px">View as Role <?= !empty($_SESSION['role_override']) ? '(<b style="color:var(--accent)">'.e($_SESSION['role_override']).'</b>)' : '' ?></h4>
+      <form method="post" style="display:flex;gap:8px">
+        <input type="hidden" name="action" value="role_preview">
+        <select name="preview_role" style="flex:1">
+          <option value="">— clear override —</option>
+          <?php foreach (['member','chatmod','moderator','admin','manager'] as $rr): ?>
+          <option value="<?= $rr ?>" <?= ($_SESSION['role_override'] ?? '') === $rr ? 'selected' : '' ?>><?= ucfirst($rr) ?></option>
+          <?php endforeach; ?>
+        </select>
+        <button type="submit">Apply</button>
+      </form>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 

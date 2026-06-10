@@ -58,6 +58,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           ->execute(['sidebar_bars:' . $pid, implode(',', $chosen)]);
       $msg = 'Stat display updated.';
     }
+    elseif ($action === 'font') {
+      $validFonts = ['default','rajdhani','share_tech_mono','inter','jura','ibm_plex_mono'];
+      $font = $_POST['font_choice'] ?? 'default';
+      if (!in_array($font, $validFonts, true)) $font = 'default';
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['font:'.$pid, $font]);
+      $msg = 'Font preference saved.';
+    }
     elseif ($action === 'handle') {
       $newu = trim($_POST['new_username'] ?? ''); $cur = $_POST['current_password'] ?? '';
       if (!password_verify($cur, $player['pass_hash']))      $msg = 'Current passkey is wrong.';
@@ -163,7 +170,7 @@ $curAccent = $player['accent_color'] ?? '';
     $sbBarsRaw = '';
     try { $r = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $r->execute([$sbBarsKey]); $sbBarsRaw = (string)$r->fetchColumn(); } catch (Throwable $e) {}
     $activeBars = $sbBarsRaw !== '' ? array_filter(explode(',', $sbBarsRaw)) : ['creds','bank','shards','integrity','xp','signal','cycles'];
-    $barLabels = ['creds'=>'Creds','bank'=>'Bank','shards'=>'Shards','integrity'=>'Integrity','xp'=>'XP','signal'=>'Signal','cycles'=>'Cycles'];
+    $barLabels = ['creds'=>'Credits','bank'=>'Bank','shards'=>'Shards','integrity'=>'Health','xp'=>'XP','signal'=>'Signal','cycles'=>'Drive'];
   ?>
   <h3 style="margin-top:24px">Visible Stats</h3>
   <p class="muted">Choose which stats appear in your character card. Level is always shown.</p>
@@ -281,6 +288,58 @@ $curAccent = $player['accent_color'] ?? '';
     <button type="submit">Save Appearance</button>
   </form>
 
+  <!-- Font Preference -->
+  <?php
+  $curFont = 'default';
+  try { $fq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $fq->execute(['font:'.$pid]); $fv = $fq->fetchColumn(); if ($fv !== false) $curFont = $fv; } catch (Throwable $e) {}
+  $fontOptions = [
+    'default'        => ['label'=>'Exo 2 (Default)',        'stack'=>"'Exo 2', sans-serif",             'import'=>'Exo+2:wght@300;400;600;700;900'],
+    'rajdhani'       => ['label'=>'Rajdhani (Compact)',      'stack'=>"'Rajdhani', sans-serif",           'import'=>'Rajdhani:wght@400;600;700'],
+    'share_tech_mono'=> ['label'=>'Share Tech Mono (Hacker)','stack'=>"'Share Tech Mono', monospace",     'import'=>'Share+Tech+Mono'],
+    'inter'          => ['label'=>'Inter (Clean Modern)',    'stack'=>"'Inter', sans-serif",              'import'=>'Inter:wght@300;400;600;700'],
+    'jura'           => ['label'=>'Jura (Sci-Fi)',           'stack'=>"'Jura', sans-serif",               'import'=>'Jura:wght@400;600;700'],
+    'ibm_plex_mono'  => ['label'=>'IBM Plex Mono (Terminal)','stack'=>"'IBM Plex Mono', monospace",      'import'=>'IBM+Plex+Mono:wght@300;400;600'],
+  ];
+  ?>
+  <hr style="border:none;border-top:1px solid var(--line);margin:20px 0">
+  <h3 style="margin-bottom:12px">Font Style</h3>
+  <p class="muted" style="font-size:12px;margin-bottom:14px">Changes the body font across the whole site. Preview updates live. Headings and stats always use Orbitron.</p>
+  <form method="post" id="fontForm">
+    <input type="hidden" name="action" value="font">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:14px">
+      <?php foreach ($fontOptions as $fk => $fo): ?>
+      <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid <?= $curFont===$fk ? 'var(--accent)' : 'var(--line)' ?>;border-radius:7px;cursor:pointer;background:<?= $curFont===$fk ? 'rgba(25,240,199,.05)' : 'var(--panel2)' ?>" id="font-label-<?= $fk ?>">
+        <input type="radio" name="font_choice" value="<?= $fk ?>" <?= $curFont===$fk ? 'checked' : '' ?> style="width:auto;accent-color:var(--accent)" onchange="previewFont('<?= $fk ?>')">
+        <div>
+          <div style="font-family:<?= $fo['stack'] ?>;font-weight:600;font-size:13px"><?= $fo['label'] ?></div>
+          <div style="font-family:<?= $fo['stack'] ?>;font-size:11px;color:var(--muted)">The quick brown fox 0123</div>
+        </div>
+      </label>
+      <?php endforeach; ?>
+    </div>
+    <button type="submit">Save Font</button>
+  </form>
+  <script>
+  var fontImports = <?= json_encode(array_combine(array_keys($fontOptions), array_column($fontOptions, 'import'))) ?>;
+  var fontStacks  = <?= json_encode(array_combine(array_keys($fontOptions), array_column($fontOptions, 'stack'))) ?>;
+  function previewFont(fk) {
+    var imp = fontImports[fk], stack = fontStacks[fk];
+    if (!imp) return;
+    if (fk !== 'default') {
+      var lk = document.getElementById('live-font-link');
+      if (!lk) { lk = document.createElement('link'); lk.id='live-font-link'; lk.rel='stylesheet'; document.head.appendChild(lk); }
+      lk.href = 'https://fonts.googleapis.com/css2?family='+imp+'&display=swap';
+    }
+    document.body.style.fontFamily = stack;
+    // Update card borders
+    document.querySelectorAll('[id^="font-label-"]').forEach(function(el){
+      var sel = el.querySelector('input[type=radio]').value === fk;
+      el.style.borderColor = sel ? 'var(--accent)' : 'var(--line)';
+      el.style.background  = sel ? 'rgba(25,240,199,.05)' : 'var(--panel2)';
+    });
+  }
+  </script>
+
 <?php elseif ($sec === 'chat'):
   $cur = $player['chat_color'] ?? '#c9d1e0';
   if (!preg_match('/^#[0-9a-fA-F]{6}$/', $cur)) $cur = '#c9d1e0';
@@ -356,7 +415,7 @@ $curAccent = $player['accent_color'] ?? '';
     </div>
     <div class="field">
       <span>Current passkey (to confirm)</span>
-      <input type="password" name="current_password" autocomplete="current-password" style="max-width:280px">
+      <div class="pass-wrap"><input type="password" name="current_password" autocomplete="current-password"><button type="button" class="pass-toggle" onclick="pwToggle(this)" title="Show/hide">&#128065;</button></div>
     </div>
     <button type="submit">Change Handle</button>
   </form>
@@ -366,15 +425,15 @@ $curAccent = $player['accent_color'] ?? '';
     <input type="hidden" name="action" value="password">
     <div class="field">
       <span>Current passkey</span>
-      <input type="password" name="current_password" autocomplete="current-password" style="max-width:280px">
+      <div class="pass-wrap"><input type="password" name="current_password" autocomplete="current-password"><button type="button" class="pass-toggle" onclick="pwToggle(this)" title="Show/hide">&#128065;</button></div>
     </div>
     <div class="field">
       <span>New passkey <span class="muted" style="text-transform:none;letter-spacing:0">(8+ chars)</span></span>
-      <input type="password" name="new_password" autocomplete="new-password" style="max-width:280px">
+      <div class="pass-wrap"><input type="password" name="new_password" autocomplete="new-password"><button type="button" class="pass-toggle" onclick="pwToggle(this)" title="Show/hide">&#128065;</button></div>
     </div>
     <div class="field">
       <span>New passkey again</span>
-      <input type="password" name="new_password2" autocomplete="new-password" style="max-width:280px">
+      <div class="pass-wrap"><input type="password" name="new_password2" autocomplete="new-password"><button type="button" class="pass-toggle" onclick="pwToggle(this)" title="Show/hide">&#128065;</button></div>
     </div>
     <button type="submit">Change Passkey</button>
   </form>
@@ -389,9 +448,16 @@ $curAccent = $player['accent_color'] ?? '';
     </div>
     <div class="field">
       <span>Current passkey (to confirm)</span>
-      <input type="password" name="current_password" autocomplete="current-password" style="max-width:280px">
+      <div class="pass-wrap"><input type="password" name="current_password" autocomplete="current-password"><button type="button" class="pass-toggle" onclick="pwToggle(this)" title="Show/hide">&#128065;</button></div>
     </div>
     <button type="submit">Change Email</button>
   </form>
+  <script>
+  function pwToggle(btn){
+    var inp=btn.previousElementSibling;
+    inp.type=inp.type==='password'?'text':'password';
+    btn.textContent=inp.type==='password'?'👁':'🙈';
+  }
+  </script>
 <?php endif; ?>
 </div>

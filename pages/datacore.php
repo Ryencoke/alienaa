@@ -42,10 +42,10 @@ $skills = $rows->fetchAll();
 ?>
 <div class="panel">
   <h2>Datacore &mdash; Skillsoft Lab</h2>
-  <p class="muted" style="text-align:center;margin-top:-8px">Jack a skillsoft into your cortex. Costs Cycles. The deeper you go, the more the Sprawl opens up.</p>
+  <p class="muted" style="text-align:center;margin-top:-8px">Jack a skillsoft into your cortex. Costs Drive. The deeper you go, the more the Sprawl opens up.</p>
   <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
   <div style="text-align:center;margin:10px 0">
-    <span class="muted" style="font-size:12px">Available Cycles:&nbsp;</span>
+    <span class="muted" style="font-size:12px">Available Drive:&nbsp;</span>
     <span style="font-family:'Orbitron',sans-serif;font-weight:bold;color:var(--accent);font-size:1.3rem"><?= number_format($player['cycles']) ?></span>
     <span class="muted" style="font-size:11px"> / <?= number_format($player['cycles_max']) ?></span>
   </div>
@@ -97,9 +97,9 @@ $skills = $rows->fetchAll();
 
 <div style="text-align:center;margin:14px 0">
   <div style="font-size:13px;margin-bottom:8px;color:var(--muted)">
-    Total to burn: <b id="sk-total" style="color:var(--accent)">0</b> cycles
+    Total to burn: <b id="sk-total" style="color:var(--accent)">0</b> Drive
   </div>
-  <button type="submit" id="sk-submit" disabled style="opacity:.4">Burn Cycles</button>
+  <button type="submit" id="sk-submit" disabled style="opacity:.4">Burn Drive</button>
 </div>
 </form>
 

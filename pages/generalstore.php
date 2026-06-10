@@ -20,11 +20,11 @@ try {
 $CATALOG = [
   ['patch_kit',      'Field Patch Kit',      '&#129657;', 'Nano-polymer bandages. Seals hull breaches fast.',             120,  'integrity',  20],
   ['signal_boost',   'Signal Booster',       '&#128246;', 'Broadband relay chip. Instant signal surge.',                  90,  'signal',     15],
-  ['cycle_chip',     'Cycle Recharger',      '&#128297;', 'Micro-reactor cartridge. Tops up your processing cycles.',    110,  'cycles',     15],
-  ['stim_pack',      'Combat Stim Pack',     '&#9889;',   'Fast-acting adrenaline compound. Integrity burst in a pinch.', 200, 'integrity',  40],
-  ['overclk_chip',   'Overclock Chip',       '&#128301;', 'Pushes cycle capacity into the red zone. Temporary boost.',   180,  'cycles',     30],
+  ['cycle_chip',     'Drive Recharger',      '&#128297;', 'Micro-reactor cartridge. Tops up your Drive.',    110,  'cycles',     15],
+  ['stim_pack',      'Combat Stim Pack',     '&#9889;',   'Fast-acting adrenaline compound. Health burst in a pinch.', 200, 'integrity',  40],
+  ['overclk_chip',   'Overclock Chip',       '&#128301;', 'Pushes Drive capacity into the red zone. Temporary boost.',   180,  'cycles',     30],
   ['booster_array',  'Signal Array',         '&#128225;', 'Dedicated comms module. Massive signal restoration.',         240,  'signal',     40],
-  ['ration_bar',     'Synth Ration Bar',     '&#129365;', 'Tasteless. Calorie-dense. Keeps you upright.',                 30,  'integrity',   8],
+  ['ration_bar',     'Synth Ration Bar',     '&#129365;', 'Tasteless. Calorie-dense. Restores a bit of Health.',                 30,  'integrity',   8],
   ['data_spike',     'Data Spike',           '&#128300;', 'Disposable hacking tool. Has non-combat utility.',             80,  null,          0],
   ['smoke_canister', 'Smoke Canister',       '&#128168;', 'Thermal obscurant. Useful for exiting bad situations.',        60,  null,          0],
   ['burner_chip',    'Burner ID Chip',       '&#128083;', 'Pre-loaded false identity. Single use.',                      150,  null,          0],
@@ -83,9 +83,11 @@ foreach ($invQ as $r) $inv[$r['item_id']] = (int)$r['quantity'];
     <div style="flex:1;min-width:0">
       <div style="font-weight:bold;font-size:13px;color:var(--accent)"><?= e($name) ?></div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px"><?= e($desc) ?></div>
-      <?php if ($effect && $amount > 0): ?>
+      <?php if ($effect && $amount > 0):
+          $effectLabel = ['integrity'=>'Health','cycles'=>'Drive','signal'=>'Signal'];
+          $eLabel = $effectLabel[$effect] ?? ucfirst($effect); ?>
         <div style="font-size:10px;color:var(--neon2);margin-top:3px">
-          +<?= $amount ?> <?= ucfirst($effect) ?>
+          +<?= $amount ?> <?= $eLabel ?>
         </div>
       <?php elseif (!$effect): ?>
         <div style="font-size:10px;color:var(--muted);margin-top:3px">

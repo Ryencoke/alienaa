@@ -128,10 +128,10 @@ if ($sec === 'help') {
   <div class="panel"><h2>Game Help</h2>
     <p class="muted"><a href="index.php?p=cityhall">&laquo; City Hall</a> &middot; New to the Sprawl? Start here.</p>
     <h3>The Basics</h3>
-    <p>You're a drifter who jacks in with nothing. Build <b>Creds</b>, raise your <b>Level</b> (via XP), and climb the rankings. Your left-side card shows your money and meters: <b>Integrity</b> (health), <b>XP</b>, <b>Signal</b>, and <b>Cycles</b> (spent on skills).</p>
+    <p>You're a drifter who jacks in with nothing. Build <b>Creds</b>, raise your <b>Level</b> (via XP), and climb the rankings. Your left-side card shows your money and meters: <b>Health</b>, <b>XP</b>, <b>Signal</b>, and <b>Drive</b> (spent on skills).</p>
     <h3>The Core Loop</h3>
     <ul>
-      <li><b>Datacore</b> (in The Sprawl) &mdash; spend Cycles to learn skills that unlock deeper activities.</li>
+      <li><b>Datacore</b> (in The Sprawl) &mdash; spend Drive to learn skills that unlock deeper activities.</li>
       <li><b>Foundry Sector</b> &mdash; scavenge raw materials, then craft items (gated by skills).</li>
       <li><b>Transit Hub</b> &mdash; run cargo for creds and mine ore (gated by Drone Piloting).</li>
       <li><b>Bazaar</b> &mdash; sell what you craft/mine to other players, or buy gear.</li>

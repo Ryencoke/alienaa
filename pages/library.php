@@ -70,11 +70,11 @@ $BS_ARMOR = [
 
 /* ----- Consumables ----- */
 $CONSUMABLES = [
-  ['stim_pack',    '&#128138;','Stim Pack',     '+25 Integrity. Quick combat patch.',            200,  'consumable'],
-  ['medkit',       '&#128138;','Medkit',        '+75 Integrity. Full trauma kit.',               650,  'consumable'],
+  ['stim_pack',    '&#128138;','Stim Pack',     '+25 Health. Quick combat patch.',            200,  'consumable'],
+  ['medkit',       '&#128138;','Medkit',        '+75 Health. Full trauma kit.',               650,  'consumable'],
   ['neural_boost', '&#9889;',  'Neural Boost',  '+30 Signal. Temporary cortex overclocking.',    300,  'consumable'],
-  ['cycle_chip',   '&#128296;','Cycle Chip',    '+20 Cycles. Cooldown recovery module.',         280,  'consumable'],
-  ['regen_serum',  '&#128138;','Regen Serum',   '+50 Integrity. Bio-regenerative compound.',     450,  'consumable'],
+  ['cycle_chip',   '&#128296;','Cycle Chip',    '+20 Drive. Cooldown recovery module.',         280,  'consumable'],
+  ['regen_serum',  '&#128138;','Regen Serum',   '+50 Health. Bio-regenerative compound.',     450,  'consumable'],
   ['overclock_tab','&#9889;',  'Overclock Tab', '+50 Signal. Neural stimulant tablet.',          500,  'consumable'],
   ['signal_jammer','&#128296;','Signal Jammer', 'Collectible. Disrupts nearby comms.',           800,  'collectible'],
   ['data_chip',    '&#128190;','Data Chip',     'Collectible. Encrypted data fragment.',         600,  'collectible'],
@@ -89,7 +89,7 @@ $SKILLS = [
   ['combat',     '&#9876;',  'Combat',     'Increases attack damage in PvP and PvE encounters.',   'var(--neon2)'],
   ['hacking',    '&#128296;','Hacking',    'Grants access to locked grid nodes and better loot.',  'var(--accent)'],
   ['stealth',    '&#128121;','Stealth',    'Reduces chance of being detected in field operations.', '#4d6be8'],
-  ['endurance',  '&#128737;','Endurance',  'Raises maximum Integrity and reduces incoming damage.', '#3bcf63'],
+  ['endurance',  '&#128737;','Endurance',  'Raises maximum Health and reduces incoming damage.', '#3bcf63'],
   ['tech',       '&#9881;',  'Tech',       'Improves crafting output and fabrication efficiency.',  '#e8a33d'],
   ['trading',    '&#128722;','Trading',    'Reduces Bazaar listing fees and improves sale prices.', '#ffe14d'],
   ['medic',      '&#128138;','Medic',      'Increases healing from all consumables and regen.',    '#5fe0e0'],

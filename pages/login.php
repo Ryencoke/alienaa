@@ -28,12 +28,15 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     <?php if($err):?><div class="flash flash-err"><?= e($err) ?></div><?php endif;?>
     <form method="post">
       <div class="field">
-        <span>Email</span>
-        <input type="email" name="email" autocomplete="email" autofocus>
+        <span>Email or Handle</span>
+        <input type="text" name="email" autocomplete="email" autofocus>
       </div>
       <div class="field">
         <span>Passkey</span>
-        <input type="password" name="password" autocomplete="current-password">
+        <div class="pass-wrap" style="max-width:none">
+          <input type="password" name="password" autocomplete="current-password">
+          <button type="button" class="pass-toggle" onclick="var i=this.previousElementSibling;i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🙈'">&#128065;</button>
+        </div>
       </div>
       <button type="submit" class="btn btn-primary btn-block">Jack In</button>
     </form>

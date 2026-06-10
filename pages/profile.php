@@ -108,7 +108,7 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
     </div>
     <div class="prof-stat">
       <div class="val"><?= (int)$prof['integrity'] ?><span style="font-size:12px;color:var(--muted)"> / <?= (int)$prof['integrity_max'] ?></span></div>
-      <div class="lbl">Integrity</div>
+      <div class="lbl">Health</div>
     </div>
     <div class="prof-stat">
       <div class="val"><?= (int)$prof['signal'] ?><span style="font-size:12px;color:var(--muted)"> / <?= (int)$prof['signal_max'] ?></span></div>
@@ -116,7 +116,7 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
     </div>
     <div class="prof-stat">
       <div class="val"><?= (int)$prof['cycles'] ?><span style="font-size:12px;color:var(--muted)"> / <?= (int)$prof['cycles_max'] ?></span></div>
-      <div class="lbl">Cycles</div>
+      <div class="lbl">Drive</div>
     </div>
     <div class="prof-stat">
       <div class="val"><?= number_format($postCount) ?></div>

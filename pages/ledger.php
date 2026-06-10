@@ -3,7 +3,26 @@ $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 
+define('BANK_INTEREST_RATE', 0.005); // 0.5% per day on bank balance
+define('WITHDRAW_FEE_PCT',   0.02);  // 2% fee on withdrawals to pocket
+
 $loanCap = 500 + (int)$player['level'] * 250;   // borrowing limit scales with level
+
+// Auto-apply daily interest when player visits the bank
+$interestEarned = 0;
+try {
+  $today = date('Y-m-d');
+  $q = $pdo->prepare('SELECT v FROM settings WHERE k=?');
+  $q->execute(["bank_interest:{$pid}"]);
+  $lastInterest = $q->fetchColumn();
+  if ($lastInterest !== $today && (int)$player['creds_bank'] > 0) {
+    $interestEarned = (int)max(1, floor((int)$player['creds_bank'] * BANK_INTEREST_RATE));
+    $pdo->prepare('UPDATE players SET creds_bank = creds_bank + ? WHERE id = ?')->execute([$interestEarned, $pid]);
+    $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["bank_interest:{$pid}", $today]);
+    $player = current_player();
+    $msg = '&#9733; Daily interest applied: +' . number_format($interestEarned) . ' creds (0.5% on your balance).';
+  }
+} catch (Throwable $e) {}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = $_POST['action'] ?? '';
@@ -22,11 +41,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'withdraw') {
       $amt = isset($_POST['all']) ? (int)$player['creds_bank'] : (int)($_POST['amount'] ?? 0);
       if ($amt <= 0) throw new RuntimeException('Enter an amount above zero.');
+      $fee = (int)max(1, ceil($amt * WITHDRAW_FEE_PCT));
+      $total = $amt + $fee;
       $u = $pdo->prepare('UPDATE players SET creds_bank = creds_bank - ?, creds_pocket = creds_pocket + ?
                           WHERE id = ? AND creds_bank >= ?');
-      $u->execute([$amt, $amt, $pid, $amt]);
-      if ($u->rowCount() !== 1) throw new RuntimeException('Not that many creds in the bank.');
-      $msg = number_format($amt) . ' creds withdrawn.';
+      $u->execute([$total, $amt, $pid, $total]);
+      if ($u->rowCount() !== 1) throw new RuntimeException('Not that many creds in the bank (including the ' . number_format($fee) . ' cr withdrawal fee).');
+      $msg = 'Withdrew ' . number_format($amt) . ' creds (' . number_format($fee) . ' cr fee deducted from your bank balance).';
     }
 
     elseif ($action === 'transfer') {
@@ -152,64 +173,132 @@ $avail = max(0, $loanCap - $loan);
 
   <div class="panel">
     <h3>Deposit</h3>
-    <p class="muted">Move creds from pocket into the bank.</p>
+    <p class="muted">Move creds from pocket into the bank. Earn <b style="color:var(--accent)">0.5% daily interest</b> on your balance.</p>
     <form method="post">
       <input type="hidden" name="action" value="deposit">
-      <input type="number" name="amount" min="1" max="<?= $player['creds_pocket'] ?>" value="<?= $player['creds_pocket'] ?>">
-      <p><button type="submit">Deposit</button>
-         <button type="submit" name="all" value="1">Deposit All</button></p>
+      <div class="field">
+        <span>Amount <span class="muted" style="text-transform:none;letter-spacing:0;font-size:10px">(pocket: <?= number_format($player['creds_pocket']) ?> cr)</span></span>
+        <div class="num-wrap">
+          <input type="number" name="amount" id="dep-amt" min="1" max="<?= (int)$player['creds_pocket'] ?>" value="<?= (int)$player['creds_pocket'] ?>">
+          <button type="button" class="fill-max" onclick="document.getElementById('dep-amt').value=<?= (int)$player['creds_pocket'] ?>">Max</button>
+        </div>
+      </div>
+      <button type="submit" style="margin-top:4px">Deposit</button>
     </form>
   </div>
 
   <div class="panel">
     <h3>Withdraw</h3>
     <p class="muted">Pull creds from the bank into your pocket.</p>
+    <div style="background:rgba(255,45,149,.06);border:1px solid rgba(255,45,149,.2);border-radius:5px;padding:7px 10px;font-size:11px;margin-bottom:12px">
+      <span style="color:var(--neon2)">&#9888; 2% withdrawal fee</span> <span class="muted">deducted from your bank balance on top of the amount.</span>
+    </div>
     <form method="post">
       <input type="hidden" name="action" value="withdraw">
-      <input type="number" name="amount" min="1" max="<?= $player['creds_bank'] ?>">
-      <p><button type="submit">Withdraw</button>
-         <button type="submit" name="all" value="1">Withdraw All</button></p>
+      <div class="field">
+        <span>Amount <span class="muted" style="text-transform:none;letter-spacing:0;font-size:10px">(bank: <?= number_format($player['creds_bank']) ?> cr)</span></span>
+        <div class="num-wrap">
+          <input type="number" name="amount" id="wd-amt" min="1" max="<?= (int)$player['creds_bank'] ?>" oninput="updateWdFee()">
+          <button type="button" class="fill-max" onclick="document.getElementById('wd-amt').value=<?= (int)$player['creds_bank'] ?>;updateWdFee()">Max</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px" id="wd-fee-preview"></div>
+      </div>
+      <button type="submit" style="margin-top:4px">Withdraw</button>
     </form>
+    <script>
+    function updateWdFee(){
+      var a=parseInt(document.getElementById('wd-amt').value)||0;
+      var el=document.getElementById('wd-fee-preview');
+      if(a>0){var fee=Math.max(1,Math.ceil(a*0.02));el.innerHTML='You receive: <b>'+a.toLocaleString()+'</b> cr &mdash; Fee: <b style="color:var(--neon2)">'+fee.toLocaleString()+'</b> cr';}
+      else el.innerHTML='';
+    }
+    </script>
   </div>
 
   <div class="panel">
     <h3>Transfer</h3>
-    <p class="muted">Send creds to another ghost (from your pocket).</p>
+    <p class="muted">Send pocket creds to another ghost. No fee.</p>
     <form method="post">
       <input type="hidden" name="action" value="transfer">
       <div class="field">
         <span>To (handle)</span>
-        <input type="text" name="to" maxlength="32">
+        <div class="xfer-to-wrap">
+          <input type="text" name="to" id="xferTo" maxlength="32" autocomplete="off">
+          <div class="ac-list" id="xferAcList" style="display:none"></div>
+        </div>
       </div>
       <div class="field">
-        <span>Amount</span>
-        <input type="number" name="amount" min="1" max="<?= $player['creds_pocket'] ?>">
+        <span>Amount <span class="muted" style="text-transform:none;letter-spacing:0;font-size:10px">(pocket: <?= number_format($player['creds_pocket']) ?> cr)</span></span>
+        <div class="num-wrap">
+          <input type="number" name="amount" id="xfer-amt" min="1" max="<?= (int)$player['creds_pocket'] ?>">
+          <button type="button" class="fill-max" onclick="document.getElementById('xfer-amt').value=<?= (int)$player['creds_pocket'] ?>">Max</button>
+        </div>
       </div>
-      <button type="submit">Transfer</button>
+      <button type="submit" style="margin-top:4px">Transfer</button>
     </form>
+    <script>
+    (function(){
+      var inp=document.getElementById('xferTo'),list=document.getElementById('xferAcList');
+      if(!inp||!list) return;
+      var cur=-1,items=[];
+      function show(names){items=names;cur=-1;
+        if(!names.length){list.style.display='none';return;}
+        list.innerHTML='';names.forEach(function(n,i){var d=document.createElement('div');d.className='ac-item';d.textContent=n;
+          d.addEventListener('mousedown',function(e){e.preventDefault();inp.value=n;list.style.display='none';});list.appendChild(d);});
+        list.style.display='block';}
+      inp.addEventListener('input',function(){var q=inp.value.trim();if(q.length<1){list.style.display='none';return;}
+        fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'}).then(function(r){return r.json();}).then(show).catch(function(){});});
+      inp.addEventListener('keydown',function(e){if(!items.length) return;var rows=list.querySelectorAll('.ac-item');
+        if(e.key==='ArrowDown'){e.preventDefault();cur=Math.min(cur+1,rows.length-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}
+        else if(e.key==='ArrowUp'){e.preventDefault();cur=Math.max(cur-1,-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}
+        else if(e.key==='Enter'&&cur>=0){e.preventDefault();inp.value=items[cur];list.style.display='none';}
+        else if(e.key==='Escape'){list.style.display='none';}});
+      document.addEventListener('click',function(e){if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none';});
+    })();
+    </script>
   </div>
 
   <div class="panel">
     <h3>Bank Loan</h3>
-    <p class="muted">Borrow up to <b><?= number_format($avail) ?></b> creds (+4.5% surcharge).</p>
+    <p class="muted">Borrow up to <b><?= number_format($avail) ?></b> creds. +4.5% surcharge on repayment.</p>
+    <?php if ($avail > 0): ?>
     <form method="post">
       <input type="hidden" name="action" value="borrow">
-      <label>Amount</label>
-      <p><input type="number" name="amount" min="1" max="<?= $avail ?>"></p>
-      <p>
-        <label style="display:inline"><input type="radio" name="dest" value="pocket" checked style="width:auto"> Pocket</label>
-        &nbsp;
-        <label style="display:inline"><input type="radio" name="dest" value="bank" style="width:auto"> Bank</label>
-      </p>
-      <p><button type="submit">Borrow</button></p>
+      <div class="field">
+        <span>Amount</span>
+        <div class="num-wrap">
+          <input type="number" name="amount" id="loan-amt" min="1" max="<?= (int)$avail ?>">
+          <button type="button" class="fill-max" onclick="document.getElementById('loan-amt').value=<?= (int)$avail ?>">Max</button>
+        </div>
+      </div>
+      <div class="field">
+        <span>Deposit to</span>
+        <div style="display:flex;gap:16px;margin-top:4px">
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0"><input type="radio" name="dest" value="pocket" checked style="width:auto;accent-color:var(--accent)"> Pocket</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0"><input type="radio" name="dest" value="bank" style="width:auto;accent-color:var(--accent)"> Bank</label>
+        </div>
+      </div>
+      <button type="submit">Borrow</button>
     </form>
+    <?php else: ?>
+    <p class="muted" style="font-size:12px">You've reached your borrowing limit. Repay your existing loan to borrow more.</p>
+    <?php endif; ?>
     <?php if ($loan > 0): ?>
-    <form method="post" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px">
-      <input type="hidden" name="action" value="repay">
-      <label>Repay from pocket</label>
-      <p><input type="number" name="amount" min="1" max="<?= min((int)$player['creds_pocket'], $loan) ?>"></p>
-      <p><button type="submit">Repay</button></p>
-    </form>
+    <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:14px">
+      <div style="font-size:12px;color:var(--neon2);margin-bottom:10px">&#9888; Outstanding loan: <b><?= number_format($loan) ?></b> cr</div>
+      <form method="post">
+        <input type="hidden" name="action" value="repay">
+        <div class="field">
+          <span>Repay from pocket <span class="muted" style="text-transform:none;letter-spacing:0;font-size:10px">(pocket: <?= number_format($player['creds_pocket']) ?> cr)</span></span>
+          <div class="num-wrap">
+            <?php $repayMax = min((int)$player['creds_pocket'], $loan); ?>
+            <input type="number" name="amount" id="repay-amt" min="1" max="<?= $repayMax ?>">
+            <button type="button" class="fill-max" onclick="document.getElementById('repay-amt').value=<?= $repayMax ?>">Max</button>
+          </div>
+        </div>
+        <button type="submit">Repay</button>
+      </form>
+    </div>
     <?php endif; ?>
   </div>
 

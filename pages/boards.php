@@ -13,11 +13,15 @@ $pg  = max(1, (int)($_GET['pg'] ?? 1));
 
 function pager($base, $pg, $pages) {
   if ($pages <= 1) return '';
-  $o = '<p class="muted" style="text-align:center">';
-  if ($pg > 1)      $o .= '<a href="' . $base . '&pg=' . ($pg - 1) . '">&laquo; Prev</a> &nbsp; ';
-  $o .= "Page {$pg} of {$pages}";
-  if ($pg < $pages) $o .= ' &nbsp; <a href="' . $base . '&pg=' . ($pg + 1) . '">Next &raquo;</a>';
-  return $o . '</p>';
+  $o = '<div class="pager">';
+  if ($pg > 1) $o .= '<a href="' . $base . '&pg=' . ($pg - 1) . '">&lsaquo;</a>';
+  $start = max(1, $pg - 2); $end = min($pages, $pg + 2);
+  if ($start > 1) { $o .= '<a href="' . $base . '&pg=1">1</a>'; if ($start > 2) $o .= '<span class="dots">&hellip;</span>'; }
+  for ($i = $start; $i <= $end; $i++)
+    $o .= $i === $pg ? '<span class="cur">' . $i . '</span>' : '<a href="' . $base . '&pg=' . $i . '">' . $i . '</a>';
+  if ($end < $pages) { if ($end < $pages - 1) $o .= '<span class="dots">&hellip;</span>'; $o .= '<a href="' . $base . '&pg=' . $pages . '">' . $pages . '</a>'; }
+  if ($pg < $pages) $o .= '<a href="' . $base . '&pg=' . ($pg + 1) . '">&rsaquo;</a>';
+  return $o . '</div>';
 }
 
 // Vote arrows for a post (two tiny POST forms). $myVote: 1=up, -1=down, 0=none
@@ -278,19 +282,23 @@ if ($bid) {
 
   <div class="panel">
     <?php if ($topics): ?>
-    <table>
-      <tr><th>Topic</th><th>Posted By</th><th>Replies</th><th>Last Post</th></tr>
+    <div class="topic-list">
       <?php foreach ($topics as $t): ?>
-      <tr>
-        <td><a href="index.php?p=boards&t=<?= (int)$t['id'] ?>"><?= e($t['title']) ?></a></td>
-        <td><a href="index.php?p=profile&id=<?= (int)$t['author_id'] ?>"><?= e($t['author']) ?></a></td>
-        <td><?= (int)$t['replies'] ?></td>
-        <td class="muted"><?= e($t['last_post_at']) ?></td>
-      </tr>
+      <div class="topic-row">
+        <div class="topic-dot"></div>
+        <div class="topic-main">
+          <a href="index.php?p=boards&t=<?= (int)$t['id'] ?>" class="topic-title"><?= e($t['title']) ?></a>
+          <div class="topic-meta">by <a href="index.php?p=profile&id=<?= (int)$t['author_id'] ?>" style="color:var(--accent)"><?= e($t['author']) ?></a></div>
+        </div>
+        <div class="topic-info">
+          <div class="topic-replies"><?= (int)$t['replies'] ?> <span class="muted">replies</span></div>
+          <div class="topic-last muted"><?= e(date('M j, Y', strtotime($t['last_post_at']))) ?></div>
+        </div>
+      </div>
       <?php endforeach; ?>
-    </table>
+    </div>
     <?php else: ?>
-      <p class="muted">No topics here yet. Be the first ghost to break the silence.</p>
+      <p class="muted">No topics yet. Be the first ghost to break the silence.</p>
     <?php endif; ?>
   </div>
 
@@ -334,19 +342,22 @@ foreach ($boards as $b) $byCat[$b['cat_id']][] = $b;
 
 <?php foreach ($cats as $c): ?>
 <div class="panel">
-  <h3><?= e($c['name']) ?></h3>
-  <table>
-    <tr><th>Board</th><th>Topics</th><th>Posts</th></tr>
+  <h3 style="margin-top:0;text-transform:uppercase;letter-spacing:.8px;font-size:12px;color:var(--muted)"><?= e($c['name']) ?></h3>
+  <div class="boards-list">
     <?php foreach ($byCat[$c['id']] ?? [] as $b): ?>
-    <tr>
-      <td>
-        <a href="index.php?p=boards&b=<?= (int)$b['id'] ?>"><?= e($b['name']) ?></a><br>
-        <span class="muted" style="font-size:11px"><?= e($b['descr']) ?></span>
-      </td>
-      <td><?= number_format($b['topics']) ?></td>
-      <td><?= number_format($b['posts']) ?></td>
-    </tr>
+    <a href="index.php?p=boards&b=<?= (int)$b['id'] ?>" class="board-row">
+      <div class="board-icon">&#128172;</div>
+      <div class="board-info">
+        <div class="board-name"><?= e($b['name']) ?></div>
+        <div class="board-desc"><?= e($b['descr']) ?></div>
+      </div>
+      <div class="board-counts">
+        <div class="board-count-item"><b><?= number_format($b['topics']) ?></b><span>topics</span></div>
+        <div class="board-count-item"><b><?= number_format($b['posts']) ?></b><span>posts</span></div>
+      </div>
+      <div class="board-arrow">&#8250;</div>
+    </a>
     <?php endforeach; ?>
-  </table>
+  </div>
 </div>
 <?php endforeach; ?>

@@ -59,23 +59,22 @@
 </div>
 <div class="districts">
 
-  <div class="district panel"><h4>The Grid Authority</h4><ul>
-    <li><a href="index.php?p=cityhall">Admin Spire</a></li>
-    <li><a href="index.php?p=registry">ID Registry</a></li>
-  </ul></div>
-
   <div class="district panel"><h4>The Bazaar</h4><ul>
     <li><a href="index.php?p=bazaar">Open Market</a></li>
     <li><a href="index.php?p=ledger&act=bank">Bank</a></li>
+    <li><a href="index.php?p=auction">Black Market Auctions</a></li>
     <li><a href="index.php?p=generalstore">The Supply Node</a></li>
   </ul></div>
 
   <div class="district panel"><h4>The Exchange Block</h4><ul>
     <li><a href="index.php?p=exchange">The Exchange</a></li>
+    <li><a href="index.php?p=bonds">Credit Bonds</a></li>
+    <li><a href="index.php?p=stockex">Stock Exchange</a></li>
   </ul></div>
 
   <div class="district panel"><h4>Neon Strip</h4><ul>
     <li><a href="index.php?p=lounge">The Static Lounge</a></li>
+    <li><a href="index.php?p=synth">Synthesis Den</a></li>
   </ul></div>
 
   <div class="district panel"><h4>The Undervolt</h4><ul>
@@ -84,10 +83,13 @@
 
   <div class="district panel"><h4>The Forge Quarter</h4><ul>
     <li><a href="index.php?p=blacksmith">The Blacksmith</a></li>
+    <li><a href="index.php?p=apartments">Apartment Complex</a></li>
+    <li><a href="index.php?p=mining">The Sump (Mining)</a></li>
+    <li><a href="index.php?p=weaponcraft">Fabrication Lab</a></li>
   </ul></div>
 
   <div class="district panel"><h4>The Firewall</h4><ul>
-    <li><a href="index.php?p=sim">Combat Sim</a></li>
+    <li><a href="index.php?p=sim">Combat Simulator</a></li>
   </ul></div>
 
   <div class="district panel"><h4>The Loading Docks</h4><ul>
@@ -109,6 +111,21 @@
 
   <div class="district panel"><h4>The Stacks</h4><ul>
     <li><a href="index.php?p=home">Your Hideout</a></li>
+    <li><a href="index.php?p=guilds">Syndicates</a></li>
+  </ul></div>
+
+  <div class="district panel"><h4>The Grid Authority</h4><ul>
+    <li><a href="index.php?p=cityhall">Admin Spire</a></li>
+    <li><a href="index.php?p=registry">ID Registry</a></li>
+    <li><a href="index.php?p=tickets">Customer Service</a></li>
+    <li><a href="index.php?p=awards">Grid Rankings</a></li>
+    <li><a href="index.php?p=welfare">Subsistence Terminal</a></li>
+    <li><a href="index.php?p=jail">Confinement Grid</a></li>
+  </ul></div>
+
+  <div class="district panel"><h4>Combat Zone</h4><ul>
+    <li><a href="index.php?p=pvp">Combat Arena</a></li>
+    <li><a href="index.php?p=training">Neural Training</a></li>
   </ul></div>
 
 </div>

@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $extra = random_int(1, $rt['cost'] + 2);
         $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id = ?')->execute([$extra, $pid]);
         $pdo->commit();
-        $msg = "Ambushed on the {$rt['name']}! Took {$extra} extra Integrity and lost the cargo.";
+        $msg = "Ambushed on the {$rt['name']}! Took {$extra} extra Health and lost the cargo.";
       } else {
         $pay = random_int($rt['pay_min'], $rt['pay_max']);
         $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$pay, $pid]);
@@ -105,7 +105,7 @@ $drone = (int)($skillPts['drone'] ?? 0);
   <p class="muted">Run cargo for creds, or send a rig into the tunnels for ore. Both bite back.</p>
   <?php if ($msg): ?><div class="flash flash-ok"><?= $msg /* may contain entities; only dynamic parts are admin item names */ ?></div><?php endif; ?>
   <p>
-    Integrity: <b><?= (int)$player['integrity'] ?> / <?= (int)$player['integrity_max'] ?></b> &middot;
+    Health: <b><?= (int)$player['integrity'] ?> / <?= (int)$player['integrity_max'] ?></b> &middot;
     Drone Piloting: <b><?= $drone ?></b>
     <span class="muted">(heal at the <a href="index.php?p=sim">Combat Sim</a>, train at the <a href="index.php?p=datacore&act=lab">Datacore</a>)</span>
   </p>
@@ -113,14 +113,14 @@ $drone = (int)($skillPts['drone'] ?? 0);
 
 <div class="panel">
   <h3>Cargo Runs</h3>
-  <p class="muted">Each run spends Integrity and pays creds &mdash; unless you get jumped on the way.</p>
+  <p class="muted">Each run spends Health and pays creds &mdash; unless you get jumped on the way.</p>
   <table>
     <tr><th>Route</th><th>Costs</th><th>Pays</th><th>Ambush</th><th></th></tr>
     <?php foreach ($routes as $k => $rt):
       $canRun = (int)$player['integrity'] >= $rt['cost']; ?>
     <tr>
       <td><?= e($rt['name']) ?></td>
-      <td class="muted"><?= (int)$rt['cost'] ?> Integrity</td>
+      <td class="muted"><?= (int)$rt['cost'] ?> Health</td>
       <td><?= number_format($rt['pay_min']) ?>&ndash;<?= number_format($rt['pay_max']) ?> creds</td>
       <td class="muted"><?= (int)$rt['ambush'] ?>%</td>
       <td>
