@@ -83,8 +83,18 @@ function nav_links() {
     'datacore' => ['Datacore',       'index.php?p=datacore&act=lab'],
     'library'  => ['Library',        'index.php?p=library'],
     'account'  => ['Account',        'index.php?p=account'],
-    'guilds'   => ['Syndicate',      'index.php?p=guilds'],
-    'updates'  => ['Updates',        'index.php?p=updates'],
+    'guilds'    => ['Syndicate',       'index.php?p=guilds'],
+    'updates'   => ['Updates',         'index.php?p=updates'],
+    'tickets'   => ['Tickets',         'index.php?p=tickets'],
+    'cityhall'  => ['City Hall',       'index.php?p=cityhall'],
+    'friends'   => ['Friends',         'index.php?p=friends'],
+    'daemon'    => ['Lucky Daemon',    'index.php?p=daemon'],
+    'stockex'   => ['Stock Exchange',  'index.php?p=stockex'],
+    'auction'   => ['Auction House',   'index.php?p=auction'],
+    'apartments'=> ['Apartments',      'index.php?p=apartments'],
+    'training'  => ['Neural Training', 'index.php?p=training'],
+    'pvp'       => ['Combat Arena',    'index.php?p=pvp'],
+    'accord'    => ['Commerce Accord', 'index.php?p=accord'],
   ];
 }
 function default_sidebar() { return ['home','stash','ledger','city','bazaar','boards','messages','account','updates']; }

@@ -4,7 +4,10 @@ $pdo = db();
 $msg = '';
 
 define('BANK_INTEREST_RATE', 0.005); // 0.5% per day on bank balance
-define('WITHDRAW_FEE_PCT',   0.02);  // 2% fee on withdrawals to pocket
+// Withdrawal fee: 0.5% under Commerce Accord, 2% otherwise
+$_today = date('Y-m-d');
+$_isMerchant = !empty($player['merchant_until']) && $player['merchant_until'] >= $_today;
+define('WITHDRAW_FEE_PCT', $_isMerchant ? 0.005 : 0.02);
 
 $loanCap = 500 + (int)$player['level'] * 250;   // borrowing limit scales with level
 
@@ -109,6 +112,7 @@ $avail = max(0, $loanCap - $loan);
 <div class="panel">
   <h2>Bank</h2>
   <p class="muted" style="text-align:center;margin-top:-8px">Skimming a little off the top since the blackout.</p>
+  <?php if ($_isMerchant): ?><div style="background:rgba(232,163,61,.08);border:1px solid rgba(232,163,61,.25);border-radius:6px;padding:7px 12px;font-size:12px;text-align:center;margin-bottom:8px">&#9878; <b style="color:#e8a33d">Commerce Accord active</b> — withdrawal fee reduced to 0.5%. <a href="index.php?p=accord" style="color:#e8a33d">View</a></div><?php endif; ?>
 
   <div style="margin:0 -14px 6px">
   <svg viewBox="0 0 800 220" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg"

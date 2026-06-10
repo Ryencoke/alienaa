@@ -40,15 +40,41 @@ try {
   }
 } catch (Throwable $e) {}
 
-// Simulate market fluctuation on each page load (max ±3%), log price every ~5 minutes
+// Gather game-activity metrics for price drift
+$gm = ['active'=>0, 'sales1h'=>0, 'avgDrivePct'=>0.5, 'bids1h'=>0, 'bankSum'=>0, 'lowDrive'=>0, 'combats1h'=>0];
 try {
-  $allStocks = $pdo->query("SELECT id, price FROM stocks")->fetchAll();
+  $gm['active']      = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE last_seen >= NOW() - INTERVAL 30 MINUTE")->fetchColumn();
+  $gm['avgDrivePct'] = max(0, min(1, (float)$pdo->query("SELECT COALESCE(AVG(cycles / GREATEST(cycles_max,1)),0.5) FROM players WHERE last_seen >= NOW() - INTERVAL 30 MINUTE")->fetchColumn()));
+  try { $gm['sales1h'] = (int)$pdo->query("SELECT COUNT(*) FROM market_sales WHERE sold_at >= NOW() - INTERVAL 1 HOUR")->fetchColumn(); } catch(Throwable $e){}
+  try { $gm['bids1h']  = (int)$pdo->query("SELECT COUNT(*) FROM auction_bids WHERE placed_at >= NOW() - INTERVAL 1 HOUR")->fetchColumn(); } catch(Throwable $e){}
+  try { $gm['combats1h'] = (int)$pdo->query("SELECT COUNT(*) FROM combat_log WHERE created_at >= NOW() - INTERVAL 1 HOUR")->fetchColumn(); } catch(Throwable $e){}
+  $gm['bankSum']     = (float)$pdo->query("SELECT COALESCE(SUM(creds_bank),0) FROM players")->fetchColumn();
+  $gm['lowDrive']    = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE cycles < cycles_max * 0.2 AND last_seen >= NOW() - INTERVAL 30 MINUTE")->fetchColumn();
+} catch (Throwable $e) {}
+$actScore = min(1.0, $gm['active'] / 20.0);
+
+// Market fluctuation driven by game activity — log price every ~5 minutes
+try {
+  $allStocks = $pdo->query("SELECT id, ticker, price FROM stocks")->fetchAll();
   $upd = $pdo->prepare('UPDATE stocks SET prev_price=price, price=?, trend=SIGN(?-price) WHERE id=?');
   $logPrice = $pdo->prepare('INSERT INTO stock_price_log (stock_id, price) VALUES (?,?)');
   $lastLog  = (int)($pdo->query("SELECT MAX(UNIX_TIMESTAMP(recorded_at)) FROM stock_price_log")->fetchColumn() ?: 0);
   $doLog    = (time() - $lastLog) >= 300;
   foreach ($allStocks as $s) {
-    $pct = (mt_rand(-30, 30) / 1000);
+    $base = (mt_rand(-8, 8) / 1000); // ±0.8% base noise
+    $boost = 0;
+    switch ($s['ticker']) {
+      case 'NXUS': case 'DATV': $boost = ($actScore - 0.5) * 0.025; break;   // tech: rises with player activity
+      case 'ARMX':              $boost = ($gm['combats1h'] > 0 ? 0.015 : -0.005) + (mt_rand(-5,10)/1000); break; // weapons: combat-linked
+      case 'CHEM': case 'PHRS': $boost = ($gm['combats1h'] > 0 ? 0.01 : 0) + ($actScore - 0.4) * 0.015; break;  // pharma/chem: conflict
+      case 'NRGY':              $boost = (1 - $gm['avgDrivePct']) * 0.03 - 0.005; break;  // energy: rises when drive is low
+      case 'GRDX':              $boost = min(0.04, $gm['sales1h'] * 0.004 + $gm['bids1h'] * 0.002); break;       // grid exchange: trading volume
+      case 'CRED':              $boost = 0.002 + min(0.008, $gm['bankSum'] / 50000000 * 0.01); break;             // bank: steady + bank balance
+      case 'INFX':              $boost = ($gm['combats1h'] > 5 ? 0.02 : -0.003) + (mt_rand(-8,8)/1000); break;   // security: crime waves
+      case 'SCRP':              $boost = ($actScore > 0.5 ? 0.01 : -0.01) + (mt_rand(-15,20)/1000); break;       // scraps: boom/bust
+      default:                  $boost = ($actScore - 0.5) * 0.01;
+    }
+    $pct = $base + $boost;
     $np  = max(5, (int)round($s['price'] * (1 + $pct)));
     $upd->execute([$np, $np, $s['id']]);
     if ($doLog) $logPrice->execute([$s['id'], $np]);
@@ -256,33 +282,66 @@ try {
     <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--accent)"><?= number_format($totalValue) ?> cr</div><div style="font-size:10px;color:var(--muted)">Portfolio Value</div></div>
     <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:<?= $plCol ?>"><?= $totalPL>=0?'+':'' ?><?= number_format($totalPL) ?> cr</div><div style="font-size:10px;color:var(--muted)">Unrealized P/L</div></div>
   </div>
-  <div style="display:flex;flex-direction:column;gap:8px">
+  <div style="display:flex;flex-direction:column;gap:10px">
     <?php foreach ($portfolio as $h):
       $currentVal = (int)$h['price'] * (int)$h['shares'];
       $costBasis  = (int)$h['avg_buy_price'] * (int)$h['shares'];
       $pl = $currentVal - $costBasis;
       $plCol = $pl >= 0 ? '#3bcf63' : 'var(--neon2)';
       $catCol = $catColors[$h['category']] ?? 'var(--muted)';
+      $hist = $priceHistory[$h['stock_id']] ?? [];
+      $plPct = $costBasis > 0 ? round(($pl / $costBasis) * 100, 1) : 0;
     ?>
-    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <div>
-          <span style="font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;color:<?= $catCol ?>"><?= e($h['ticker']) ?></span>
-          <span style="font-size:13px;color:var(--text);margin-left:6px"><?= e($h['name']) ?></span>
-          <div style="font-size:11px;color:var(--muted);margin-top:3px">
-            <?= number_format($h['shares']) ?> shares &middot; avg <?= number_format($h['avg_buy_price']) ?> cr &middot; now <?= number_format($h['price']) ?> cr
+    <div style="background:var(--panel2);border:1px solid <?= $pl >= 0 ? 'rgba(59,207,99,.2)' : 'rgba(255,45,149,.2)' ?>;border-radius:8px;padding:14px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div style="flex:1;min-width:160px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:<?= $catCol ?>"><?= e($h['ticker']) ?></span>
+            <span style="font-size:12px;color:var(--text)"><?= e($h['name']) ?></span>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px"><?= number_format($h['shares']) ?> shares &middot; avg buy <b style="color:#e8d44d"><?= number_format($h['avg_buy_price']) ?></b> cr &middot; now <b style="color:var(--text)"><?= number_format($h['price']) ?></b> cr</div>
+          <div style="display:flex;align-items:center;gap:16px">
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--text)"><?= number_format($currentVal) ?> cr</div>
+              <div style="font-size:11px;color:<?= $plCol ?>"><?= $pl>=0?'+':'' ?><?= number_format($pl) ?> cr &nbsp;<span style="opacity:.7">(<?= $pl>=0?'+':'' ?><?= $plPct ?>%)</span></div>
+            </div>
+            <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
+              <input type="hidden" name="action" value="sell">
+              <input type="hidden" name="stock_id" value="<?= (int)$h['stock_id'] ?>">
+              <input type="number" name="qty" value="1" min="1" max="<?= (int)$h['shares'] ?>" style="width:52px;padding:3px 6px;font-size:11px">
+              <button type="submit" style="padding:4px 10px;font-size:11px;color:var(--neon2);border-color:rgba(255,45,149,.3);background:rgba(255,45,149,.08)">Sell</button>
+            </form>
           </div>
         </div>
-        <div style="text-align:right">
-          <div style="font-weight:700;color:var(--text)"><?= number_format($currentVal) ?> cr</div>
-          <div style="font-size:11px;color:<?= $plCol ?>"><?= $pl>=0?'+':'' ?><?= number_format($pl) ?> cr P/L</div>
+        <?php if (count($hist) >= 2):
+          $buyPx = (int)$h['avg_buy_price'];
+          $allPts = array_merge($hist, [$buyPx]);
+          $mn = min($allPts); $mx = max($allPts); $rng = max(1, $mx - $mn);
+          $cw = 150; $ch = 52;
+          $pts = ''; $n = count($hist);
+          for ($xi = 0; $xi < $n; $xi++) {
+            $x = (int)round($xi / max(1,$n-1) * ($cw-2)) + 1;
+            $y = (int)round($ch - 2 - ($hist[$xi] - $mn) / $rng * ($ch-4));
+            $pts .= ($xi===0?'M':'L')."{$x},{$y} ";
+          }
+          $buyY = (int)round($ch - 2 - ($buyPx - $mn) / $rng * ($ch-4));
+          $trendCol = $hist[count($hist)-1] >= $hist[0] ? '#3bcf63' : 'var(--neon2)';
+        ?>
+        <div style="flex:none;text-align:right">
+          <svg width="<?= $cw ?>" height="<?= $ch ?>" style="display:block;overflow:visible;border-radius:4px">
+            <rect width="<?= $cw ?>" height="<?= $ch ?>" fill="rgba(0,0,0,.2)" rx="3"/>
+            <line x1="1" y1="<?= $buyY ?>" x2="<?= $cw-1 ?>" y2="<?= $buyY ?>" stroke="#e8d44d" stroke-width="1" stroke-dasharray="3 2" opacity="0.7"/>
+            <path d="<?= trim($pts) ?>" fill="none" stroke="<?= $trendCol ?>" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+          <div style="font-size:9px;color:var(--muted);margin-top:3px">
+            <span style="color:#e8d44d">&#9135; cost basis</span>
+            &nbsp;
+            <span style="color:<?= $trendCol ?>">&#9135; price</span>
+          </div>
         </div>
-        <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
-          <input type="hidden" name="action" value="sell">
-          <input type="hidden" name="stock_id" value="<?= (int)$h['stock_id'] ?>">
-          <input type="number" name="qty" value="1" min="1" max="<?= (int)$h['shares'] ?>" style="width:52px;padding:3px 6px;font-size:11px">
-          <button type="submit" style="padding:4px 10px;font-size:11px;color:var(--neon2);border-color:rgba(255,45,149,.3);background:rgba(255,45,149,.08)">Sell</button>
-        </form>
+        <?php else: ?>
+        <div style="flex:none;width:150px;height:52px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:4px">No history yet</div>
+        <?php endif; ?>
       </div>
     </div>
     <?php endforeach; ?>

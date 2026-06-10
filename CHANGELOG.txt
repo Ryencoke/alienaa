@@ -130,12 +130,71 @@ CITY HALL (cityhall.php)
 - Each entry has icon, title, and description; hover accent highlight
 - Removed the SVG building illustration
 
+--- SESSION: 2026-06-10 (fourth batch) ---
+
+BUG FIXES
+---------
+- [messages.php] "To" input no longer shows character counter (data-no-counter added)
+- [players_search.php] Searching a numeric ID now returns the matching player's username
+
+DRIVE / DATACORE (datacore.php)
+---------------------------------
+- Each cycle in the Skillsoft Lab now costs 5 Drive (was 1 Drive = 1 cycle)
+- Drive cost shown in real-time next to each slider (e.g. "50 Drive") instead of "cycles"
+- Submit button turns red and stays disabled if total drive cost exceeds available drive
+- Level preview now updates live as you drag the slider — e.g. Level 3 → 5 before committing
+
+SIDEBAR (account.php + lib.php)
+---------------------------------
+- "Add Link" dropdown now includes all missing pages: Tickets, City Hall, Friends, Lucky Daemon,
+  Stock Exchange, Auction House, Apartments, Neural Training, Combat Arena, Commerce Accord
+- Syndicate link only appears in the Add dropdown when the player is in a syndicate
+
+GUILDS — STOCKPILE (guilds.php)
+---------------------------------
+- "Add Item" form now shows a dropdown of items from the player's inventory instead of a text field
+
+AUCTION HOUSE (auction.php)
+-----------------------------
+- Create listing form now shows a dropdown from the player's inventory
+- Selecting an item deducts 1 quantity from player_items on listing creation
+
+APARTMENTS (apartments.php)
+-----------------------------
+- market_currency column added to player_apartments (credits or shards)
+- "List for Sale" form now shows a currency radio: Credits or Shards
+- Market tab displays the correct currency symbol and checks buyer's shards balance
+
+STOCK EXCHANGE (stockex.php)
+------------------------------
+- Market prices now fluctuate based on actual game activity instead of pure random ±3%
+  (active players, combat activity, market sales, trading volume, bank balance, drive usage)
+- Portfolio tab redesigned: per-holding sparkline chart with cost-basis reference line (yellow dashes)
+  showing buy price vs current price; P/L shown as amount and percentage
+
+CASINO — VIDEO POKER (daemon.php)
+-----------------------------------
+- Video Poker (Jacks or Better) added as a new game tab
+- Full pay table: Royal Flush 800×, Straight Flush 50×, Quads 25×, Full House 9×, Flush 6×,
+  Straight 4×, Trips 3×, Two Pair 2×, Jacks or Better 1×
+- Deal phase: 5 cards dealt; click any card to toggle HOLD; press Draw to replace un-held cards
+- History filter now includes a Video Poker icon button
+
+COMMERCE ACCORD (accord.php — NEW)
+-------------------------------------
+- New page: Commerce Accord — register as a neutral trader for 5/10/30/60/90 days
+- Benefit: bank withdrawal fee reduced from 2% to 0.5%
+- Restrictions: cannot enter combat (PvE/PvP) or use the training gym while active
+- Accord can be withdrawn early at any time
+- Bank page shows Accord status banner with reduced-fee notice
+- Added to city.php (The Bazaar district) and nav_links() for sidebar use
+
 PENDING / DEFERRED
 ------------------
-- [account.php] "Add a Link" pages — update to include all current game pages
 - [account.php] Player customization — hide topbar, rearrange sidebar elements
 - [apartments.php] Limited apartments for sale per type; sell-back functionality
 - [apartments.php] House decoration system
 - [guilds.php] Guild subscriptions — leader must be subscribed; non-sub lockout; extra drive for members
 - [combat] Active skill only applies to PvE/credits, not PvP damage
 - [Bug fix] 3-dash nav-toggle visible on desktop topbar — investigate CSS breakpoint
+- [accord.php] Block combat/training pages when Accord is active (training.php, sim.php, pvp.php)

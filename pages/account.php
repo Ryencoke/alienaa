@@ -133,6 +133,8 @@ $curAccent = $player['accent_color'] ?? '';
 <?php elseif ($sec === 'sidebar'):
   $current = player_sidebar($player);
   $nl = nav_links();
+  $inSyndicate = false;
+  try { $sq = $pdo->prepare('SELECT COUNT(*) FROM syndicate_members WHERE player_id=?'); $sq->execute([$pid]); $inSyndicate = (int)$sq->fetchColumn() > 0; } catch (Throwable $e) {}
 ?>
   <h3>Sidebar Quick Links</h3>
   <p class="muted">Reorder, add, or remove links from your sidebar navigation.</p>
@@ -154,6 +156,7 @@ $curAccent = $player['accent_color'] ?? '';
       <select id="sbadd">
         <option value="">+ Add link&hellip;</option>
         <?php foreach ($nl as $k => $v): if (!in_array($k, $current, true)): ?>
+          <?php if ($k === 'guilds' && !$inSyndicate) continue; ?>
           <option value="<?= e($k) ?>"><?= e($v[0]) ?></option>
         <?php endif; endforeach; ?>
       </select>

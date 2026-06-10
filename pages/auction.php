@@ -89,11 +89,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   try {
 
     if ($act === 'create') {
-      $itemName  = trim($_POST['item_name'] ?? '');
+      $selItemId = (int)($_POST['item_id'] ?? 0);
+      $itemName  = trim($_POST['item_name'] ?? '');  // fallback for manual entry
       $startPx   = max(1, (int)($_POST['start_price'] ?? 1));
       $hoursRaw  = (int)($_POST['duration'] ?? 24);
       $hours     = in_array($hoursRaw, [1,6,12,24,48]) ? $hoursRaw : 24;
-      if ($itemName === '') throw new RuntimeException('Enter a name for your listing.');
+      // If item selected from inventory dropdown, use that item
+      if ($selItemId > 0) {
+        $iq = $pdo->prepare('SELECT i.name,pi.qty FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.item_id=? AND pi.qty>0');
+        $iq->execute([$pid, $selItemId]); $invRow = $iq->fetch();
+        if (!$invRow) throw new RuntimeException('Item not found in inventory.');
+        $itemName = $invRow['name'];
+        // Deduct 1 from inventory
+        if ((int)$invRow['qty'] <= 1) $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=?')->execute([$pid, $selItemId]);
+        else $pdo->prepare('UPDATE player_items SET qty=qty-1 WHERE player_id=? AND item_id=?')->execute([$pid, $selItemId]);
+      }
+      if ($itemName === '') throw new RuntimeException('Select an item from your inventory.');
       if (strlen($itemName) > 100) throw new RuntimeException('Item name too long.');
       // 5% listing deposit taken upfront from pocket (refunded if no bids)
       $listFee = (int)ceil($startPx * AUCTION_FEE_PCT);
@@ -101,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $u->execute([$listFee, $pid, $listFee]);
       if ($u->rowCount() !== 1) throw new RuntimeException('Not enough credits. Listing fee: ' . number_format($listFee) . ' cr.');
       $endsAt = date('Y-m-d H:i:s', time() + $hours * 3600);
-      $pdo->prepare('INSERT INTO auction_listings (seller_id, item_name, starting_price, ends_at) VALUES (?,?,?,?)')->execute([$pid, $itemName, $startPx, $endsAt]);
+      $pdo->prepare('INSERT INTO auction_listings (seller_id, item_id, item_name, starting_price, ends_at) VALUES (?,?,?,?,?)')->execute([$pid, $selItemId, $itemName, $startPx, $endsAt]);
       $msg = 'Auction created! Listing fee of ' . number_format($listFee) . ' cr charged.';
       $tab = 'browse';
 
@@ -166,6 +177,8 @@ try {
   $q = $pdo->prepare("SELECT *, (UNIX_TIMESTAMP(ends_at) - UNIX_TIMESTAMP()) AS secs_left FROM auction_listings WHERE seller_id=? AND status='active' ORDER BY ends_at ASC");
   $q->execute([$pid]); $myListings = $q->fetchAll();
 } catch (Throwable $e) {}
+$playerInvAuction = [];
+try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.qty>0 ORDER BY i.name'); $piq->execute([$pid]); $playerInvAuction = $piq->fetchAll(); } catch (Throwable $e) {}
 ?>
 
 <!-- Header -->
@@ -299,8 +312,18 @@ try {
   <form method="post" style="max-width:400px">
     <input type="hidden" name="action" value="create">
     <div class="field">
-      <span>Item / Listing Name</span>
-      <input type="text" name="item_name" maxlength="100" placeholder="e.g. Neural Blade MkII, 500 credits, rare drop...">
+      <span>Item</span>
+      <?php if (!empty($playerInvAuction)): ?>
+      <select name="item_id">
+        <option value="">-- Select from inventory --</option>
+        <?php foreach ($playerInvAuction as $pi): ?>
+        <option value="<?= (int)$pi['item_id'] ?>"><?= e($pi['name']) ?> &times;<?= (int)$pi['qty'] ?></option>
+        <?php endforeach; ?>
+      </select>
+      <?php else: ?>
+      <input type="hidden" name="item_id" value="0">
+      <input type="text" name="item_name" maxlength="100" placeholder="No items in inventory — enter listing name">
+      <?php endif; ?>
     </div>
     <div class="field" style="margin-top:10px">
       <span>Starting Bid (credits)</span>

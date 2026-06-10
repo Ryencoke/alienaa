@@ -27,6 +27,35 @@ function settle($pid, $game, $bet, $detail, $payout) {
 function dice_face($n) { return ['','⚀','⚁','⚂','⚃','⚄','⚅'][$n] ?? '?'; }
 
 // Blackjack helpers
+// Video Poker helpers
+function vp_deck(): array {
+  $ranks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+  $suits = ['S','H','D','C'];
+  $deck = [];
+  foreach ($suits as $s) foreach ($ranks as $r) $deck[] = ['r'=>$r,'s'=>$s];
+  shuffle($deck); return $deck;
+}
+function vp_evaluate(array $hand): array {
+  $rankVals = ['2'=>2,'3'=>3,'4'=>4,'5'=>5,'6'=>6,'7'=>7,'8'=>8,'9'=>9,'10'=>10,'J'=>11,'Q'=>12,'K'=>13,'A'=>14];
+  $vals = array_map(fn($c) => $rankVals[$c['r']] ?? 0, $hand);
+  $suits = array_column($hand, 's');
+  sort($vals);
+  $isFlush    = count(array_unique($suits)) === 1;
+  $isStr      = ($vals[4]-$vals[0]===4 && count(array_unique($vals))===5) || ($vals===[2,3,4,5,14]);
+  $counts     = array_count_values(array_column($hand,'r'));
+  arsort($counts); $cv = array_values($counts);
+  if ($isFlush && $isStr && $vals[0]===10)                       return ['Royal Flush', 800];
+  if ($isFlush && $isStr)                                        return ['Straight Flush', 50];
+  if ($cv[0]===4)                                                return ['Four of a Kind', 25];
+  if ($cv[0]===3 && ($cv[1]??0)===2)                             return ['Full House', 9];
+  if ($isFlush)                                                  return ['Flush', 6];
+  if ($isStr)                                                    return ['Straight', 4];
+  if ($cv[0]===3)                                                return ['Three of a Kind', 3];
+  if ($cv[0]===2 && ($cv[1]??0)===2)                             return ['Two Pair', 2];
+  if ($cv[0]===2) { foreach ($counts as $rk=>$c) { if ($c===2 && in_array($rk,['J','Q','K','A'],true)) return ['Jacks or Better', 1]; } }
+  return ['No Win', 0];
+}
+
 function bj_hand_value(array $hand): int {
   $total = 0; $aces = 0;
   foreach ($hand as $c) {
@@ -171,14 +200,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       unset($_SESSION['bj']); $activeTab = 'blackjack';
     }
 
+    // ── Video Poker ──
+    elseif ($action === 'vp_deal') {
+      $bet = (int)($_POST['bet'] ?? 0);
+      if ($bet <= 0)      throw new RuntimeException('Place a bet above zero.');
+      if ($bet > MAX_BET) throw new RuntimeException('Max single bet is '.number_format(MAX_BET).'.');
+      $pdo->beginTransaction();
+      if (!place_bet($pid, $bet)) { $pdo->rollBack(); throw new RuntimeException('Not enough creds in pocket.'); }
+      $pdo->commit();
+      $deck = vp_deck();
+      $_SESSION['vp'] = ['hand'=>array_slice($deck,0,5),'deck'=>array_slice($deck,5),'bet'=>$bet,'phase'=>'hold'];
+      $msg = 'Cards dealt — select which to hold, then Draw.'; $activeTab = 'vp';
+      $player = current_player();
+    }
+
+    elseif ($action === 'vp_draw') {
+      $vp = $_SESSION['vp'] ?? null;
+      if (!$vp || $vp['phase'] !== 'hold') throw new RuntimeException('No active hand.');
+      $holdKeys = array_map('intval', (array)($_POST['hold'] ?? []));
+      $hand = $vp['hand']; $deck = $vp['deck']; $di = 0;
+      for ($i = 0; $i < 5; $i++) { if (!in_array($i, $holdKeys, true)) $hand[$i] = $deck[$di++]; }
+      [$hName, $mult] = vp_evaluate($hand);
+      $bet = (int)$vp['bet']; $payout = $bet * $mult;
+      settle($pid, 'video_poker', $bet, $hName, $payout);
+      $net = $payout - $bet;
+      if ($net > 0)      $msg = "&#9654; {$hName}! Won +".number_format($net)." creds!";
+      elseif ($net === 0) $msg = "{$hName} — push. Bet returned.";
+      else               { $msg = "{$hName}. The Daemon takes your ".number_format($bet)."."; $msgType = 'err'; }
+      $_SESSION['vp'] = ['hand'=>$hand,'bet'=>$bet,'phase'=>'done','name'=>$hName,'mult'=>$mult,'net'=>$net];
+      $activeTab = 'vp'; $player = current_player();
+    }
+
+    elseif ($action === 'vp_reset') {
+      unset($_SESSION['vp']); $activeTab = 'vp';
+    }
+
   } catch (Throwable $ex) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $msg = $ex->getMessage(); $msgType = 'err';
   }
 }
 
-// Active blackjack session
+// Active blackjack / video poker sessions
 $bj = $_SESSION['bj'] ?? null;
+$vp = $_SESSION['vp'] ?? null;
 
 // History + stats
 $rl = $pdo->prepare('SELECT * FROM casino_log WHERE player_id = ? ORDER BY played_at DESC LIMIT 50');
@@ -199,7 +264,7 @@ $maxBet      = min(MAX_BET, $player['creds_pocket']);
 $prevChoice  = ($_POST['action'] ?? '') === 'dice' ? ($_POST['choice'] ?? 'low') : 'low';
 $defaultBet  = (int)min(100, max(1, $maxBet));
 $bjBet       = $bj['bet'] ?? $defaultBet;
-$gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#127921;'];
+$gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#127921;', 'video_poker'=>'&#9830;'];
 ?>
 
 <div class="panel daemon-header">
@@ -215,10 +280,11 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
 </div>
 
 <div class="daemon-tabs">
-  <button class="daemon-tab <?= $activeTab==='dice'      ?'active':'' ?>" data-tab="dice">&#127922; Daemon Dice</button>
-  <button class="daemon-tab <?= $activeTab==='slots'     ?'active':'' ?>" data-tab="slots">&#127920; Neon Reels</button>
-  <button class="daemon-tab <?= $activeTab==='blackjack' ?'active':'' ?>" data-tab="blackjack">&#127921; Blackjack</button>
-  <button class="daemon-tab <?= $activeTab==='history'   ?'active':'' ?>" data-tab="history">&#128202; History</button>
+  <button class="daemon-tab <?= $activeTab==='dice'       ?'active':'' ?>" data-tab="dice">&#127922; Daemon Dice</button>
+  <button class="daemon-tab <?= $activeTab==='slots'      ?'active':'' ?>" data-tab="slots">&#127920; Neon Reels</button>
+  <button class="daemon-tab <?= $activeTab==='blackjack'  ?'active':'' ?>" data-tab="blackjack">&#127921; Blackjack</button>
+  <button class="daemon-tab <?= $activeTab==='vp'         ?'active':'' ?>" data-tab="vp">&#9830; Video Poker</button>
+  <button class="daemon-tab <?= $activeTab==='history'    ?'active':'' ?>" data-tab="history">&#128202; History</button>
 </div>
 
 <!-- ======= DICE ======= -->
@@ -404,6 +470,93 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
   </div>
 </div>
 
+<!-- ======= VIDEO POKER ======= -->
+<?php
+$vpPayTable = [['Royal Flush',800],['Straight Flush',50],['Four of a Kind',25],['Full House',9],['Flush',6],['Straight',4],['Three of a Kind',3],['Two Pair',2],['Jacks or Better',1]];
+function vp_render_card(array $c, bool $hidden=false, bool $held=false): string {
+  $red = in_array($c['s'],['H','D'],true);
+  $sGlyph = ['S'=>'&#9824;','H'=>'&#9829;','D'=>'&#9830;','C'=>'&#9827;'][$c['s']]??'';
+  $col = $hidden ? '#555' : ($red ? '#ff5555' : '#dde2f0');
+  $ring = $held ? 'box-shadow:0 0 0 2px var(--accent);' : '';
+  if ($hidden) return '<div class="bj-card bj-hidden">??</div>';
+  return '<div class="bj-card" style="color:'.$col.';'.$ring.'">'.e($c['r']).'<span style="font-size:10px">'.$sGlyph.'</span></div>';
+}
+?>
+<div class="game-pane <?= $activeTab==='vp'?'active':'' ?>" id="pane-vp">
+  <div class="panel">
+    <?php if ($msg && $activeTab === 'vp'): ?>
+    <div class="daemon-result daemon-result-<?= $msgType ?>"><?= e($msg) ?></div>
+    <?php endif; ?>
+
+    <?php if ($vp && $vp['phase'] === 'hold'): ?>
+    <!-- Hold phase: select which cards to keep -->
+    <div class="felt" style="text-align:center">
+      <p class="muted" style="font-size:11px;margin-bottom:10px">Click cards to toggle HOLD, then Draw.</p>
+      <form method="post" id="vp-hold-form">
+        <input type="hidden" name="action" value="vp_draw">
+        <input type="hidden" name="_tab" value="vp">
+        <div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+          <?php foreach ($vp['hand'] as $i => $c): ?>
+          <label style="cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px">
+            <input type="checkbox" name="hold[]" value="<?= $i ?>" checked style="display:none" class="vp-hold-chk">
+            <div class="vp-card-wrap" data-idx="<?= $i ?>" style="position:relative">
+              <?= vp_render_card($c, false, true) ?>
+              <div class="vp-hold-label" style="font-size:9px;font-family:'Orbitron',sans-serif;color:var(--accent);text-align:center;margin-top:2px">HOLD</div>
+            </div>
+          </label>
+          <?php endforeach; ?>
+        </div>
+        <button type="submit" class="btn btn-primary daemon-go-btn">&#9830; Draw</button>
+      </form>
+      <p class="muted" style="margin-top:10px;font-size:12px">Bet: <b style="color:var(--accent)"><?= number_format($vp['bet']) ?> creds</b></p>
+    </div>
+
+    <?php elseif ($vp && $vp['phase'] === 'done'): ?>
+    <!-- Result phase -->
+    <div class="felt" style="text-align:center">
+      <div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <?php foreach ($vp['hand'] as $c): echo vp_render_card($c); endforeach; ?>
+      </div>
+      <div style="font-size:16px;font-weight:700;color:<?= ($vp['net']??0)>=0?'var(--accent)':'var(--neon2)' ?>;margin-bottom:4px"><?= e($vp['name']) ?></div>
+      <?php if ($vp['mult'] > 0): ?><div style="font-size:12px;color:var(--muted)">Pays <?= $vp['mult'] ?>× &nbsp;&middot;&nbsp; <span style="color:var(--accent)">+<?= number_format($vp['mult']*$vp['bet']) ?> cr</span></div><?php endif; ?>
+    </div>
+    <form method="post" style="text-align:center;margin-top:14px">
+      <input type="hidden" name="action" value="vp_reset">
+      <input type="hidden" name="_tab" value="vp">
+      <button type="submit" class="btn btn-primary">&#9830; Deal Again</button>
+    </form>
+
+    <?php else: ?>
+    <!-- Betting screen -->
+    <div class="felt" style="text-align:center;padding:20px 16px">
+      <p style="font-size:32px;margin-bottom:4px">&#9830;</p>
+      <p class="muted" style="margin-bottom:4px">Jacks or Better. Pick your holds, then draw.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;max-width:260px;margin:12px auto 0;font-size:11px">
+        <?php foreach ($vpPayTable as [$hn,$hm]): ?>
+        <span style="text-align:right;color:var(--muted)"><?= $hn ?></span>
+        <span style="color:<?= $hm>=50?'#e8d44d':($hm>=9?'var(--accent)':'var(--text)') ?>;font-weight:<?= $hm>=9?'700':'400' ?>"><?= $hm ?>×</span>
+        <?php endforeach; ?>
+      </div>
+    </div>
+    <form method="post" style="margin-top:14px">
+      <input type="hidden" name="action" value="vp_deal">
+      <input type="hidden" name="_tab" value="vp">
+      <div class="quickbets">
+        <?php foreach ($quickBets as $qb): ?>
+          <button type="button" class="bet-chip" data-amt="<?= $qb ?>" <?= $qb > $maxBet ? 'disabled' : '' ?>><?= number_format($qb) ?></button>
+        <?php endforeach; ?>
+        <?php if ($maxBet > 0): ?><button type="button" class="bet-chip" data-amt="<?= $maxBet ?>">MAX</button><?php endif; ?>
+      </div>
+      <div class="bet-input-row">
+        <span class="muted">Bet:</span>
+        <input type="number" name="bet" class="bet-input" min="1" max="<?= (int)$maxBet ?>" value="<?= $defaultBet ?>">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block daemon-go-btn">&#9830; Deal Cards</button>
+    </form>
+    <?php endif; ?>
+  </div>
+</div>
+
 <!-- ======= HISTORY ======= -->
 <div class="game-pane <?= $activeTab==='history'?'active':'' ?>" id="pane-history">
 
@@ -435,6 +588,7 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
         <button class="bet-chip hist-filter" data-game="dice">&#127922;</button>
         <button class="bet-chip hist-filter" data-game="slots">&#127920;</button>
         <button class="bet-chip hist-filter" data-game="blackjack">&#127921;</button>
+        <button class="bet-chip hist-filter" data-game="video_poker">&#9830;</button>
       </div>
     </div>
     <?php if ($recent): ?>
@@ -492,6 +646,20 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
       document.querySelectorAll('.hist-row').forEach(function(r){
         r.style.display = (g==='all' || r.dataset.game===g) ? '' : 'none';
       });
+    });
+  });
+
+  /* Video Poker hold toggle */
+  document.querySelectorAll('.vp-card-wrap').forEach(function(wrap){
+    wrap.addEventListener('click', function(){
+      var lbl = wrap.closest('label');
+      if (!lbl) return;
+      var chk = lbl.querySelector('.vp-hold-chk');
+      var holdLbl = wrap.querySelector('.vp-hold-label');
+      if (!chk) return;
+      chk.checked = !chk.checked;
+      wrap.querySelector('.bj-card').style.boxShadow = chk.checked ? '0 0 0 2px var(--accent)' : 'none';
+      if (holdLbl) { holdLbl.textContent = chk.checked ? 'HOLD' : ''; holdLbl.style.color = chk.checked ? 'var(--accent)' : 'transparent'; }
     });
   });
 

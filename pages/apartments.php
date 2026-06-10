@@ -11,10 +11,12 @@ try {
     is_primary TINYINT NOT NULL DEFAULT 0,
     rented_to INT NULL, rent_amount INT NOT NULL DEFAULT 0,
     on_market TINYINT NOT NULL DEFAULT 0, market_price INT NOT NULL DEFAULT 0,
+    market_currency ENUM('credits','shards') NOT NULL DEFAULT 'credits',
     purchased_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_player (player_id), INDEX idx_market (on_market)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (Throwable $e) {}
+try { $pdo->exec("ALTER TABLE player_apartments ADD COLUMN market_currency ENUM('credits','shards') NOT NULL DEFAULT 'credits'"); } catch (Throwable $e) {}
 
 // Apartment type definitions
 $APT_TYPES = [
@@ -117,9 +119,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($act === 'list_market') {
       $aptId    = (int)($_POST['apt_id'] ?? 0);
       $mktPrice = max(1, (int)($_POST['market_price'] ?? 0));
+      $currency = ($_POST['market_currency'] ?? 'credits') === 'shards' ? 'shards' : 'credits';
       $qa = $pdo->prepare('SELECT * FROM player_apartments WHERE id=? AND player_id=? AND rented_to IS NULL AND on_market=0'); $qa->execute([$aptId, $pid]); if (!$qa->fetch()) throw new RuntimeException('Cannot list — not found or unavailable.');
-      $pdo->prepare('UPDATE player_apartments SET on_market=1, market_price=? WHERE id=?')->execute([$mktPrice, $aptId]);
-      $msg = 'Listed on the apartment market for ' . number_format($mktPrice) . ' credits.';
+      $pdo->prepare('UPDATE player_apartments SET on_market=1, market_price=?, market_currency=? WHERE id=?')->execute([$mktPrice, $currency, $aptId]);
+      $msg = 'Listed on the apartment market for ' . number_format($mktPrice) . ' ' . $currency . '.';
 
     } elseif ($act === 'market_buy') {
       $aptId = (int)($_POST['apt_id'] ?? 0);
@@ -127,14 +130,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $qa->execute([$aptId, $pid]); $listing = $qa->fetch();
       if (!$listing) throw new RuntimeException('Listing not found.');
       $price2 = (int)$listing['market_price'];
+      $currency = $listing['market_currency'] ?? 'credits';
       $pdo->beginTransaction();
-      $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
-      $u->execute([$price2, $pid, $price2]);
-      if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough credits.'); }
-      $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$price2, $listing['player_id']]);
+      if ($currency === 'shards') {
+        $u = $pdo->prepare('UPDATE players SET shards = shards - ? WHERE id = ? AND shards >= ?');
+        $u->execute([$price2, $pid, $price2]);
+        if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough shards.'); }
+        $pdo->prepare('UPDATE players SET shards = shards + ? WHERE id=?')->execute([$price2, $listing['player_id']]);
+      } else {
+        $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
+        $u->execute([$price2, $pid, $price2]);
+        if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough credits.'); }
+        $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$price2, $listing['player_id']]);
+      }
       // Check if buyer has a primary
       $qp = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND is_primary=1'); $qp->execute([$pid]); $hasPrimary = (int)$qp->fetchColumn() > 0;
-      $pdo->prepare('UPDATE player_apartments SET player_id=?, on_market=0, market_price=0, is_primary=?, rented_to=NULL WHERE id=?')->execute([$pid, $hasPrimary?0:1, $aptId]);
+      $pdo->prepare('UPDATE player_apartments SET player_id=?, on_market=0, market_price=0, market_currency=\'credits\', is_primary=?, rented_to=NULL WHERE id=?')->execute([$pid, $hasPrimary?0:1, $aptId]);
       $pdo->commit();
       if (!$hasPrimary) perk_apply($pdo, $pid, (int)$listing['apt_type_id'], $APT_TYPES, true);
       $msg = 'Purchased ' . $APT_TYPES[$listing['apt_type_id']]['name'] . ' from ' . $listing['seller_name'] . '!';
@@ -210,8 +221,8 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
         <?php if ($a['rented_to']): ?>
           <form method="post" style="margin:0"><input type="hidden" name="action" value="end_rent"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>"><button type="submit" style="font-size:11px;padding:5px 10px;color:var(--neon2);border-color:rgba(255,45,149,.3)">End Rental</button></form>
         <?php endif; ?>
-        <?php if ($a['on_market']): ?>
-          <span style="font-size:11px;color:#e8a33d;padding:5px 10px;border:1px solid rgba(232,163,61,.3);border-radius:5px">On Market — <?= number_format($a['market_price']) ?> cr</span>
+        <?php if ($a['on_market']): $aCur = $a['market_currency'] ?? 'credits'; ?>
+          <span style="font-size:11px;color:#e8a33d;padding:5px 10px;border:1px solid rgba(232,163,61,.3);border-radius:5px">On Market — <?= number_format($a['market_price']) ?> <?= $aCur==='shards'?'&#9670; shards':'cr' ?></span>
         <?php endif; ?>
       </div>
     </div>
@@ -229,8 +240,10 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
     </div>
     <div class="sell-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
       <form method="post"><input type="hidden" name="action" value="list_market"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>">
-        <div style="display:flex;gap:8px;align-items:center;font-size:12px">
-          <input type="number" name="market_price" min="1" placeholder="Listing price (cr)" style="flex:1">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">
+          <input type="number" name="market_price" min="1" placeholder="Price" style="flex:1;min-width:100px">
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="market_currency" value="credits" checked style="width:auto"> Credits</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="market_currency" value="shards" style="width:auto"> <span style="color:#e8d44d">Shards</span></label>
           <button type="submit" style="font-size:12px">List on Market</button>
         </div>
       </form>
@@ -279,9 +292,10 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
       <div style="font-size:11px;color:var(--muted)">&#128205; <?= e($atype['region']) ?> &middot; <?= e($atype['perks']) ?></div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px">Seller: <?= e($l['seller_name']) ?></div>
     </div>
+    <?php $lCur = $l['market_currency'] ?? 'credits'; $lAfford = $lCur === 'shards' ? (int)$player['shards'] >= $l['market_price'] : (int)$player['creds_pocket'] >= $l['market_price']; ?>
     <div style="display:flex;gap:10px;align-items:center">
-      <div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--accent)"><?= number_format($l['market_price']) ?> cr</div>
-      <form method="post" style="margin:0"><input type="hidden" name="action" value="market_buy"><input type="hidden" name="apt_id" value="<?= (int)$l['id'] ?>"><button type="submit" style="font-size:12px" <?= (int)$player['creds_pocket'] < $l['market_price'] ? 'disabled style="opacity:.4"' : '' ?>>Buy</button></form>
+      <div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:<?= $lCur==='shards'?'#e8d44d':'var(--accent)' ?>"><?= number_format($l['market_price']) ?> <?= $lCur==='shards'?'&#9670;':'cr' ?></div>
+      <form method="post" style="margin:0"><input type="hidden" name="action" value="market_buy"><input type="hidden" name="apt_id" value="<?= (int)$l['id'] ?>"><button type="submit" style="font-size:12px" <?= !$lAfford ? 'disabled style="opacity:.4"' : '' ?>>Buy</button></form>
     </div>
   </div>
   <?php endforeach; ?>

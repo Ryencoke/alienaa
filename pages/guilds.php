@@ -710,6 +710,9 @@ elseif ($tab === 'stockpile' && $mySyn):
   // Members for loan dropdown
   $synMembers = [];
   if ($canLoan) { try { $mq = $pdo->prepare('SELECT sm.player_id,p.username FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? ORDER BY p.username'); $mq->execute([$mySyn['syndicate_id']]); $synMembers = $mq->fetchAll(); } catch (Throwable $e) {} }
+  // Player inventory for donation dropdown
+  $playerInvStock = [];
+  try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name,i.category FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.qty>0 ORDER BY i.category,i.name'); $piq->execute([$pid]); $playerInvStock = $piq->fetchAll(); } catch (Throwable $e) {}
 ?>
 
 <!-- Add to stockpile -->
@@ -718,7 +721,14 @@ elseif ($tab === 'stockpile' && $mySyn):
   <h3 style="margin-top:0;font-size:13px">&#9874; Add Item to Stockpile</h3>
   <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
     <input type="hidden" name="action" value="stockpile_add">
-    <div class="field"><span>Item Name</span><input type="text" name="item_name" maxlength="100" placeholder="e.g. Plasma Blade Mk2"></div>
+    <div class="field"><span>Item</span>
+      <?php if (!empty($playerInvStock)): ?>
+      <select name="item_name">
+        <option value="">-- Select from inventory --</option>
+        <?php foreach ($playerInvStock as $pi): ?><option value="<?= e($pi['name']) ?>"><?= e($pi['name']) ?> &times;<?= (int)$pi['qty'] ?></option><?php endforeach; ?>
+      </select>
+      <?php else: ?><input type="text" name="item_name" maxlength="100" placeholder="No items in inventory"><?php endif; ?>
+    </div>
     <div class="field"><span>Type</span><select name="gear_type"><option value="weapon">Weapon</option><option value="armor">Armor</option><option value="item">Item</option></select></div>
     <div class="field"><span>ATK Bonus</span><input type="number" name="atk_bonus" value="0" min="0" max="999"></div>
     <div class="field"><span>DEF Bonus</span><input type="number" name="def_bonus" value="0" min="0" max="999"></div>

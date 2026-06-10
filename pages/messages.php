@@ -122,7 +122,7 @@ if ($convos) {
     <div class="field">
       <span>To (handle)</span>
       <div class="ac-wrap" style="max-width:280px">
-        <input type="text" name="to_name" id="msgToName" maxlength="32" autocomplete="off">
+        <input type="text" name="to_name" id="msgToName" maxlength="32" autocomplete="off" data-no-counter>
         <div class="ac-list" id="msgAcList" style="display:none"></div>
       </div>
     </div>

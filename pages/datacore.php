@@ -25,8 +25,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $invest = $_POST['pts'] ?? [];
   $total  = array_sum(array_map('intval', $invest));
   try {
-    if ($total <= 0)                   throw new RuntimeException('Enter how many cycles to burn.');
-    if ($total > $player['cycles'])    throw new RuntimeException('Not enough cycles for that.');
+    if ($total <= 0)                        throw new RuntimeException('Move a slider to allocate Drive.');
+    if ($total * 5 > $player['cycles'])    throw new RuntimeException('Not enough Drive. Need '.number_format($total * 5).' Drive for '.number_format($total).' cycles.');
     foreach ($invest as $sid => $pts) {
       $pts = (int)$pts; if ($pts <= 0) continue;
       $pdo->prepare('UPDATE player_skills ps JOIN skills s ON s.id = ps.skill_id
@@ -34,8 +34,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      WHERE ps.player_id = ? AND ps.skill_id = ?')
           ->execute([$pts, $pid, (int)$sid]);
     }
-    $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ?')->execute([$total, $pid]);
-    $msg = "Burned {$total} cycles. Skillsofts updated.";
+    $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ?')->execute([$total * 5, $pid]);
+    $msg = "Burned " . number_format($total * 5) . " Drive for " . number_format($total) . " cycles. Skillsofts updated.";
     $player = current_player();
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
 }
@@ -77,7 +77,7 @@ $skills = $rows->fetchAll();
   </div>
 
   <div class="sk-lvl">
-    <span>Level <b style="color:<?= $meta['color'] ?>"><?= $level ?></b> / 10</span>
+    <span>Level <b id="sk-lv-<?= $sk['id'] ?>" style="color:<?= $meta['color'] ?>"><?= $level ?></b> / 10</span>
     <span class="muted"><?= number_format($pts) ?> / <?= number_format($max) ?> pts</span>
   </div>
   <div class="sk-track">
@@ -119,6 +119,7 @@ $skills = $rows->fetchAll();
 <script>
 (function(){
   var totalEl=document.getElementById('sk-total'), btn=document.getElementById('sk-submit');
+  var playerDrive=<?= (int)$player['cycles'] ?>;
   function upd(){
     var t=0;
     document.querySelectorAll('.sk-qty').forEach(function(inp){
@@ -130,11 +131,16 @@ $skills = $rows->fetchAll();
       var prev=document.getElementById('sk-prev-'+id);
       if(prev) prev.style.width=pct+'%';
       var cost=document.getElementById('sk-cost-'+id);
-      if(cost) cost.textContent=v+' cycle'+(v!==1?'s':'');
+      if(cost) cost.textContent=(v*5)+' Drive';
+      var lv=document.getElementById('sk-lv-'+id);
+      if(lv && max>0){ var newLv=Math.min(10,Math.floor((pts+v)/(max/10))+1); lv.textContent=newLv; }
       t+=v;
     });
-    totalEl.textContent=t;
-    btn.disabled=t<1; btn.style.opacity=t<1?'0.4':'1';
+    var driveCost=t*5;
+    totalEl.textContent=driveCost;
+    var over=driveCost>playerDrive;
+    btn.disabled=(t<1||over); btn.style.opacity=(t<1||over)?'0.4':'1';
+    totalEl.style.color=over?'var(--neon2)':'var(--accent)';
   }
   document.querySelectorAll('.sk-qty').forEach(function(inp){
     inp.addEventListener('input',upd);
