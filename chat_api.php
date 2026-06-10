@@ -10,6 +10,18 @@ if (!$player) { http_response_code(401); echo json_encode(['ok' => false, 'error
 
 $pdo    = db();
 $pdo->prepare('UPDATE players SET last_seen = NOW() WHERE id = ?')->execute([$player['id']]);
+
+try {
+  $pdo->exec('CREATE TABLE IF NOT EXISTS chat_messages (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    player_id  INT          NOT NULL,
+    body       VARCHAR(240) NOT NULL,
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_player (player_id),
+    INDEX idx_id     (id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+} catch (Throwable $e) {}
+
 $action = $_POST['action'] ?? $_GET['action'] ?? 'list';
 
 if ($action === 'say' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -37,7 +49,7 @@ $msgs = [];
 foreach (array_reverse($rows) as $r) {
   $msgs[] = [
     'id'       => (int)$r['uid'],
-    'time'     => date('H:i:s', strtotime($r['created_at'])),
+    'time'     => date('H:i', strtotime($r['created_at'])),
     'username' => $r['username'],
     'color'    => chat_color($r['role'], $r['chat_color']),  // body text color (includes custom)
     'name_color' => chat_color($r['role'], ''),               // username: role-based only

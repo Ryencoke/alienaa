@@ -64,6 +64,8 @@ try {
   try { $pdo->exec("ALTER TABLE player_gear ADD COLUMN loan_id INT NULL DEFAULT NULL"); } catch (Throwable $e) {}
   // Add announcement columns if missing
   try { $pdo->exec("ALTER TABLE syndicates ADD COLUMN announcement TEXT NULL, ADD COLUMN announcement_at DATETIME NULL"); } catch (Throwable $e) {}
+  // Add threaded replies support
+  try { $pdo->exec("ALTER TABLE syndicate_posts ADD COLUMN parent_id INT NULL DEFAULT NULL"); } catch (Throwable $e) {}
 } catch (Throwable $e) {}
 
 define('SYNDICATE_CREATE_COST', 50);
@@ -177,11 +179,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     } elseif ($act === 'post') {
       if (!$mySyn || !syn_can($myRank,'post_board')) throw new RuntimeException('Members only.');
-      $title = trim($_POST['post_title'] ?? ''); $body = trim($_POST['post_body'] ?? '');
-      if ($title===''||mb_strlen($title)>120) throw new RuntimeException('Title: 1–120 chars.');
-      if (mb_strlen($body)<2) throw new RuntimeException('Write something in the body.');
-      $pdo->prepare('INSERT INTO syndicate_posts (syndicate_id,author_id,title,body) VALUES (?,?,?,?)')->execute([$mySyn['syndicate_id'],$pid,$title,$body]);
-      $msg = 'Posted to the board.';
+      $parentId = (int)($_POST['parent_id'] ?? 0) ?: null;
+      $body = trim($_POST['post_body'] ?? '');
+      if (mb_strlen($body) < 2) throw new RuntimeException('Write something.');
+      if ($parentId) {
+        // reply: verify parent is top-level in this syndicate
+        $pp = $pdo->prepare('SELECT id FROM syndicate_posts WHERE id=? AND syndicate_id=? AND (parent_id IS NULL OR parent_id=0)');
+        $pp->execute([$parentId, $mySyn['syndicate_id']]);
+        if (!$pp->fetch()) throw new RuntimeException('Thread not found.');
+        $pdo->prepare('INSERT INTO syndicate_posts (syndicate_id,author_id,title,body,parent_id) VALUES (?,?,?,?,?)')->execute([$mySyn['syndicate_id'],$pid,'',$body,$parentId]);
+        $msg = 'Reply posted.';
+      } else {
+        $title = trim($_POST['post_title'] ?? '');
+        if ($title===''||mb_strlen($title)>120) throw new RuntimeException('Title: 1–120 chars.');
+        $pdo->prepare('INSERT INTO syndicate_posts (syndicate_id,author_id,title,body,parent_id) VALUES (?,?,?,?,NULL)')->execute([$mySyn['syndicate_id'],$pid,$title,$body]);
+        $msg = 'Discussion started.';
+      }
 
     } elseif ($act === 'set_announce') {
       if (!$mySyn || !syn_can($myRank,'post_announce')) throw new RuntimeException('No permission.');
@@ -426,28 +439,93 @@ if ($tab === 'home' && $mySyn):
 
 
 <?php // ══ BOARD ══════════════════════════════════════════
-elseif ($tab === 'board' && $mySyn): ?>
+elseif ($tab === 'board' && $mySyn):
+  // Fetch all posts (top-level + replies) for this syndicate
+  $allBoardPosts = [];
+  try {
+    $pq = $pdo->prepare('SELECT sp.*,p.username,p.role,p.chat_color FROM syndicate_posts sp JOIN players p ON p.id=sp.author_id WHERE sp.syndicate_id=? ORDER BY sp.created_at ASC');
+    $pq->execute([$mySyn['syndicate_id']]); $allBoardPosts = $pq->fetchAll();
+  } catch (Throwable $e) {}
 
-<div class="panel">
-  <h3 style="margin-top:0">Post to Board</h3>
+  // Group into threads: top-level posts, then replies keyed by parent_id
+  $threads = []; $repliesMap = [];
+  foreach ($allBoardPosts as $bp) {
+    $parentId = (int)($bp['parent_id'] ?? 0);
+    if ($parentId) $repliesMap[$parentId][] = $bp;
+    else $threads[] = $bp;
+  }
+  // Sort threads by latest activity (latest reply or own post time)
+  usort($threads, function($a, $b) use ($repliesMap) {
+    $aLast = !empty($repliesMap[(int)$a['id']]) ? strtotime(end($repliesMap[(int)$a['id']])['created_at']) : strtotime($a['created_at']);
+    $bLast = !empty($repliesMap[(int)$b['id']]) ? strtotime(end($repliesMap[(int)$b['id']])['created_at']) : strtotime($b['created_at']);
+    return $bLast - $aLast;
+  });
+?>
+
+<!-- Existing threads -->
+<?php if (empty($threads)): ?>
+<div class="panel" style="color:var(--muted);text-align:center;padding:24px">No discussions yet. Start one below.</div>
+<?php else: foreach ($threads as $thread):
+  $replies = $repliesMap[(int)$thread['id']] ?? [];
+  $tc = chat_color($thread['role'],$thread['chat_color']);
+  $tr = role_label($thread['role'] ?? '');
+  $replyCount = count($replies);
+?>
+<div class="panel" style="padding:0;overflow:hidden">
+  <!-- Thread header -->
+  <div style="padding:14px;border-bottom:1px solid var(--line)">
+    <div style="font-weight:700;font-size:14px;margin-bottom:6px;color:var(--text)"><?= e($thread['title']) ?></div>
+    <div style="font-size:13px;line-height:1.6;margin-bottom:8px;white-space:pre-wrap"><?= bbcode($thread['body']) ?></div>
+    <div style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <a href="index.php?p=profile&id=<?= (int)$thread['author_id'] ?>" style="color:<?= e($tc) ?>;font-weight:700"><?= e($thread['username']) ?></a>
+      <?php if ($tr): ?><em style="font-size:10px;color:<?= e(chat_color($thread['role'],'')) ?>"><?= e($tr) ?></em><?php endif; ?>
+      <span>&middot; <?= e(date('M j Y, g:ia', strtotime($thread['created_at']))) ?></span>
+      <?php if ($replyCount): ?><span style="color:var(--accent)">&#128172; <?= $replyCount ?> repl<?= $replyCount===1?'y':'ies' ?></span><?php endif; ?>
+    </div>
+  </div>
+
+  <!-- Replies -->
+  <?php foreach ($replies as $rp):
+    $rc = chat_color($rp['role'],$rp['chat_color']);
+    $rr = role_label($rp['role'] ?? '');
+  ?>
+  <div style="padding:12px 14px 12px 28px;border-bottom:1px solid rgba(255,255,255,.04);background:rgba(0,0,0,.08)">
+    <div style="font-size:13px;line-height:1.6;margin-bottom:6px;white-space:pre-wrap"><?= bbcode($rp['body']) ?></div>
+    <div style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <a href="index.php?p=profile&id=<?= (int)$rp['author_id'] ?>" style="color:<?= e($rc) ?>;font-weight:700"><?= e($rp['username']) ?></a>
+      <?php if ($rr): ?><em style="font-size:10px;color:<?= e(chat_color($rp['role'],'')) ?>"><?= e($rr) ?></em><?php endif; ?>
+      <span>&middot; <?= e(date('M j Y, g:ia', strtotime($rp['created_at']))) ?></span>
+    </div>
+  </div>
+  <?php endforeach; ?>
+
+  <!-- Reply form (toggled) -->
+  <div style="padding:10px 14px;background:rgba(0,0,0,.12)">
+    <button type="button" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.style.display='none'" style="font-size:11px;padding:4px 12px;background:rgba(25,240,199,.07);border-color:rgba(25,240,199,.2);color:var(--accent)">&#8617; Reply</button>
+    <div style="display:none;margin-top:8px">
+      <form method="post">
+        <input type="hidden" name="action" value="post">
+        <input type="hidden" name="parent_id" value="<?= (int)$thread['id'] ?>">
+        <textarea name="post_body" style="width:100%;min-height:60px;font-size:12px" placeholder="Write a reply..."></textarea>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button type="submit" style="font-size:12px">Post Reply</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<?php endforeach; endif; ?>
+
+<!-- New Discussion form -->
+<div class="panel" style="border:1px solid rgba(25,240,199,.15)">
+  <h3 style="margin-top:0;font-size:13px;color:var(--accent)">&#43; Start a Discussion</h3>
   <form method="post">
     <input type="hidden" name="action" value="post">
-    <div class="field"><span>Title</span><input type="text" name="post_title" maxlength="120"></div>
-    <div class="field" style="margin-top:8px"><span>Body</span><textarea name="post_body" style="min-height:80px"></textarea></div>
-    <button type="submit" style="margin-top:8px">Post</button>
+    <div class="field"><span>Title</span><input type="text" name="post_title" maxlength="120" placeholder="Discussion title..."></div>
+    <div class="field" style="margin-top:8px"><span>Body</span><textarea name="post_body" style="min-height:80px" placeholder="What's on your mind?"></textarea></div>
+    <button type="submit" style="margin-top:8px">Start Discussion</button>
   </form>
 </div>
-<?php
-  $posts = [];
-  try { $pq = $pdo->prepare('SELECT sp.*,p.username,p.role,p.chat_color FROM syndicate_posts sp JOIN players p ON p.id=sp.author_id WHERE sp.syndicate_id=? ORDER BY sp.id DESC LIMIT 30'); $pq->execute([$mySyn['syndicate_id']]); $posts = $pq->fetchAll(); } catch (Throwable $e) {}
-  foreach ($posts as $post): $pcol = chat_color($post['role'],$post['chat_color']); $prank = role_label($post['role']??''); ?>
-<div class="panel" style="padding:14px">
-  <div style="font-weight:700;font-size:14px;margin-bottom:4px"><?= e($post['title']) ?></div>
-  <div style="font-size:12px;color:var(--muted);white-space:pre-wrap;margin-bottom:8px"><?= e($post['body']) ?></div>
-  <div style="font-size:11px;color:var(--muted)">by <a href="index.php?p=profile&id=<?= (int)$post['author_id'] ?>" style="color:<?= e($pcol) ?>;font-weight:700"><?= e($post['username']) ?></a><?php if ($prank): ?> <em style="font-style:italic;font-size:10px;color:<?= e(chat_color($post['role'],'')) ?>"><?= e($prank) ?></em><?php endif; ?> &middot; <?= e(date('M j Y',strtotime($post['created_at']))) ?></div>
-</div>
-  <?php endforeach; ?>
-<?php if (empty($posts)) echo '<div class="panel" style="color:var(--muted);text-align:center;padding:20px">No posts yet.</div>'; ?>
 
 
 <?php // ══ MEMBERS ════════════════════════════════════════

@@ -62,17 +62,24 @@ try {
   try { $pdo->exec('ALTER TABLE board_cats ADD COLUMN sort TINYINT NOT NULL DEFAULT 0');           } catch (Throwable $e) {}
   try { $pdo->exec('ALTER TABLE boards     ADD COLUMN sort TINYINT NOT NULL DEFAULT 0');           } catch (Throwable $e) {}
 
-  // Seed default categories and boards if empty
-  if ((int)$pdo->query('SELECT COUNT(*) FROM board_cats')->fetchColumn() === 0) {
+  // Seed default categories and boards if either table is empty
+  $catEmpty = (int)$pdo->query('SELECT COUNT(*) FROM board_cats')->fetchColumn() === 0;
+  $boardEmpty = (int)$pdo->query('SELECT COUNT(*) FROM boards')->fetchColumn() === 0;
+  if ($catEmpty) {
     $pdo->exec("INSERT INTO board_cats (name, sort) VALUES ('General',0),('The Sprawl',1),('Staff',2)");
+  }
+  if ($boardEmpty) {
+    $gCat = (int)$pdo->query("SELECT id FROM board_cats WHERE name='General' LIMIT 1")->fetchColumn() ?: 1;
+    $sCat = (int)$pdo->query("SELECT id FROM board_cats WHERE name='The Sprawl' LIMIT 1")->fetchColumn() ?: 2;
+    $xCat = (int)$pdo->query("SELECT id FROM board_cats WHERE name='Staff' LIMIT 1")->fetchColumn() ?: 3;
     $pdo->exec("INSERT INTO boards (cat_id, name, descr, sort) VALUES
-      (1,'Announcements','Official news and patch notes.',0),
-      (1,'General Discussion','Anything goes. Keep it civil.',1),
-      (1,'Introductions','New to the Sprawl? Say hello.',2),
-      (2,'Bazaar Talk','Trade tips, price checks, market chatter.',0),
-      (2,'Combat Tactics','PvP strategy, loadout advice, war stories.',1),
-      (2,'Lore & Worldbuilding','Deep dives into the Grid and its history.',2),
-      (3,'Staff Notes','Internal staff coordination.',0)");
+      ({$gCat},'Announcements','Official news and patch notes.',0),
+      ({$gCat},'General Discussion','Anything goes. Keep it civil.',1),
+      ({$gCat},'Introductions','New to the Sprawl? Say hello.',2),
+      ({$sCat},'Bazaar Talk','Trade tips, price checks, market chatter.',0),
+      ({$sCat},'Combat Tactics','PvP strategy, loadout advice, war stories.',1),
+      ({$sCat},'Lore & Worldbuilding','Deep dives into the Grid and its history.',2),
+      ({$xCat},'Staff Notes','Internal staff coordination.',0)");
   }
 } catch (Throwable $e) {}
 
@@ -397,14 +404,21 @@ if ($bid) {
 $cats = [];
 $byCat = [];
 try {
-  $cats = $pdo->query('SELECT id, name FROM board_cats ORDER BY sort, id')->fetchAll();
+  $cats = $pdo->query('SELECT id, name, sort FROM board_cats ORDER BY sort ASC, id ASC')->fetchAll();
   $boards = $pdo->query(
-    'SELECT b.id, b.cat_id, b.name, b.descr,
+    'SELECT b.id, b.cat_id, b.name, b.descr, b.sort,
        (SELECT COUNT(*) FROM topics t WHERE t.board_id = b.id) AS topics,
-       (SELECT COUNT(*) FROM posts p JOIN topics t ON t.id = p.topic_id WHERE t.board_id = b.id) AS posts
-     FROM boards b ORDER BY b.sort, b.id')->fetchAll();
+       (SELECT COUNT(*) FROM posts p JOIN topics t2 ON t2.id = p.topic_id WHERE t2.board_id = b.id) AS posts
+     FROM boards b ORDER BY b.sort ASC, b.id ASC')->fetchAll();
   foreach ($boards as $b) $byCat[$b['cat_id']][] = $b;
-} catch (Throwable $e) {}
+} catch (Throwable $e) {
+  // Fallback: boards table may have an old schema
+  try {
+    $cats = $pdo->query('SELECT id, name FROM board_cats ORDER BY id ASC')->fetchAll();
+    $boards = $pdo->query('SELECT b.id, b.cat_id, b.name, b.descr FROM boards b ORDER BY b.id ASC')->fetchAll();
+    foreach ($boards as $b) { $b['topics'] = 0; $b['posts'] = 0; $byCat[$b['cat_id']][] = $b; }
+  } catch (Throwable $e2) {}
+}
 ?>
 <div class="panel">
   <h2>Message Boards</h2>

@@ -67,6 +67,28 @@ if ($attrPoints > 0) $newsFeed[] = ['type'=>'levelup','text'=>"You have <b>{$att
 usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0));
 ?>
 
+<!-- ══ NOTIFICATIONS (top) ══════════════════════════════════ -->
+<?php if (!empty($newsFeed)): ?>
+<div class="panel" id="home-news" style="border:1px solid rgba(25,240,199,.2);background:rgba(25,240,199,.03)">
+  <h3 style="margin-top:0;margin-bottom:10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128276; Notifications
+    <span style="float:right;background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700"><?= count($newsFeed) ?></span>
+  </h3>
+  <?php foreach (array_slice($newsFeed,0,8) as $item):
+    $nicon = ['message'=>'&#9993;','transfer'=>'&#128178;','news'=>'&#128203;','levelup'=>'&#11088;'][$item['type']] ?? '&#8226;';
+    $ncol  = ['message'=>'var(--accent)','transfer'=>'#3bcf63','news'=>'#e8d44d','levelup'=>'#e8d44d'][$item['type']] ?? 'var(--muted)';
+    $rawHtml = $item['type']==='levelup';
+  ?>
+  <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)<?= $rawHtml?';background:rgba(232,212,77,.04);margin:-1px -4px;padding:7px 4px;border-radius:4px':'' ?>">
+    <span style="font-size:13px;flex:none;color:<?= $ncol ?>;margin-top:1px"><?= $nicon ?></span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12px"><?= $rawHtml ? $item['text'] : e($item['text']) ?></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= !empty($item['ts'])?e(date('M j, g:ia',strtotime($item['ts']))):'' ?></div>
+    </div>
+  </div>
+  <?php endforeach; ?>
+</div>
+<?php endif; ?>
+
 <!-- ══ HERO ══════════════════════════════════════════════════ -->
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="height:3px;background:linear-gradient(90deg,var(--accent),var(--neon2),transparent)"></div>
@@ -143,23 +165,23 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
   <div class="panel" style="margin-bottom:0">
     <h3 style="margin-top:0;margin-bottom:14px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#9876; Combat Stats</h3>
     <?php
-    $lvCap = min(30, max(5, (int)$player['level'] * 2));
     foreach ([
       ['Strength',  'str_pts','var(--neon2)','&#9889;','ATK'],
       ['Speed',     'spd_pts','#e8a33d',    '&#128168;','SPD'],
       ['Endurance', 'end_pts','#3bcf63',    '&#128158;','HP/DEF'],
     ] as [$sl,$sk,$sc,$si,$sef]):
       $sv = (int)($cStats[$sk] ?? 5);
+      $barMax = max($sv, 50);
     ?>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
       <span style="font-size:18px;width:24px;text-align:center;flex:none"><?= $si ?></span>
       <div style="flex:1;min-width:0">
         <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
           <span style="color:var(--muted)"><?= $sl ?></span>
-          <span style="color:<?= $sc ?>;font-weight:700"><?= $sv ?><span style="color:var(--muted);font-weight:400"> / <?= $lvCap ?></span></span>
+          <span style="color:<?= $sc ?>;font-weight:700"><?= $sv ?></span>
         </div>
         <div style="height:4px;background:rgba(0,0,0,.4);border-radius:2px;overflow:hidden">
-          <div style="width:<?= min(100,round($sv/$lvCap*100)) ?>%;height:100%;background:<?= $sc ?>;border-radius:2px"></div>
+          <div style="width:<?= min(100,round($sv/$barMax*100)) ?>%;height:100%;background:<?= $sc ?>;border-radius:2px"></div>
         </div>
       </div>
       <span style="font-size:10px;color:var(--muted);flex:none;width:46px;text-align:right"><?= $sef ?></span>
@@ -211,101 +233,30 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
 
 </div>
 
-<!-- ══ QUICK ACTIONS ══════════════════════════════════════════════ -->
-<div class="panel" style="padding:14px">
-  <h3 style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#9889; Quick Nav</h3>
-  <div class="hh-actions">
-    <?php foreach ([
-      ['index.php?p=sim',       '&#127918;','Combat Sim'],
-      ['index.php?p=pvp',       '&#9876;',  'Arena'],
-      ['index.php?p=weaponcraft','&#9874;', 'Fabrication'],
-      ['index.php?p=synth',     '&#9879;',  'Synth Den'],
-      ['index.php?p=bazaar',    '&#128722;','Bazaar'],
-      ['index.php?p=stockex',   '&#128200;','Stock Ex'],
-      ['index.php?p=boards',    '&#128172;','Boards'],
-      ['index.php?p=guilds',    '&#128202;','Syndicates'],
-    ] as [$href,$ico,$lbl]): ?>
-    <a href="<?= $href ?>" class="hh-act">
-      <span class="hha-icon"><?= $ico ?></span>
-      <span class="hha-name"><?= $lbl ?></span>
-    </a>
-    <?php endforeach; ?>
-  </div>
-</div>
-
-<!-- ══ ACTIVITY + NOTIFICATIONS ══════════════════════════════════ -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
-
-  <!-- Today's Combat -->
-  <div class="panel" style="margin-bottom:0">
-    <h3 style="margin-top:0;margin-bottom:10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128202; Today's Combat</h3>
-    <?php if ($todayWins+$todayLoss > 0): ?>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;margin-bottom:12px">
-      <?php foreach ([
-        ['Fights', $todayWins+$todayLoss,'var(--text)'],
-        ['Wins',   $todayWins,           'var(--accent)'],
-        ['Losses', $todayLoss,           'var(--neon2)'],
-        ['XP',     '+'.number_format($todayXp), '#e8d44d'],
-        ['Creds',  '+'.number_format($todayCredits),'#3bcf63'],
-      ] as [$lbl,$v,$c]): ?>
-      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;text-align:center">
-        <div style="font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:<?= $c ?>"><?= $v ?></div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px"><?= $lbl ?></div>
-      </div>
-      <?php endforeach; ?>
-    </div>
-    <a href="index.php?p=sim" style="display:block;text-align:center;font-size:11px;color:var(--accent);padding:6px;border:1px solid rgba(25,240,199,.2);border-radius:5px;text-decoration:none">&#9889; Launch Combat Sim &rarr;</a>
-    <?php else: ?>
-    <div style="text-align:center;padding:18px 0;color:var(--muted)">
-      <div style="font-size:30px;margin-bottom:6px;opacity:.25">&#9876;</div>
-      <div style="font-size:13px">No combat logged today</div>
-      <a href="index.php?p=sim" style="display:inline-block;margin-top:10px;font-size:11px;color:var(--accent);padding:6px 14px;border:1px solid rgba(25,240,199,.2);border-radius:5px;text-decoration:none">&#9889; Go Fight &rarr;</a>
-    </div>
-    <?php endif; ?>
-  </div>
-
-  <!-- Notifications -->
-  <div class="panel" style="margin-bottom:0" id="home-news">
-    <h3 style="margin-top:0;margin-bottom:10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128276; Notifications
-      <?php if (!empty($newsFeed)): ?><span style="float:right;background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700"><?= count($newsFeed) ?></span><?php endif; ?>
-    </h3>
-    <?php if (!empty($newsFeed)):
-      foreach (array_slice($newsFeed,0,8) as $item):
-        $nicon = ['message'=>'&#9993;','transfer'=>'&#128178;','news'=>'&#128203;','levelup'=>'&#11088;'][$item['type']] ?? '&#8226;';
-        $ncol  = ['message'=>'var(--accent)','transfer'=>'#3bcf63','news'=>'#e8d44d','levelup'=>'#e8d44d'][$item['type']] ?? 'var(--muted)';
-        $rawHtml = $item['type']==='levelup';
-    ?>
-    <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)<?= $rawHtml?';background:rgba(232,212,77,.04);margin:-1px -4px;padding:7px 4px;border-radius:4px':'' ?>">
-      <span style="font-size:13px;flex:none;color:<?= $ncol ?>;margin-top:1px"><?= $nicon ?></span>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:12px"><?= $rawHtml ? $item['text'] : e($item['text']) ?></div>
-        <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= !empty($item['ts'])?e(date('M j, g:ia',strtotime($item['ts']))):'' ?></div>
-      </div>
-    </div>
-    <?php endforeach; else: ?>
-    <div style="text-align:center;padding:18px 0;color:var(--muted)">
-      <div style="font-size:30px;margin-bottom:6px;opacity:.25">&#128276;</div>
-      <div style="font-size:13px">No notifications</div>
-    </div>
-    <?php endif; ?>
-  </div>
-
-</div>
-
-<!-- ══ ONLINE NOW ══════════════════════════════════════════════ -->
+<!-- ══ ACTIVITY ══════════════════════════════════════════════ -->
 <div class="panel">
-  <h3 style="margin-top:0;margin-bottom:10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128992; Online Now
-    <span class="muted" style="font-size:12px;font-weight:400">&nbsp;<?= $online ?> ghost<?= $online!==1?'s':'' ?></span>
-  </h3>
-  <?php if ($online > 0): ?>
-  <div style="display:flex;flex-wrap:wrap;gap:6px">
-    <?php foreach ($recentOnline as $r): $rc=chat_color($r['role'],$r['chat_color']); ?>
-    <a href="index.php?p=profile&id=<?= (int)$r['id'] ?>" class="online-pill" style="color:<?= e($rc) ?>">
-      <span class="online-dot"></span><?= e($r['username']) ?><span class="muted" style="font-size:10px"> Lv<?= (int)$r['level'] ?></span>
-    </a>
+  <h3 style="margin-top:0;margin-bottom:10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128202; Today's Combat</h3>
+  <?php if ($todayWins+$todayLoss > 0): ?>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;margin-bottom:12px">
+    <?php foreach ([
+      ['Fights', $todayWins+$todayLoss,'var(--text)'],
+      ['Wins',   $todayWins,           'var(--accent)'],
+      ['Losses', $todayLoss,           'var(--neon2)'],
+      ['XP',     '+'.number_format($todayXp), '#e8d44d'],
+      ['Creds',  '+'.number_format($todayCredits),'#3bcf63'],
+    ] as [$lbl,$v,$c]): ?>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;text-align:center">
+      <div style="font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:<?= $c ?>"><?= $v ?></div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px"><?= $lbl ?></div>
+    </div>
     <?php endforeach; ?>
   </div>
+  <a href="index.php?p=sim" style="display:block;text-align:center;font-size:11px;color:var(--accent);padding:6px;border:1px solid rgba(25,240,199,.2);border-radius:5px;text-decoration:none">&#9889; Launch Combat Sim &rarr;</a>
   <?php else: ?>
-    <p class="muted" style="font-size:12px;margin:0">Nobody else online right now. The city is quiet.</p>
+  <div style="text-align:center;padding:18px 0;color:var(--muted)">
+    <div style="font-size:30px;margin-bottom:6px;opacity:.25">&#9876;</div>
+    <div style="font-size:13px">No combat logged today</div>
+    <a href="index.php?p=sim" style="display:inline-block;margin-top:10px;font-size:11px;color:var(--accent);padding:6px 14px;border:1px solid rgba(25,240,199,.2);border-radius:5px;text-decoration:none">&#9889; Go Fight &rarr;</a>
+  </div>
   <?php endif; ?>
 </div>

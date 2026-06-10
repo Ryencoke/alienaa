@@ -94,6 +94,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $editId = $uid; $msg = 'Player updated.';
       } else { $msg = 'No such player.'; }
     }
+    elseif ($a === 'create_user' && $canAdmin) {
+      $nu = trim($_POST['new_username'] ?? '');
+      $ne = trim($_POST['new_email'] ?? '');
+      $np = $_POST['new_pass'] ?? '';
+      if (!$nu || !$ne || !$np) throw new RuntimeException('All fields required.');
+      if (!preg_match('/^[A-Za-z0-9_]{3,24}$/', $nu)) throw new RuntimeException('Username: 3-24 chars, letters/numbers/underscore.');
+      if (!filter_var($ne, FILTER_VALIDATE_EMAIL)) throw new RuntimeException('Invalid email.');
+      if (strlen($np) < 6) throw new RuntimeException('Password min 6 chars.');
+      $chk = $pdo->prepare('SELECT id FROM players WHERE username=? OR email=?'); $chk->execute([$nu,$ne]);
+      if ($chk->fetch()) throw new RuntimeException('Username or email already taken.');
+      $pdo->prepare('INSERT INTO players (username,email,pass_hash) VALUES (?,?,?)')->execute([$nu,$ne,password_hash($np,PASSWORD_DEFAULT)]);
+      $editId = (int)$pdo->lastInsertId();
+      $msg = "User #{$editId} created. <a href=\"index.php?p=admin&sec=editplayer&u={$editId}\">Edit them</a>.";
+    }
+    elseif ($a === 'trigger_reset' && $role === 'manager') {
+      // Run daily reset for all players
+      $pdo->exec("UPDATE players SET integrity = integrity_max, signal = signal_max,
+        cycles = LEAST(CASE WHEN sub_until >= CURDATE() THEN 1500 ELSE 500 END, cycles + 250)");
+      // Clear per-player daily_reset keys so lazy-eval doesn't skip them
+      $pdo->exec("DELETE FROM settings WHERE k LIKE 'daily_reset:%'");
+      $msg = 'Daily reset triggered for all players.';
+    }
     elseif ($a === 'del_chat' && $canMod) {
       $pdo->prepare('DELETE FROM chat_messages WHERE id=?')->execute([(int)($_POST['id'] ?? 0)]); $msg = 'Chat message deleted.';
     }
@@ -274,7 +296,7 @@ if ($sec === 'editlog' && $canAdmin) {
     <?php
       $alog = [];
       try {
-        $alog = $pdo->query("SELECT l.*, a.username AS an, t.username AS tn
+        $alog = $pdo->query("SELECT l.*, a.username AS an, a.role AS admin_role, t.username AS tn
                              FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id LEFT JOIN players t ON t.id=l.target_id
                              ORDER BY l.id DESC LIMIT 100")->fetchAll();
       } catch (Throwable $e) { echo '<p class="muted">Run schema_admin_profile.sql to enable the edit log.</p>'; }
@@ -285,7 +307,7 @@ if ($sec === 'editlog' && $canAdmin) {
       <?php foreach ($alog as $l): ?>
       <tr>
         <td class="muted" style="font-size:11px"><?= e($l['created_at']) ?></td>
-        <td><?= e($l['an'] ?? '—') ?></td>
+        <td><span style="color:<?= chat_color($l['admin_role'] ?? '', '') ?>"><?= e($l['an'] ?? '—') ?></span></td>
         <td><?= e($l['tn'] ?? '—') ?></td>
         <td><?= e($l['field']) ?></td>
         <td><span class="muted"><?= $l['old_value'] === '' ? '&empty;' : e($l['old_value']) ?></span>
@@ -418,13 +440,40 @@ if ($sec === 'iplog') {
   <?php return;
 }
 
-/* ============================ MAINTENANCE (stub) ============================ */
-if ($sec === 'maintenance' && $canAdmin) {
-  ?>
+/* ============================ CREATE USER ============================ */
+if ($sec === 'createuser' && $canAdmin) { ?>
+  <div class="panel">
+    <h2>&#128100; Create New User</h2>
+    <?= $back ?><?= $flash ?>
+    <form method="post" style="max-width:400px">
+      <input type="hidden" name="action" value="create_user">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div><label>Username</label><input type="text" name="new_username" maxlength="24" placeholder="3-24 chars, letters/numbers/_" style="width:100%"></div>
+        <div><label>Email</label><input type="email" name="new_email" style="width:100%"></div>
+        <div><label>Password</label><input type="password" name="new_pass" minlength="6" style="width:100%"></div>
+        <button type="submit">Create Account</button>
+      </div>
+    </form>
+  </div>
+  <?php return;
+}
+
+/* ============================ MAINTENANCE ============================ */
+if ($sec === 'maintenance' && $canAdmin) { ?>
   <div class="panel">
     <h2>&#9881; Maintenance</h2>
-    <?= $back ?>
-    <p class="muted">Maintenance tools will be added here. Manage the database directly or via your hosting control panel.</p>
+    <?= $back ?><?= $flash ?>
+    <?php if ($role === 'manager'): ?>
+    <div style="background:rgba(232,163,61,.05);border:1px solid rgba(232,163,61,.25);border-radius:8px;padding:14px;margin-bottom:16px">
+      <h4 style="margin:0 0 8px;color:#e8a33d">&#8635; Daily Reset</h4>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">Runs the daily reset immediately for all players: restores Health &amp; Signal to max, adds +250 Drive (capped). Clears the per-player reset flag so normal daily reset still fires at midnight.</p>
+      <form method="post" onsubmit="return confirm('Trigger daily reset for ALL players now?')">
+        <input type="hidden" name="action" value="trigger_reset">
+        <button type="submit" style="background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.4);color:#e8a33d">Trigger Daily Reset</button>
+      </form>
+    </div>
+    <?php endif; ?>
+    <p class="muted" style="font-size:12px">Manage the database directly via your hosting control panel for other maintenance tasks.</p>
   </div>
   <?php return;
 }
@@ -579,9 +628,14 @@ try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='
     <p>Staff roster, subscriber list, jail records, and game rules.</p>
     <span class="req">Admin+</span>
   </a>
+  <a class="staffcard" href="index.php?p=admin&sec=createuser">
+    <span class="ic">&#128100;</span><h4>Create User</h4>
+    <p>Manually create a new player account with username, email, and password.</p>
+    <span class="req">Admin+</span>
+  </a>
   <a class="staffcard" href="index.php?p=admin&sec=maintenance">
     <span class="ic">&#9881;</span><h4>Maintenance</h4>
-    <p>Server flags, maintenance mode toggle, and cache controls.</p>
+    <p>Trigger daily reset for all players. Manager-only tools.</p>
     <span class="req">Admin+</span>
   </a>
   <?php endif; ?>

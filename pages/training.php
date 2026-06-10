@@ -29,8 +29,6 @@ try {
 
 define('TRAIN_DRIVE_COST', 10);    // Drive (cycles) per session
 define('TRAIN_COOLDOWN', 1800);    // 30 min between sessions
-define('TRAIN_STAT_CAP', 30);      // max stat pts from training (rest come from unspent leveling)
-define('TRAIN_MAX_PER_STAT', 25);  // hard cap per individual stat from training
 
 // Training regimens
 $REGIMENS = [
@@ -83,11 +81,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'train
       $sk     = $r['stat_key'];
       $curVal = (int)($stats[$sk] ?? 5);
 
-      // Diminishing returns: chance decreases as stat grows, capped by level
-      $levelCap = min(TRAIN_STAT_CAP, max(5, (int)$player['level'] * 2));
-      $gainChance = max(5, 60 - ($curVal * 3)); // 60% at 0, ~9% at 17, 5% floor
+      // Diminishing returns: chance decreases as stat grows (no hard cap)
+      $gainChance = max(3, 60 - ($curVal * 2)); // 60% at 0, decreasing, 3% floor
       $gained = 0;
-      if ($curVal < $levelCap && $curVal < TRAIN_MAX_PER_STAT && mt_rand(1, 100) <= $gainChance) {
+      if (mt_rand(1, 100) <= $gainChance) {
         $pdo->prepare("UPDATE player_stats SET {$sk} = {$sk} + 1 WHERE pid=?")->execute([$pid]);
         $gained = 1;
         $q->execute([$pid]); $stats = $q->fetch();
@@ -146,7 +143,7 @@ $player = current_player();
   <div class="panel" style="flex:1;min-width:140px;text-align:center;padding:12px">
     <div style="font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700;color:var(--accent)"><?= (int)$player['level'] ?></div>
     <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Level</div>
-    <div style="font-size:10px;color:var(--muted);margin-top:2px">Stat cap: <?= min(TRAIN_STAT_CAP, max(5, (int)$player['level'] * 2)) ?></div>
+    <div style="font-size:10px;color:var(--muted);margin-top:2px">No stat cap</div>
   </div>
 </div>
 
@@ -155,12 +152,10 @@ $player = current_player();
 <?php foreach ($REGIMENS as $regKey => $reg):
   $sk = $reg['stat_key'];
   $curStat = (int)($stats[$sk] ?? 5);
-  $levelCap = min(TRAIN_STAT_CAP, max(5, (int)$player['level'] * 2));
-  $atCap = $curStat >= $levelCap || $curStat >= TRAIN_MAX_PER_STAT;
-  $gainChance = max(5, 60 - ($curStat * 3));
-  $active = !$atCap && $canTrain && $driveOk;
+  $gainChance = max(3, 60 - ($curStat * 2));
+  $active = $canTrain && $driveOk;
 ?>
-<div class="panel" style="border:1px solid <?= $atCap ? 'var(--line)' : ('rgba(255,255,255,.1)') ?>;background:<?= $atCap ? 'rgba(0,0,0,.1)' : 'var(--panel)' ?>">
+<div class="panel" style="border:1px solid rgba(255,255,255,.1);background:var(--panel)">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
     <div style="font-size:28px"><?= $reg['icon'] ?></div>
     <div>
@@ -173,16 +168,12 @@ $player = current_player();
   <div style="background:rgba(0,0,0,.2);border-radius:6px;padding:8px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
       <span style="color:var(--muted)">Current</span>
-      <span style="font-weight:700;color:<?= $reg['color'] ?>"><?= $curStat ?> / <?= $levelCap ?></span>
+      <span style="font-weight:700;color:<?= $reg['color'] ?>"><?= $curStat ?> pts</span>
     </div>
     <div style="height:4px;background:rgba(0,0,0,.4);border-radius:2px;overflow:hidden">
-      <div style="width:<?= min(100, $curStat/$levelCap*100) ?>%;height:100%;background:<?= $reg['color'] ?>;border-radius:2px"></div>
+      <div style="width:<?= min(100, $curStat/max($curStat,50)*100) ?>%;height:100%;background:<?= $reg['color'] ?>;border-radius:2px"></div>
     </div>
-    <?php if (!$atCap): ?>
     <div style="font-size:10px;color:var(--muted);margin-top:5px">Breakthrough chance: ~<?= $gainChance ?>%</div>
-    <?php else: ?>
-    <div style="font-size:10px;color:#e8a33d;margin-top:5px">&#9888; Cap reached — level up to train further</div>
-    <?php endif; ?>
   </div>
 
   <form method="post">
@@ -203,13 +194,12 @@ $player = current_player();
     <?php foreach ($REGIMENS as $regKey => $reg):
       $sk = $reg['stat_key'];
       $curStat = (int)($stats[$sk] ?? 5);
-      $levelCap = min(TRAIN_STAT_CAP, max(5, (int)$player['level'] * 2));
     ?>
     <div style="text-align:center;padding:10px;background:var(--panel2);border:1px solid var(--line);border-radius:7px">
       <div style="font-size:20px;margin-bottom:4px"><?= $reg['icon'] ?></div>
       <div style="font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700;color:<?= $reg['color'] ?>"><?= $curStat ?></div>
       <div style="font-size:10px;color:var(--muted);text-transform:uppercase"><?= $reg['label'] ?></div>
-      <div style="font-size:10px;color:var(--muted)">cap <?= $levelCap ?></div>
+      <div style="font-size:10px;color:var(--muted)">no cap</div>
     </div>
     <?php endforeach; ?>
     <?php if ((int)($stats['unspent'] ?? 0) > 0): ?>

@@ -1,0 +1,61 @@
+SPRAWL-9 CHANGELOG
+==================
+Tracking all changes made session-by-session.
+
+--- SESSION: 2026-06-10 ---
+
+BUG FIXES
+---------
+- [style.css] Toast notifications now appear centered at the top of the page instead of bottom-right
+- [style.css] Fixed char counter ("500 left") appearing inline with buttons in flex-layout forms
+- [chat_api.php] Fixed chat time format (H:i:s → H:i) to match static render and fit the chattime column width
+- [boards.php] Added resilient board seeding — seeds default boards if boards table is also empty
+
+GAME SYSTEMS
+------------
+- [training.php] Removed stat caps for Strength / Speed / Endurance training — stats can now grow beyond the level cap
+- [state_api.php] Drive regeneration: players gain +1 Drive every 5 minutes passively (via state_api polling)
+- [index.php] Daily reset now adds +250 Drive instead of fully refilling to max
+- [index.php] Drive cap enforced on daily reset: non-subscribers capped at 500, subscribers capped at 1,500; if sub expires and drive > 500 it drops to 500
+
+HOME / HIDEOUT (home.php)
+-------------------------
+- Removed "Quick Nav" section from hideout
+- Removed "Online Now" section from hideout
+- Moved Notifications panel to the top (directly after the hero card) so it's the first thing you see
+
+PROFILE (profile.php)
+---------------------
+- Removed sensitive stats from public profile: Signal, Drive, Health, XP, Casino stats
+- Added: User ID and Last Seen to the profile header
+- Birthday field display added (shows if player has set one in Account settings)
+
+ADMIN PANEL (admin.php)
+-----------------------
+- Added "Create New User" form in the Players section (admin+)
+- Added "Trigger Daily Reset" button in Maintenance (manager only)
+- Player Edit Log now shows staff title colors next to admin names
+
+SYNDICATES (guilds.php)
+-----------------------
+- Message Board reworked with reply/thread support — members can reply to posts inline
+- syndicate_posts table extended with parent_id column for threading
+
+SKILLSOFT LAB (datacore.php)
+-----------------------------
+- Input field replaced with a range slider for each skill — drag to allocate Drive instead of typing a number
+- Slider preview shows projected skill level in real-time before committing
+
+LIBRARY (library.php)
+---------------------
+- No structural changes; content is already current with all weapons/armor/consumables/skills
+
+PENDING / DEFERRED
+------------------
+- [account.php] "Add a Link" pages — update to include all current game pages
+- [account.php] Player customization — hide topbar, rearrange sidebar elements
+- [apartments.php] Limited apartments for sale per type; sell-back functionality
+- [apartments.php] House decoration system
+- [guilds.php] Guild subscriptions — leader must be subscribed; non-sub lockout; extra drive for members
+- [combat] Active skill only applies to PvE/credits, not PvP damage
+- [Bug fix] 3-dash nav-toggle visible on desktop topbar — investigate CSS breakpoint

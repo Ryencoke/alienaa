@@ -30,27 +30,43 @@ p{margin:0 0 1em}
 img{max-width:100%;display:block}
 
 /* ============================================================ Topbar */
-.topbar{display:flex;gap:16px;justify-content:center;align-items:center;
-  padding:0 16px;height:52px;flex-wrap:wrap;letter-spacing:.5px;
-  background:rgba(6,6,13,.88);border-bottom:1px solid var(--line);
+.topbar{display:flex;gap:4px;justify-content:center;align-items:center;
+  padding:0 12px;height:50px;overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:none;-ms-overflow-style:none;
+  background:rgba(6,6,13,.92);border-bottom:1px solid var(--line);
   position:sticky;top:0;z-index:100;
-  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
-.topbar a{color:var(--text);font-size:13px}
-.topbar a:hover{color:var(--accent);text-shadow:0 0 8px rgba(25,240,199,.5)}
-.topbar a.active{color:var(--accent);font-weight:bold;
-  text-shadow:0 0 10px rgba(25,240,199,.6);
-  border-bottom:2px solid var(--accent);padding-bottom:2px}
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  box-shadow:0 1px 0 var(--line),0 4px 20px rgba(0,0,0,.4)}
+.topbar::-webkit-scrollbar{display:none}
+.topbar a{color:var(--muted);font-size:12px;letter-spacing:.3px;padding:6px 10px;
+  border-radius:5px;white-space:nowrap;flex:none;
+  transition:color var(--t),background var(--t)}
+.topbar a:hover{color:var(--accent);background:rgba(25,240,199,.06)}
+.topbar a.active{color:var(--accent);font-weight:700;background:rgba(25,240,199,.1)}
+/* Mobile toggle button */
+.nav-toggle{display:none;background:none;border:1px solid var(--line);color:var(--text);
+  font-size:16px;padding:5px 10px;border-radius:5px;cursor:pointer;flex:none;margin-right:6px;
+  transition:color var(--t),border-color var(--t)}
+.nav-toggle:hover{color:var(--accent);border-color:var(--accent)}
 
 /* ============================================================ Layout shell */
 .shell{display:grid;grid-template-columns:215px 1fr 230px;gap:14px;
-  max-width:1200px;margin:16px auto;padding:0 14px}
+  max-width:1200px;margin:16px auto;padding:0 14px;align-items:start}
 .shell.solo{grid-template-columns:1fr;max-width:440px}
 
 /* ============================================================ Left character card */
 .left .card{background:var(--panel);border:1px solid var(--line);
   padding:14px;border-radius:var(--radius)}
-.avatar{width:56px;height:56px;flex:none;border:1px solid var(--accent);
-  background:radial-gradient(circle,#1c2540,#0a0a12);border-radius:5px}
+.avatar{width:52px;height:52px;flex:none;border:2px solid var(--accent);
+  background:radial-gradient(circle at 35% 35%,#1c2540,#0a0a12);border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Orbitron',sans-serif;font-size:20px;font-weight:700;color:var(--accent);
+  box-shadow:0 0 16px rgba(25,240,199,.15),inset 0 0 12px rgba(25,240,199,.04)}
+
+/* Sticky sidebars on desktop */
+@media(min-width:941px){
+  aside.left,aside.right{position:sticky;top:62px;max-height:calc(100vh - 76px);overflow-y:auto}
+}
 .name{color:var(--accent);font-weight:bold;letter-spacing:1px;
   font-family:'Orbitron',sans-serif;font-size:11px;
   border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:5px}
@@ -127,12 +143,14 @@ img{max-width:100%;display:block}
 
 /* ============================================================ Buttons */
 button,input[type=submit]{background:var(--accent);color:#04040a;border:0;
-  padding:7px 16px;font-weight:bold;border-radius:4px;cursor:pointer;
-  font-family:inherit;font-size:13px;
-  transition:transform .06s ease,background var(--t),box-shadow var(--t)}
+  padding:7px 16px;font-weight:700;border-radius:5px;cursor:pointer;
+  font-family:inherit;font-size:13px;letter-spacing:.2px;
+  transition:transform .06s ease,background var(--t),box-shadow var(--t),opacity var(--t)}
 button:hover,input[type=submit]:hover{background:var(--neon2);color:#fff;
-  box-shadow:0 0 12px rgba(255,45,149,.4)}
+  box-shadow:0 0 14px rgba(255,45,149,.4)}
 button:active,input[type=submit]:active{transform:translateY(1px)}
+button:disabled,input[type=submit]:disabled{opacity:.38;cursor:not-allowed;pointer-events:none}
+button:focus-visible,input[type=submit]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* Named button classes */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
@@ -154,12 +172,19 @@ button:active,input[type=submit]:active{transform:translateY(1px)}
 /* ============================================================ Forms */
 input[type=text],input[type=password],input[type=number],input[type=email],select,textarea{
   background:#080812;border:1px solid var(--line);color:var(--text);
-  padding:8px 10px;border-radius:4px;width:100%;font-family:inherit;font-size:13px}
+  padding:9px 11px;border-radius:5px;width:100%;font-family:inherit;font-size:13px;
+  transition:border-color .15s ease,box-shadow .15s ease;line-height:1.5}
+input[type=text]:hover,input[type=password]:hover,input[type=number]:hover,
+input[type=email]:hover,select:hover,textarea:hover{border-color:#3a3557}
 input[type=text]:focus,input[type=password]:focus,input[type=number]:focus,
 input[type=email]:focus,select:focus,textarea:focus{
-  outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(25,240,199,.08)}
-label{display:block;color:var(--muted);font-size:11px;font-weight:bold;
-  text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+  outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(25,240,199,.1)}
+input::placeholder,textarea::placeholder{color:#3a3a52}
+label{display:block;color:var(--muted);font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px}
+select{cursor:pointer;appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%235d6680' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
 
 /* Field wrapper */
 .field{display:flex;flex-direction:column;gap:4px;margin-bottom:16px}
@@ -251,6 +276,24 @@ code{color:var(--neon2);font-size:12px}
 .msg-bubble.mine{border-color:rgba(25,240,199,.25);background:rgba(25,240,199,.04)}
 .msg-meta{font-size:11px;color:var(--muted);margin-bottom:4px}
 .msg-body{font-size:13px}
+
+/* Conversation list (inbox) */
+.convo-list{display:flex;flex-direction:column}
+.convo-row{display:flex;align-items:center;gap:12px;padding:12px 16px;
+  border-bottom:1px solid var(--line);color:var(--text);
+  transition:background var(--t)}
+.convo-row:last-child{border-bottom:0}
+.convo-row:hover{background:rgba(25,240,199,.04)}
+.convo-av{width:38px;height:38px;border-radius:50%;border:2px solid;flex:none;
+  background:var(--panel2);display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:14px}
+.convo-info{flex:1;min-width:0}
+.convo-name{font-weight:700;font-size:13px;margin-bottom:2px}
+.convo-preview{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.convo-right{flex:none;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.convo-time{font-size:11px;color:var(--muted)}
+.convo-badge{background:var(--neon2);color:#fff;border-radius:20px;min-width:18px;height:18px;
+  display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;padding:0 5px}
 
 /* ============================================================ Profile */
 .profile-hero{text-align:center;padding:10px 0 16px}
@@ -438,12 +481,12 @@ code{color:var(--neon2);font-size:12px}
 .hist-time{font-size:10px;margin-top:2px}
 
 /* ============================================================ Toasts */
-#toasts{position:fixed;bottom:16px;right:16px;z-index:200;
-  display:flex;flex-direction:column;gap:8px;max-width:320px}
+#toasts{position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:9000;
+  display:flex;flex-direction:column;gap:8px;width:90%;max-width:400px;align-items:center;pointer-events:none}
 .toast{background:var(--panel);border:1px solid var(--accent);border-left:4px solid var(--accent);
-  border-radius:6px;padding:10px 14px;font-size:13px;color:var(--text);
-  box-shadow:0 6px 20px rgba(0,0,0,.55);
-  opacity:0;transform:translateX(24px);transition:opacity .25s ease,transform .25s ease}
+  border-radius:6px;padding:10px 18px;font-size:13px;color:var(--text);text-align:center;width:100%;
+  box-shadow:0 6px 24px rgba(0,0,0,.7);pointer-events:auto;
+  opacity:0;transform:translateY(-10px);transition:opacity .25s ease,transform .25s ease}
 .toast.show{opacity:1;transform:none}
 
 /* ============================================================ Staff note */
@@ -600,6 +643,45 @@ code{color:var(--neon2);font-size:12px}
 /* ============================================================ AJAX transitions */
 main.center{transition:opacity .12s ease}
 
+/* ============================================================ Hideout (home.php) */
+.hh-wrap{display:flex;gap:16px;align-items:flex-start}
+.hh-av{width:64px;height:64px;flex:none;
+  background:radial-gradient(circle at 30% 30%,#1c2540,#0a0a12);
+  border:2px solid var(--accent);border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Orbitron',sans-serif;font-size:28px;font-weight:700;color:var(--accent);
+  box-shadow:0 0 20px rgba(25,240,199,.18);flex:none}
+.hh-info{flex:1;min-width:0}
+.hh-name{font-family:'Orbitron',sans-serif;font-size:17px;font-weight:700;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.hh-badges{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.hh-badge{background:rgba(25,240,199,.1);border:1px solid rgba(25,240,199,.2);
+  color:var(--accent);border-radius:4px;padding:2px 10px;font-size:12px;
+  font-family:'Orbitron',sans-serif;white-space:nowrap}
+.hh-creds{text-align:right;flex:none;min-width:86px}
+.hh-cv{font-family:'Orbitron',sans-serif;font-weight:700;color:var(--accent);font-size:15px}
+.hh-cv span{font-size:11px;font-weight:400;color:var(--muted)}
+.hh-cl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+
+/* Quick access card grid */
+.hh-actions{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+.hh-act{display:flex;flex-direction:column;align-items:center;gap:4px;
+  padding:12px 8px;border-radius:var(--radius);
+  background:var(--panel2);border:1px solid var(--line);
+  color:var(--text);text-decoration:none;transition:all var(--t);text-align:center}
+.hh-act:hover{border-color:rgba(25,240,199,.4);background:rgba(25,240,199,.05);
+  color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.3)}
+.hha-icon{font-size:24px;line-height:1}
+.hha-name{font-size:12px;font-weight:bold;color:inherit}
+.hha-desc{font-size:10px;color:var(--muted);line-height:1.3}
+
+/* Online pill */
+.online-pill{display:inline-flex;align-items:center;gap:5px;
+  padding:3px 10px;border-radius:20px;font-size:12px;font-weight:bold;
+  background:var(--panel2);border:1px solid var(--line);
+  text-decoration:none;transition:border-color var(--t)}
+.online-pill:hover{border-color:rgba(25,240,199,.4)}
+
 /* ============================================================ Shop grid (Blacksmith / General Store) */
 .shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
 .shop-card{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);
@@ -612,6 +694,138 @@ main.center{transition:opacity .12s ease}
 .shop-card .sc-sub{font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}
 .shop-card .sc-pr{font-size:11px;color:var(--muted)}
 .shop-card .sc-owned{font-size:10px;color:var(--accent);margin-top:4px}
+
+/* ============================================================ Message Boards — modern layout */
+.boards-list{display:flex;flex-direction:column;gap:2px}
+.board-row{display:flex;align-items:center;gap:14px;padding:12px 10px;border-radius:var(--radius);
+  color:var(--text);text-decoration:none;transition:background var(--t),border-color var(--t);
+  border:1px solid transparent}
+.board-row:hover{background:rgba(25,240,199,.04);border-color:rgba(25,240,199,.15)}
+.board-icon{font-size:22px;flex:none;width:32px;text-align:center;color:var(--accent)}
+.board-info{flex:1;min-width:0}
+.board-name{font-weight:700;font-size:13px;color:var(--accent);margin-bottom:2px}
+.board-desc{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.board-counts{display:flex;gap:16px;flex:none}
+.board-count-item{text-align:center;min-width:44px}
+.board-count-item b{display:block;font-size:14px;font-family:'Orbitron',sans-serif;color:var(--text)}
+.board-count-item span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.board-arrow{color:var(--muted);font-size:18px;flex:none;transition:color var(--t),transform var(--t)}
+.board-row:hover .board-arrow{color:var(--accent);transform:translateX(2px)}
+
+/* Topic list inside a board */
+.topic-list{display:flex;flex-direction:column;gap:0}
+.topic-row{display:flex;align-items:center;gap:12px;padding:10px 4px;
+  border-bottom:1px solid var(--line);transition:background var(--t)}
+.topic-row:last-child{border-bottom:0}
+.topic-row:hover{background:rgba(25,240,199,.03)}
+.topic-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;
+  box-shadow:0 0 6px rgba(25,240,199,.5)}
+.topic-main{flex:1;min-width:0}
+.topic-title{font-weight:700;font-size:13px;color:var(--text);display:block;margin-bottom:2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:color var(--t)}
+.topic-row:hover .topic-title{color:var(--accent)}
+.topic-meta{font-size:11px;color:var(--muted)}
+.topic-info{flex:none;text-align:right;min-width:80px}
+.topic-replies{font-size:13px;font-weight:700;color:var(--text)}
+.topic-last{font-size:10px;margin-top:2px}
+
+/* ============================================================ Chat — full page */
+.chatroom-full{height:460px;overflow-y:auto;padding:10px 14px;
+  background:#05050d;display:flex;flex-direction:column;gap:2px}
+.chatline-full{display:flex;align-items:baseline;gap:8px;padding:3px 0;line-height:1.5}
+.chattime-full{color:var(--muted);font-size:10px;flex:none;min-width:38px;font-family:'Orbitron',sans-serif}
+.chatline-body{flex:1;min-width:0;font-size:13px;word-break:break-word}
+.chatline-full:hover{background:rgba(255,255,255,.02);margin:0 -14px;padding-left:14px;padding-right:14px;border-radius:3px}
+
+/* ============================================================ Global text selection */
+::selection{background:rgba(25,240,199,.22);color:var(--text)}
+
+/* ============================================================ Focus rings */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ============================================================ Mining / Fabrication */
+.ore-card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+  padding:12px;transition:border-color var(--t),transform .1s ease}
+.ore-card:hover{border-color:rgba(25,240,199,.3);transform:translateY(-1px)}
+.gear-card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+  padding:12px;transition:border-color var(--t)}
+.gear-card.equipped{border-color:rgba(25,240,199,.5);box-shadow:0 0 12px rgba(25,240,199,.08)}
+
+/* ============================================================ Spinner (submit loading) */
+@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+.spin{display:inline-block;animation:spin .7s linear infinite;font-style:normal}
+
+/* ============================================================ Character counter */
+.char-count{display:block;font-size:10px;color:var(--muted);text-align:right;
+  margin-top:3px;transition:color .15s;user-select:none;
+  flex-basis:100%;order:100}
+.char-count.cc-warn{color:#e8a33d}
+.char-count.cc-danger{color:var(--neon2)}
+
+/* ============================================================ Page loading state */
+main.center.page-loading{opacity:.55;pointer-events:none;user-select:none}
+main.center{transition:opacity .12s ease}
+
+/* ============================================================ Toast improvements */
+.toast-ok{border-left-color:var(--accent);color:var(--accent);background:rgba(25,240,199,.06)}
+.toast-err{border-color:rgba(255,45,149,.45);border-left-color:var(--neon2);color:var(--neon2);background:rgba(255,45,149,.07)}
+
+/* ============================================================ Improved scrollbar */
+*::-webkit-scrollbar{width:6px;height:6px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+*::-webkit-scrollbar-thumb:hover{background:#3a3557}
+
+/* ============================================================ Panel polish */
+.panel{transition:border-color var(--t)}
+.panel h2{font-family:'Orbitron',sans-serif;text-transform:uppercase;letter-spacing:1.5px;font-size:13px}
+
+/* ============================================================ Meter fill glow */
+.fill{transition:width .45s ease;border-radius:999px}
+
+/* ============================================================ Flash messages */
+.flash-ok{border-color:rgba(25,240,199,.4);background:rgba(25,240,199,.07);color:var(--accent)}
+.flash-err{border-color:rgba(255,45,149,.4);background:rgba(255,45,149,.07);color:var(--neon2)}
+
+/* ============================================================ Mobile sidebar overlay */
+@media(max-width:940px){
+  .nav-toggle{display:flex;align-items:center}
+  .topbar{justify-content:flex-start;gap:0}
+  .shell{grid-template-columns:1fr;gap:12px;padding:0 10px;margin-top:10px}
+  aside.right{display:none}
+  aside.left{
+    position:fixed;top:0;left:-270px;bottom:0;width:255px;
+    background:var(--panel);border-right:1px solid var(--line);
+    z-index:500;overflow-y:auto;padding:14px;
+    box-shadow:none;
+    transition:left .22s cubic-bezier(.25,.8,.25,1),box-shadow .22s;
+  }
+  aside.left.open{
+    left:0;
+    box-shadow:6px 0 32px rgba(0,0,0,.65);
+  }
+  body.sidebar-open::after{
+    content:'';position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:499;
+    animation:fadein-ov .2s ease;
+  }
+  @keyframes fadein-ov{from{opacity:0}to{opacity:1}}
+  .board-counts{display:none}
+  .topic-info{display:none}
+}
+
+/* ============================================================ Responsive tweaks */
+@media(max-width:660px){
+  .staffgrid{grid-template-columns:1fr}
+  .chatroom-full{height:300px}
+  .districts{grid-template-columns:1fr 1fr}
+  .stat-grid{grid-template-columns:repeat(2,1fr)}
+  .panel{padding:12px}
+}
+@media(max-width:420px){
+  .districts{grid-template-columns:1fr}
+  .stat-grid{grid-template-columns:1fr}
+}
 
 .shop-detail{background:var(--panel2);border:1px solid var(--accent);border-radius:var(--radius);
   padding:16px;margin-bottom:14px}
@@ -668,3 +882,34 @@ main.center{transition:opacity .12s ease}
 .stat-toggle:hover{border-color:rgba(25,240,199,.35)}
 .stat-toggle input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;flex:none}
 .stat-toggle .st-label{font-size:12px;font-weight:bold}
+
+/* ============================================================ Pager */
+.pager{display:flex;align-items:center;justify-content:center;gap:5px;padding:16px 0;flex-wrap:wrap}
+.pager a,.pager span{display:inline-flex;align-items:center;justify-content:center;
+  min-width:34px;height:34px;padding:0 10px;border-radius:var(--radius);font-size:13px;
+  border:1px solid var(--line);text-decoration:none;transition:all var(--t);line-height:1}
+.pager a{color:var(--text);background:var(--panel2)}
+.pager a:hover{border-color:var(--accent);color:var(--accent);background:rgba(25,240,199,.06)}
+.pager span.cur{background:var(--accent);color:#000;border-color:var(--accent);font-weight:700}
+.pager span.dots{border:none;background:none;color:var(--muted);min-width:20px;padding:0}
+.pager .pg-info{font-size:11px;color:var(--muted);padding:0 4px;border:none;background:none}
+
+/* ============================================================ Password show/hide */
+.pass-wrap{position:relative;display:flex;align-items:stretch;max-width:280px}
+.pass-wrap input{flex:1;padding-right:42px;max-width:none}
+.pass-toggle{position:absolute;right:0;top:0;bottom:0;width:38px;background:none;border:none;
+  color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:16px;padding:0;transition:color var(--t);border-radius:0 var(--radius) var(--radius) 0}
+.pass-toggle:hover{color:var(--accent)}
+
+/* ============================================================ Number input with max fill */
+.num-wrap{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.num-wrap input[type=number]{flex:1;min-width:80px;max-width:180px}
+.fill-max{font-size:11px;padding:6px 10px;white-space:nowrap;background:var(--panel2);
+  border:1px solid var(--line);color:var(--muted);border-radius:var(--radius);cursor:pointer;
+  transition:all var(--t)}
+.fill-max:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ============================================================ Transfer recipient autocomplete */
+.xfer-to-wrap{position:relative;max-width:280px}
+.xfer-to-wrap .ac-list{z-index:110}

@@ -87,12 +87,19 @@ $skills = $rows->fetchAll();
   <div class="sk-effect"><?= e($meta['effect']) ?></div>
 
   <?php if (!$mastered): ?>
-  <div class="sk-input-row">
-    <label style="font-size:11px;color:var(--muted);flex:none">Burn:</label>
-    <input type="number" class="sk-qty" name="pts[<?= (int)$sk['id'] ?>]"
-           min="0" max="<?= $max - $pts ?>" value="0"
-           data-id="<?= $sk['id'] ?>" data-pts="<?= $pts ?>" data-max="<?= $max ?>">
-    <div class="sk-cost" id="sk-cost-<?= $sk['id'] ?>">0 cycles</div>
+  <?php $remaining = $max - $pts; ?>
+  <div class="sk-input-row" style="flex-direction:column;align-items:stretch;gap:4px">
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted)">
+      <span>Burn Drive</span>
+      <span id="sk-cost-<?= $sk['id'] ?>" style="color:var(--accent);font-weight:700">0 cycles</span>
+    </div>
+    <input type="range" class="sk-qty" name="pts[<?= (int)$sk['id'] ?>]"
+           min="0" max="<?= $remaining ?>" value="0" step="1"
+           data-id="<?= $sk['id'] ?>" data-pts="<?= $pts ?>" data-max="<?= $max ?>"
+           style="width:100%;accent-color:var(--accent)">
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)">
+      <span>0</span><span><?= number_format($remaining) ?> max</span>
+    </div>
   </div>
   <?php else: ?>
   <p style="font-size:11px;color:#ffe066;text-align:center;margin:8px 0 0">Maximum knowledge loaded &#127891;</p>

@@ -74,7 +74,17 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
         <?php if (!empty($prof['created_at'])): ?>
           <span class="prof-meta-item">&#128197; Joined <?= e(date('M Y', strtotime($prof['created_at']))) ?></span>
         <?php endif; ?>
-        <span class="prof-meta-item">&#128465; Ghost #<?= (int)$prof['id'] ?></span>
+        <span class="prof-meta-item">&#128465; ID #<?= (int)$prof['id'] ?></span>
+        <?php
+          $lastSeenTs = strtotime($prof['last_seen'] ?? '');
+          if ($lastSeenTs):
+            $lsStr = $isOnline ? '<span style="color:#3bcf63">Online now</span>' : e(date('M j, g:ia', $lastSeenTs));
+        ?>
+          <span class="prof-meta-item">&#128337; <?= $lsStr ?></span>
+        <?php endif; ?>
+        <?php if (!empty($prof['birthday'])): ?>
+          <span class="prof-meta-item">&#127874; <?= e(date('M j', strtotime($prof['birthday']))) ?></span>
+        <?php endif; ?>
       </div>
 
       <?php if ($bio !== ''): ?>
@@ -107,24 +117,12 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
       <div class="lbl">Level</div>
     </div>
     <div class="prof-stat">
-      <div class="val"><?= number_format($prof['xp']) ?></div>
-      <div class="lbl">XP</div>
-    </div>
-    <div class="prof-stat">
-      <div class="val"><?= (int)$prof['integrity'] ?><span style="font-size:12px;color:var(--muted)"> / <?= (int)$prof['integrity_max'] ?></span></div>
-      <div class="lbl">Health</div>
-    </div>
-    <div class="prof-stat">
-      <div class="val"><?= (int)$prof['signal'] ?><span style="font-size:12px;color:var(--muted)"> / <?= (int)$prof['signal_max'] ?></span></div>
-      <div class="lbl">Signal</div>
-    </div>
-    <div class="prof-stat">
-      <div class="val"><?= (int)$prof['cycles'] ?><span style="font-size:12px;color:var(--muted)"> / <?= (int)$prof['cycles_max'] ?></span></div>
-      <div class="lbl">Drive</div>
-    </div>
-    <div class="prof-stat">
       <div class="val"><?= number_format($postCount) ?></div>
       <div class="lbl">Board Posts</div>
+    </div>
+    <div class="prof-stat">
+      <div class="val"><?= $msgCount ?></div>
+      <div class="lbl">Messages Sent</div>
     </div>
   </div>
 </div>
@@ -144,16 +142,6 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
       <div class="val" style="color:<?= $winRate >= 50 ? 'var(--accent)' : 'var(--neon2)' ?>"><?= $winRate ?>%</div>
       <div class="lbl">Win Rate</div>
     </div>
-    <?php if ($casinoStats['games'] > 0): ?>
-    <div class="prof-stat">
-      <div class="val"><?= $casinoStats['games'] ?></div>
-      <div class="lbl">Casino Games</div>
-    </div>
-    <div class="prof-stat">
-      <div class="val" style="color:<?= $casinoStats['net'] >= 0 ? 'var(--accent)' : 'var(--neon2)' ?>"><?= ($casinoStats['net'] >= 0 ? '+' : '') . number_format($casinoStats['net']) ?></div>
-      <div class="lbl">Casino Net</div>
-    </div>
-    <?php endif; ?>
   </div>
 </div>
 

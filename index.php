@@ -67,7 +67,9 @@ if ($player && !$isImpersonating) {
     $__drKey  = 'daily_reset:' . $player['id'];
     $__drQ    = db()->prepare('SELECT v FROM settings WHERE k=?'); $__drQ->execute([$__drKey]);
     if ($__drQ->fetchColumn() !== $__mtDate) {
-      db()->prepare('UPDATE players SET integrity = integrity_max, cycles = cycles_max, signal = signal_max WHERE id = ?')->execute([$player['id']]);
+      $__driveCap = is_subscribed($player) ? 1500 : 500;
+      db()->prepare('UPDATE players SET integrity = integrity_max, signal = signal_max,
+        cycles = LEAST(?, cycles + 250) WHERE id = ?')->execute([$__driveCap, $player['id']]);
       // Skillsoft decay: per-skill drain based on current point level
       db()->prepare('UPDATE player_skills SET points = CASE
         WHEN points > 0 AND points < 500  THEN GREATEST(0, points - 1)
