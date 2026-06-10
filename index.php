@@ -194,7 +194,6 @@ try {
         $isActive = (strpos($nl[$k][1], 'p='.$p) !== false); ?>
         <li data-navkey="<?= e($k) ?>"<?= $isActive ? ' class="active"' : '' ?>><a href="<?= $nl[$k][1] ?>"><?= e($nl[$k][0]) ?></a></li>
       <?php endforeach; ?>
-      <?php if ($__playerSynId): ?><li data-navkey="guilds"<?= $p==='guilds'?' class="active"':'' ?>><a href="index.php?p=guilds">My Syndicate</a></li><?php endif; ?>
       <?php if ($isStaff): ?><li data-navkey="admin"<?= $p==='admin'?' class="active"':'' ?>><a href="index.php?p=admin">Admin</a></li><?php endif; ?>
     </ul>
     <div class="sidebar-cta">
