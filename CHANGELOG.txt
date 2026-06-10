@@ -2,6 +2,18 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-10 BATCH-9 ---
+
+ACCORD & ADMIN
+--------------
+- [accord.php] Removed "Withdraw from Accord" button — accord is now permanent for chosen duration
+- [accord.php] Active status panel now shows permanent lock note instead of withdraw option
+- [accord.php] Restrictions list updated: "Cannot be withdrawn — permanent until expiry"
+- [accord.php] Added warning banner above sign form: "This is permanent — cannot be withdrawn early"
+- [accord.php] Added two-step JS confirmation on sign: first click reveals confirm panel, second click submits
+- [admin.php editplayer] Added "Accord until" date field to Economy & Core Stats section
+- [admin.php save_player] Now saves merchant_until with date validation
+
 --- SESSION: 2026-06-10 00:00 ---
 
 BUG FIXES

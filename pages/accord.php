@@ -31,12 +31,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $msg = "Commerce Accord signed for {$days} days (until {$until}). Protect your ledger — no combat, no training.";
       $player = current_player();
       $isMerchant = true; $daysLeft = $days;
-    } elseif ($act === 'withdraw') {
-      if (!$isMerchant) throw new RuntimeException('You are not currently under the Accord.');
-      $pdo->prepare('UPDATE players SET merchant_until = NULL WHERE id = ?')->execute([$pid]);
-      $msg = 'Accord withdrawn. You are back in the general population.';
-      $player = current_player();
-      $isMerchant = false; $daysLeft = 0;
     }
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
 }
@@ -78,10 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <div style="font-size:12px;color:var(--neon2)">&#9888; No combat, PvP, or training</div>
     </div>
   </div>
-  <form method="post">
-    <input type="hidden" name="action" value="withdraw">
-    <button type="submit" style="font-size:12px;background:rgba(255,45,149,.08);border-color:rgba(255,45,149,.3);color:var(--neon2)" onclick="return confirm('Withdraw from the Accord? You will lose the bank fee reduction immediately.')">Withdraw from Accord</button>
-  </form>
+  <div style="font-size:12px;color:var(--muted);padding:8px 0 0;border-top:1px solid var(--line)">&#128274; The Commerce Accord cannot be withdrawn early. Your status expires automatically on <strong><?= e($player['merchant_until']) ?></strong>.</div>
 </div>
 
 <?php else: ?>
@@ -102,11 +93,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <ul style="margin:0;padding:0 0 0 14px;font-size:12px;color:var(--text);line-height:1.7">
         <li>Cannot enter combat (PvE or PvP)</li>
         <li>Cannot use the training gym</li>
-        <li>Accord runs to full term</li>
+        <li>Cannot be withdrawn — permanent until expiry</li>
       </ul>
     </div>
   </div>
-  <form method="post" style="max-width:280px">
+  <div style="background:rgba(232,163,61,.08);border:1px solid rgba(232,163,61,.35);border-radius:6px;padding:10px 14px;font-size:12px;color:#e8a33d;margin-bottom:14px">
+    <strong>&#9888; Warning:</strong> The Commerce Accord is <strong>permanent for the chosen duration</strong>. Once signed, it cannot be withdrawn early.
+  </div>
+  <form method="post" id="accord-form" style="max-width:280px">
     <input type="hidden" name="action" value="enlist">
     <div class="field">
       <span>Duration</span>
@@ -116,7 +110,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endforeach; ?>
       </select>
     </div>
-    <button type="submit" style="background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.4);color:#e8a33d">&#9878; Sign the Accord</button>
+    <button type="button" id="accord-sign-btn" style="background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.4);color:#e8a33d">&#9878; Sign the Accord</button>
+    <div id="accord-confirm" style="display:none;margin-top:10px;background:rgba(255,45,149,.07);border:1px solid rgba(255,45,149,.3);border-radius:6px;padding:12px">
+      <div style="font-size:12px;color:var(--neon2);font-weight:700;margin-bottom:8px">&#9888; This is permanent. You cannot exit the Accord early.</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Confirm to proceed — this action cannot be undone.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="submit" style="background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.4);color:#e8a33d">&#9878; Confirm — Sign Permanently</button>
+        <button type="button" id="accord-cancel-btn" style="background:var(--panel2);border-color:var(--line);color:var(--muted)">Cancel</button>
+      </div>
+    </div>
   </form>
+  <script>
+  (function(){
+    var btn=document.getElementById('accord-sign-btn');
+    var box=document.getElementById('accord-confirm');
+    var can=document.getElementById('accord-cancel-btn');
+    if(!btn||!box) return;
+    btn.addEventListener('click',function(){ btn.style.display='none'; box.style.display='block'; });
+    can.addEventListener('click',function(){ box.style.display='none'; btn.style.display=''; });
+  })();
+  </script>
 </div>
 <?php endif; ?>

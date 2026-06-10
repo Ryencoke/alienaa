@@ -63,6 +63,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($nr, ['member','chatmod','moderator','admin','manager'], true)) $nr = $old['role'];
         $sub = trim($_POST['sub_until'] ?? '');
         if ($sub !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $sub)) $sub = (string)($old['sub_until'] ?? '');
+        $merchantUntil = trim($_POST['merchant_until'] ?? '');
+        if ($merchantUntil !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $merchantUntil)) $merchantUntil = (string)($old['merchant_until'] ?? '');
         $emailEdit    = trim($_POST['edit_email'] ?? '');
         if ($emailEdit !== '' && !filter_var($emailEdit, FILTER_VALIDATE_EMAIL)) $emailEdit = '';
         $usernameEdit = trim($_POST['edit_username'] ?? '');
@@ -74,7 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $set = []; $params = [];
         foreach ($intf as $f) { $set[] = ($f === 'signal' ? '`signal`' : $f) . '=?'; $params[] = $new[$f]; }
         $set[] = 'role=?';      $params[] = $nr;
-        $set[] = 'sub_until=?'; $params[] = ($sub === '' ? null : $sub);
+        $set[] = 'sub_until=?';      $params[] = ($sub === '' ? null : $sub);
+        $set[] = 'merchant_until=?'; $params[] = ($merchantUntil === '' ? null : $merchantUntil);
         $set[] = 'bio=?';       $params[] = $bioEdit;
         try { $pdo->exec('ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR(255) NULL'); } catch (Throwable $e) {}
         try { $pdo->exec('ALTER TABLE players ADD COLUMN IF NOT EXISTS birthday DATE NULL'); } catch (Throwable $e) {}
@@ -266,6 +269,7 @@ if ($sec === 'editplayer' && $canAdmin) {
             <?php endforeach; ?>
           </select></div>
         <div><label style="font-size:11px">Subscription until</label><input type="date" name="sub_until" value="<?= e($t['sub_until'] ?? '') ?>"></div>
+        <div><label style="font-size:11px">Accord until</label><input type="date" name="merchant_until" value="<?= e($t['merchant_until'] ?? '') ?>"></div>
         <div style="grid-column:1/-1">
           <label style="font-size:11px">Bio</label>
           <textarea name="edit_bio" maxlength="200" style="width:100%;min-height:50px"><?= e($t['bio'] ?? '') ?></textarea>
