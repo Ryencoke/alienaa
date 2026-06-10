@@ -268,6 +268,17 @@ $curAccent = $player['accent_color'] ?? '';
         var a=document.createElement('a'); a.href=navData[k].href; a.textContent=navData[k].text;
         li.appendChild(a); menu.insertBefore(li, adminLi||null);
       });
+      // Mirror to topnav
+      var topnav=document.getElementById('topnav'); if(!topnav) return;
+      topnav.querySelectorAll('a[data-navkey]').forEach(function(a){ a.remove(); });
+      var logoutA=topnav.querySelector('a[href*="p=logout"]');
+      keys.forEach(function(k){
+        if(!navData[k]) return;
+        var a=document.createElement('a'); a.href=navData[k].href; a.setAttribute('data-navkey',k);
+        a.textContent=navData[k].text;
+        if(navData[k].href.indexOf('p='+curP)!==-1) a.className='active';
+        topnav.insertBefore(a, logoutA||null);
+      });
     }
     var saveTimer;
     function autoSave(){

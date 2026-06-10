@@ -113,6 +113,15 @@ function syn_add_sidebar($pdo, $playerId, $key) {
     }
   } catch (Throwable $e) {}
 }
+function syn_remove_sidebar($pdo, $playerId, $key) {
+  try {
+    $sq = $pdo->prepare('SELECT sidebar FROM players WHERE id=?'); $sq->execute([$playerId]);
+    $current = trim((string)$sq->fetchColumn());
+    $keys = $current !== '' ? explode(',', $current) : default_sidebar();
+    $keys = array_values(array_filter($keys, fn($k) => $k !== $key));
+    $pdo->prepare('UPDATE players SET sidebar=? WHERE id=?')->execute([implode(',', $keys), $playerId]);
+  } catch (Throwable $e) {}
+}
 
 // ── Load membership ──
 $mySyn = null; $myRank = '';
@@ -211,6 +220,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('DELETE FROM syndicate_members WHERE player_id=?')->execute([$pid]);
       $leaveDetail = $player['username'].' left the syndicate' . ($leavemsg ? ': "'.$leavemsg.'"' : '');
       syn_log($pdo, $sid, $pid, $pid, 'left', $leaveDetail);
+      syn_remove_sidebar($pdo, $pid, 'guilds');
       $mySyn = null; $myRank = ''; $msg = 'You left the Syndicate.';
 
     } elseif ($act === 'donate') {
@@ -295,14 +305,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($act === 'stockpile_add') {
       if (!$mySyn || !syn_can($myRank,'manage_stockpile')) throw new RuntimeException('No permission.');
       if (!$leaderIsSubbed && !$playerIsSubbed) throw new RuntimeException('Stockpile locked — the leader\'s subscription has expired. Only subscribed members can contribute.');
-      $iname = mb_substr(trim($_POST['item_name'] ?? ''),0,100); $itype = $_POST['gear_type'] ?? 'weapon';
-      $atk = max(0,min(999,(int)($_POST['atk_bonus'] ?? 0))); $def = max(0,min(999,(int)($_POST['def_bonus'] ?? 0)));
+      $donateItemId = (int)($_POST['donate_item_id'] ?? 0);
+      $donateQty    = max(1, min(99, (int)($_POST['donate_qty'] ?? 1)));
       $notes = mb_substr(trim($_POST['notes'] ?? ''),0,200);
-      if ($iname==='') throw new RuntimeException('Enter an item name.');
-      if (!in_array($itype,['weapon','armor','item'],true)) $itype='weapon';
-      $pdo->prepare('INSERT INTO syndicate_stockpile (syndicate_id,item_name,gear_type,atk_bonus,def_bonus,notes,added_by) VALUES (?,?,?,?,?,?,?)')->execute([$mySyn['syndicate_id'],$iname,$itype,$atk,$def,$notes,$pid]);
-      syn_log($pdo,$mySyn['syndicate_id'],null,$pid,'stockpile_add','Added "'.$iname.'" to stockpile');
-      $msg = '"' . $iname . '" added to stockpile.';
+      if (!$donateItemId) throw new RuntimeException('Select an item to donate.');
+      // Verify player has enough in inventory
+      $iq = $pdo->prepare('SELECT i.name, pi.qty FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.item_id=? AND pi.qty>0');
+      $iq->execute([$pid, $donateItemId]); $irow = $iq->fetch();
+      if (!$irow) throw new RuntimeException('Item not found in inventory.');
+      if ($irow['qty'] < $donateQty) throw new RuntimeException('Not enough in inventory (you have '.$irow['qty'].').');
+      $iname = $irow['name'];
+      // Deduct from inventory
+      if ($irow['qty'] - $donateQty <= 0) $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=?')->execute([$pid, $donateItemId]);
+      else $pdo->prepare('UPDATE player_items SET qty=qty-? WHERE player_id=? AND item_id=?')->execute([$donateQty, $pid, $donateItemId]);
+      // Create one stockpile entry per item donated
+      for ($di=0; $di<$donateQty; $di++) {
+        $pdo->prepare('INSERT INTO syndicate_stockpile (syndicate_id,item_name,gear_type,atk_bonus,def_bonus,notes,added_by) VALUES (?,?,?,?,?,?,?)')->execute([$mySyn['syndicate_id'],$iname,'item',0,0,$notes,$pid]);
+      }
+      syn_log($pdo,$mySyn['syndicate_id'],null,$pid,'stockpile_add','Donated '.$donateQty.'× "'.$iname.'" to stockpile');
+      $msg = 'Donated ' . $donateQty . '× "' . $iname . '" to the stockpile.';
 
     } elseif ($act === 'stockpile_remove') {
       if (!$mySyn || !syn_can($myRank,'manage_stockpile')) throw new RuntimeException('No permission.');
@@ -514,7 +535,7 @@ if ($tab === 'home' && $mySyn):
 
 
 <?php // ══ BOARD ══════════════════════════════════════════
-elseif ($tab === 'board' && $mySyn):
+elseif ($tab === 'board' && $mySyn): ?>
 
 <?php if (!$leaderIsSubbed): ?>
 <div class="flash flash-err">&#9733; Leader subscription expired — board posting is locked for non-subscribers.</div>
@@ -626,25 +647,40 @@ elseif ($tab === 'board' && $mySyn):
 
 <?php // ══ MEMBERS ════════════════════════════════════════
 elseif ($tab === 'members' && $mySyn):
+  $memSort = in_array($_GET['msort'] ?? '', ['level','joined','name']) ? $_GET['msort'] : 'rank';
+  $memOrder = match($memSort) {
+    'level'  => 'p.level DESC, p.username ASC',
+    'joined' => 'sm.joined_at ASC, p.username ASC',
+    'name'   => 'p.username ASC',
+    default  => 'FIELD(sm.rank,"leader","coleader","treasurer","armourer","librarian","advisor","member"), p.username ASC',
+  };
   $members = [];
-  try { $mq = $pdo->prepare('SELECT sm.player_id,sm.rank,sm.joined_at,p.username,p.level,p.role,p.chat_color FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? ORDER BY FIELD(sm.rank,"leader","coleader","treasurer","armourer","librarian","advisor","member"),p.username'); $mq->execute([$mySyn['syndicate_id']]); $members = $mq->fetchAll(); } catch (Throwable $e) {}
+  try { $mq = $pdo->prepare("SELECT sm.player_id,sm.rank,sm.joined_at,p.username,p.level,p.role,p.chat_color FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? ORDER BY {$memOrder}"); $mq->execute([$mySyn['syndicate_id']]); $members = $mq->fetchAll(); } catch (Throwable $e) {}
   $canManage = syn_can($myRank,'manage_members');
   // Pending applications
   $apps = [];
   if ($canManage) { try { $aq = $pdo->prepare("SELECT sa.*,p.username,p.level FROM syndicate_applications sa JOIN players p ON p.id=sa.player_id WHERE sa.syndicate_id=? AND sa.status='pending' ORDER BY sa.created_at ASC"); $aq->execute([$mySyn['syndicate_id']]); $apps = $aq->fetchAll(); } catch (Throwable $e) {} }
 ?>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+  <span style="font-size:11px;color:var(--muted)">Sort:</span>
+  <?php foreach (['rank'=>'Rank','level'=>'Level','joined'=>'Oldest','name'=>'Name'] as $sk=>$sl): ?>
+  <a href="index.php?p=guilds&tab=members&msort=<?= $sk ?>" style="padding:4px 10px;border-radius:5px;font-size:11px;text-decoration:none;border:1px solid <?= $memSort===$sk?'var(--accent)':'var(--line)' ?>;color:<?= $memSort===$sk?'var(--accent)':'var(--muted)' ?>;background:<?= $memSort===$sk?'rgba(25,240,199,.08)':'var(--panel2)' ?>"><?= $sl ?></a>
+  <?php endforeach; ?>
+</div>
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)"><?= count($members) ?> member<?= count($members)!==1?'s':'' ?></div>
   <?php foreach ($members as $m):
     $mc = chat_color($m['role'],$m['chat_color']);
     $rc = $SYN_RANK_COLORS[$m['rank']] ?? 'var(--muted)';
     $rl = $SYN_RANK_LABELS[$m['rank']] ?? ucfirst($m['rank']);
+    $joinStr = !empty($m['joined_at']) ? date('M j Y', strtotime($m['joined_at'])) : '';
   ?>
   <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);flex-wrap:wrap">
     <div style="width:30px;height:30px;border-radius:7px;background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.12);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--accent);flex:none"><?= mb_strtoupper(mb_substr($m['username'],0,1)) ?></div>
     <div style="flex:1;min-width:100px">
       <a href="index.php?p=profile&id=<?= (int)$m['player_id'] ?>" style="font-weight:700;color:<?= e($mc) ?>"><?= e($m['username']) ?></a>
       <span style="font-size:10px;color:var(--muted)"> Lv<?= (int)$m['level'] ?></span>
+      <?php if ($joinStr): ?><span style="font-size:10px;color:var(--muted);margin-left:6px">Joined <?= $joinStr ?></span><?php endif; ?>
     </div>
     <em style="font-size:11px;font-weight:700;color:<?= $rc ?>;font-style:italic"><?= e($rl) ?></em>
     <?php if ($canManage && (int)$m['player_id'] !== $pid && $m['rank'] !== 'leader'): ?>
@@ -738,23 +774,23 @@ elseif ($tab === 'stockpile' && $mySyn):
 <!-- Add to stockpile -->
 <?php if ($canManageStock): ?>
 <div class="panel">
-  <h3 style="margin-top:0;font-size:13px">&#9874; Add Item to Stockpile</h3>
-  <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+  <h3 style="margin-top:0;font-size:13px">&#9874; Donate to Stockpile</h3>
+  <?php if (empty($playerInvStock)): ?>
+  <p class="muted" style="font-size:12px">Your inventory is empty — nothing to donate.</p>
+  <?php else: ?>
+  <form method="post" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
     <input type="hidden" name="action" value="stockpile_add">
-    <div class="field"><span>Item</span>
-      <?php if (!empty($playerInvStock)): ?>
-      <select name="item_name">
+    <div class="field" style="flex:1;min-width:180px"><span>Item</span>
+      <select name="donate_item_id">
         <option value="">-- Select from inventory --</option>
-        <?php foreach ($playerInvStock as $pi): ?><option value="<?= e($pi['name']) ?>"><?= e($pi['name']) ?> &times;<?= (int)$pi['qty'] ?></option><?php endforeach; ?>
+        <?php foreach ($playerInvStock as $pi): ?><option value="<?= (int)$pi['item_id'] ?>"><?= e($pi['name']) ?> &times;<?= (int)$pi['qty'] ?></option><?php endforeach; ?>
       </select>
-      <?php else: ?><input type="text" name="item_name" maxlength="100" placeholder="No items in inventory"><?php endif; ?>
     </div>
-    <div class="field"><span>Type</span><select name="gear_type"><option value="weapon">Weapon</option><option value="armor">Armor</option><option value="item">Item</option></select></div>
-    <div class="field"><span>ATK Bonus</span><input type="number" name="atk_bonus" value="0" min="0" max="999"></div>
-    <div class="field"><span>DEF Bonus</span><input type="number" name="def_bonus" value="0" min="0" max="999"></div>
-    <div class="field" style="grid-column:1/-1"><span>Notes</span><input type="text" name="notes" maxlength="200" placeholder="Optional notes about this item"></div>
-    <div><button type="submit" style="font-size:12px">Add to Stockpile</button></div>
+    <div class="field" style="width:80px"><span>Qty</span><input type="number" name="donate_qty" value="1" min="1" max="99"></div>
+    <div class="field" style="flex:1;min-width:160px"><span>Notes</span><input type="text" name="notes" maxlength="200" placeholder="Optional notes" data-no-counter></div>
+    <div><button type="submit" style="font-size:12px">Donate</button></div>
   </form>
+  <?php endif; ?>
 </div>
 <?php endif; ?>
 
@@ -766,19 +802,11 @@ elseif ($tab === 'stockpile' && $mySyn):
   </div>
   <?php if (empty($stockpile)): ?>
   <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No items in stockpile yet.</div>
-  <?php else: foreach ($stockpile as $si):
-    $typeIcon = $si['gear_type']==='weapon'?'&#9876;':($si['gear_type']==='armor'?'&#128737;':'&#9866;');
-    $typeColor = $si['gear_type']==='weapon'?'var(--neon2)':($si['gear_type']==='armor'?'var(--accent)':'#e8a33d');
-  ?>
+  <?php else: foreach ($stockpile as $si): ?>
   <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    <span style="font-size:18px;flex:none;color:<?= $typeColor ?>"><?= $typeIcon ?></span>
     <div style="flex:1;min-width:120px">
       <div style="font-weight:700;font-size:13px"><?= e($si['item_name']) ?></div>
-      <div style="font-size:11px;color:var(--muted)">
-        <?php if ($si['atk_bonus']): ?><span style="color:var(--neon2)">+<?= $si['atk_bonus'] ?> ATK</span><?php endif; ?>
-        <?php if ($si['def_bonus']): ?><span style="color:var(--accent);margin-left:6px">+<?= $si['def_bonus'] ?> DEF</span><?php endif; ?>
-        <?php if ($si['notes']): ?><span style="margin-left:6px"><?= e($si['notes']) ?></span><?php endif; ?>
-      </div>
+      <?php if ($si['notes']): ?><div style="font-size:11px;color:var(--muted)"><?= e($si['notes']) ?></div><?php endif; ?>
     </div>
     <span style="font-size:11px;font-weight:700;color:<?= $si['available']?'#3bcf63':'#e8a33d' ?>"><?= $si['available']?'Available':'On Loan' ?></span>
     <?php if ($canLoan && $si['available'] && !empty($synMembers)): ?>

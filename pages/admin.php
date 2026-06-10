@@ -283,27 +283,6 @@ if ($sec === 'editplayer' && $canAdmin) {
       <p><button type="submit">Save Player</button></p>
     </form>
 
-    <!-- Jail Controls -->
-    <div style="background:rgba(255,45,149,.04);border:1px solid rgba(255,45,149,.2);border-radius:8px;padding:14px;margin-top:14px">
-      <h4 style="margin:0 0 12px;color:var(--neon2)">&#128274; Jail Controls</h4>
-      <?php if ($curJail): ?>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Currently jailed by <?= e($curJail['staff_name']) ?> &middot; Reason: <?= e($curJail['reason']) ?> &middot; Releases: <?= e(date('M j, Y', strtotime($curJail['release_at']))) ?></p>
-        <form method="post" style="display:inline">
-          <input type="hidden" name="action" value="unjail_player">
-          <input type="hidden" name="unjail_uid" value="<?= (int)$t['id'] ?>">
-          <button type="submit" style="background:rgba(59,207,99,.08);border-color:rgba(59,207,99,.3);color:#3bcf63">Release from Jail</button>
-        </form>
-      <?php else: ?>
-        <form method="post" style="display:grid;grid-template-columns:1fr 1fr 80px auto;gap:8px;align-items:end">
-          <input type="hidden" name="action" value="jail_player">
-          <input type="hidden" name="jail_uid" value="<?= (int)$t['id'] ?>">
-          <div><label style="font-size:11px">Reason</label><input type="text" name="jail_reason" maxlength="500" placeholder="Reason for detention" style="width:100%"></div>
-          <div><label style="font-size:11px">Days</label><input type="number" name="jail_days" min="1" max="365" value="1" style="width:100%"></div>
-          <div><button type="submit" style="background:rgba(255,45,149,.1);border-color:rgba(255,45,149,.4);color:var(--neon2);width:100%">Jail</button></div>
-        </form>
-      <?php endif; ?>
-    </div>
-
     <?php
     // Items editing section
     $allItems = [];

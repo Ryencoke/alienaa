@@ -74,7 +74,7 @@ function bj_card(): array {
 }
 function bj_render_card(array $c, bool $hidden = false): string {
   $red = in_array($c['s'], ['♥','♦'], true);
-  $col = $hidden ? '#555' : ($red ? '#e23b3b' : '#e0e8ff');
+  $col = $hidden ? '#555' : ($red ? '#e23b3b' : '#ffffff');
   if ($hidden) return '<div class="bj-card bj-hidden">??</div>';
   return '<div class="bj-card" style="color:'.$col.'">' . e($c['r']) . '<span style="font-size:10px">' . e($c['s']) . '</span></div>';
 }
@@ -250,7 +250,7 @@ $rl = $pdo->prepare('SELECT * FROM casino_log WHERE player_id = ? ORDER BY playe
 $rl->execute([$pid]);
 $recent = $rl->fetchAll();
 
-// Stats calculation
+// Stats calculation (recent 50)
 $statsTotal = count($recent);
 $statWagered = array_sum(array_column($recent, 'bet'));
 $statNet     = array_sum(array_column($recent, 'net'));
@@ -258,6 +258,15 @@ $statWins    = count(array_filter($recent, fn($r) => $r['net'] > 0));
 $statWinRate = $statsTotal > 0 ? round($statWins / $statsTotal * 100, 1) : 0;
 $statBigWin  = $statsTotal > 0 ? max(array_column($recent, 'net')) : 0;
 $statBigLoss = $statsTotal > 0 ? min(array_column($recent, 'net')) : 0;
+
+// True all-time stats
+$atStats = ['games'=>0,'wagered'=>0,'net'=>0,'wins'=>0,'bigwin'=>0,'bigloss'=>0];
+try {
+  $ats = $pdo->prepare("SELECT COUNT(*) games, COALESCE(SUM(bet),0) wagered, COALESCE(SUM(net),0) net, SUM(net>0) wins, COALESCE(MAX(net),0) bigwin, COALESCE(MIN(net),0) bigloss FROM casino_log WHERE player_id=?");
+  $ats->execute([$pid]); $atRow = $ats->fetch();
+  if ($atRow) $atStats = ['games'=>(int)$atRow['games'],'wagered'=>(int)$atRow['wagered'],'net'=>(int)$atRow['net'],'wins'=>(int)$atRow['wins'],'bigwin'=>(int)$atRow['bigwin'],'bigloss'=>(int)$atRow['bigloss']];
+} catch (Throwable $e) {}
+$atWinRate = $atStats['games'] > 0 ? round($atStats['wins'] / $atStats['games'] * 100, 1) : 0;
 
 $quickBets   = [100, 500, 1000, 5000, 10000];
 $maxBet      = min(MAX_BET, $player['creds_pocket']);
@@ -278,6 +287,27 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
     <div class="daemon-balance-unit">creds</div>
   </div>
 </div>
+
+<?php if ($atStats['games'] > 0): ?>
+<div class="panel" style="padding:12px 14px">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">&#128202; All-Time Stats</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px">
+    <?php foreach ([
+      ['Games',       number_format($atStats['games']),  'var(--text)'],
+      ['Wagered',     number_format($atStats['wagered']),'var(--muted)'],
+      ['Net',         ($atStats['net']>=0?'+':'').number_format($atStats['net']), $atStats['net']>=0?'#3bcf63':'var(--neon2)'],
+      ['Win Rate',    $atWinRate.'%', $atWinRate>=50?'#3bcf63':'var(--neon2)'],
+      ['Best Win',    $atStats['bigwin']>0?'+'.number_format($atStats['bigwin']):'—', '#3bcf63'],
+      ['Worst Loss',  $atStats['bigloss']<0?number_format($atStats['bigloss']):'—', 'var(--neon2)'],
+    ] as [$lbl,$v,$c]): ?>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 8px;text-align:center">
+      <div style="font-size:13px;font-weight:700;color:<?= $c ?>"><?= $v ?></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px"><?= $lbl ?></div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+</div>
+<?php endif; ?>
 
 <div class="daemon-tabs">
   <button class="daemon-tab <?= $activeTab==='dice'       ?'active':'' ?>" data-tab="dice">&#127922; Daemon Dice</button>
@@ -651,7 +681,8 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
 
   /* Video Poker hold toggle */
   document.querySelectorAll('.vp-card-wrap').forEach(function(wrap){
-    wrap.addEventListener('click', function(){
+    wrap.addEventListener('click', function(e){
+      e.stopPropagation();
       var lbl = wrap.closest('label');
       if (!lbl) return;
       var chk = lbl.querySelector('.vp-hold-chk');

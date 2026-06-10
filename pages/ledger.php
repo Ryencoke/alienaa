@@ -325,7 +325,6 @@ $avail = max(0, $loanCap - $loan);
       'Total Wealth'        => number_format($totalW),
       'Avg Wealth / Player' => number_format($avgW),
       'Avg Level'           => number_format(round($ec['avglvl'])),
-      'Subscribers'         => number_format($subs),
     ];
   ?>
   <div class="stat-grid">

@@ -64,7 +64,6 @@ try {
       <div class="chatline-full">
         <span class="chattime-full"><?= e(date('H:i', strtotime($r['created_at']))) ?></span>
         <div class="chatline-body">
-          <?php if ($isStaffR): ?><em style="font-size:10px;font-style:italic;color:<?= e(chat_color($r['role'],'')) ?>;vertical-align:middle;margin-right:2px"><?= e(role_label($r['role'])) ?></em><?php endif; ?>
           <a href="index.php?p=profile&id=<?= (int)$r['uid'] ?>" style="color:<?= e($col) ?>;font-weight:700"><?= e($r['username']) ?></a><span style="color:var(--muted)">:</span>
           <span style="color:var(--text)"><?= bbcode($r['body']) ?></span>
         </div>

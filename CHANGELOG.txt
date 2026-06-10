@@ -284,3 +284,84 @@ ADMIN (admin.php sec=editplayer)
 - New "Inventory Items" section added to Edit Player — shows all items from items table grouped by category
 - Each item has a quantity input; admins can set any quantity (0 removes the row)
 - save_player_items POST action handles the update via INSERT ... ON DUPLICATE KEY UPDATE
+
+--- SESSION: 2026-06-10 (seventh batch) ---
+
+BUG FIXES
+---------
+- [guilds.php] Syntax error fixed: missing ?> after elseif (tab=board) caused "unexpected token <"
+- [guilds.php] syn_remove_sidebar() helper added; auto-removes 'guilds' quicklink when player leaves syndicate
+- [stockex.php] Stock prices no longer fluctuate on every page refresh — update now gated to every 5 minutes (same as log interval); header description updated
+- [daemon.php] Video Poker HOLD toggle fixed — e.stopPropagation() added to prevent double-toggle via label click
+- [daemon.php] Black/club card color changed from dim #e0e8ff → bright #ffffff for visibility
+- [chat.php] Staff title flash removed — <em> role label removed from PHP render (JS never showed it)
+- [ledger.php] Subscribers removed from Economic Data tiles
+
+GUILDS (guilds.php)
+-------------------
+- Members tab: sortable by rank (default), level, join date, name — sort buttons above list
+- Members list shows joined_at date next to each member
+- Stockpile donate form redesigned: inventory dropdown + quantity input; type/ATK/DEF fields removed
+- Stockpile list display cleaned up: type icon and ATK/DEF values removed; only item name + notes shown
+- Stockpile POST handler updated to deduct qty from player_items and insert N individual stockpile rows
+
+HOME (home.php)
+---------------
+- Removed pocket/bank/shards display from hero card (.hh-creds div)
+- Removed "Enter the Sprawl" link from Vitals panel
+- Removed "Neural Training Center" link from Combat Stats panel
+- Removed "Launch Combat Sim" and "Go Fight" links from Today's Combat
+- Removed "Craft at Fabrication Lab" link from empty loadout slots
+- Added Guild Information panel to stats grid: syndicate name/tag, rank, join date; "Not in a syndicate" fallback
+- Unspent points notification redesigned — cleaner flex layout with label + action link
+- player_notifications now queried in newsFeed (marks as read on view)
+
+PROFILE (profile.php)
+---------------------
+- Added Syndicate section: shows guild name/tag, rank, and member-since date
+
+TRANSIT (transit.php)
+---------------------
+- Full visual overhaul: replaced table layout with card-based design
+- Header panel with health/drone stat display
+- Cargo Run routes shown as stat cards (payout, cost, ambush %, XP) with colored risk indicators
+- Mining dig sites shown as rows with skill requirement badge and yield details
+- Flash messages styled with contextual color (error vs success)
+
+AUCTION (auction.php)
+---------------------
+- Create listing: qty input added (1–99); deducts qty from inventory instead of always 1
+- Listing fee now scales with duration: 1h=2%, 6h=3%, 12h=4%, 24h=5%, 48h=7%
+- Duration select labels updated to show fee %
+- Preview box updates live to show correct fee when duration or starting price changes
+- item_qty column added to auction_listings table (via ALTER on first use)
+- $AUCTION_LISTING_FEES rate table defined
+
+DAEMON (daemon.php)
+-------------------
+- All-Time Stats panel added above game tabs — always visible; shows Games, Wagered, Net P/L, Win Rate, Best Win, Worst Loss
+- True all-time stats query (not limited to last 50 records)
+- Black/club card suit color fixed from dim #e0e8ff → #ffffff
+
+ADMIN (admin.php sec=editplayer)
+---------------------------------
+- Jail Controls section removed from Edit Player panel
+
+NAVIGATION
+----------
+- [index.php] Top navigation bar now dynamically generated from player's sidebar preference (player_sidebar()) instead of hardcoded links
+- [index.php] Back button (&#8592; Back via history.back()) added below main content area
+- [account.php] rebuildMenu() now also updates topnav (topbar) in real-time when sidebar links are reordered/added/removed
+
+FRIENDS (friends.php)
+---------------------
+- Add/Remove now AJAX — no page reload; flash confirmation message shown
+- "Players Who Added You" section added — shows reverse friends list with "Add Back" button
+- Notification written to player_notifications when someone adds you as a friend (not on remove)
+- player_notifications table auto-created
+
+NOTIFICATIONS
+-------------
+- player_notifications table: (id, player_id, type, body, is_read, created_at)
+- home.php newsFeed now includes unread player_notifications; marks as read on view
+- friend_add type added to notification icon/color map

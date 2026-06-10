@@ -32,7 +32,9 @@ $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 
-define('AUCTION_FEE_PCT',     0.05);   // 5% auctioneer fee on successful sale
+define('AUCTION_FEE_PCT',     0.05);   // 5% auctioneer fee on successful sale (used on bid resolution)
+// Listing fee by duration (% of starting price)
+$AUCTION_LISTING_FEES = [1=>0.02, 6=>0.03, 12=>0.04, 24=>0.05, 48=>0.07];
 define('AUCTION_CANCEL_PCT',  0.10);   // 10% penalty fee to pull listing after 5-minute grace
 define('AUCTION_GRACE_SEC',   300);    // 5-minute free edit/cancel window
 
@@ -90,30 +92,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($act === 'create') {
       $selItemId = (int)($_POST['item_id'] ?? 0);
-      $itemName  = trim($_POST['item_name'] ?? '');  // fallback for manual entry
+      $itemName  = trim($_POST['item_name'] ?? '');
       $startPx   = max(1, (int)($_POST['start_price'] ?? 1));
       $hoursRaw  = (int)($_POST['duration'] ?? 24);
       $hours     = in_array($hoursRaw, [1,6,12,24,48]) ? $hoursRaw : 24;
-      // If item selected from inventory dropdown, use that item
+      $qty       = max(1, min(99, (int)($_POST['qty'] ?? 1)));
       if ($selItemId > 0) {
         $iq = $pdo->prepare('SELECT i.name,pi.qty FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.item_id=? AND pi.qty>0');
         $iq->execute([$pid, $selItemId]); $invRow = $iq->fetch();
         if (!$invRow) throw new RuntimeException('Item not found in inventory.');
+        if ((int)$invRow['qty'] < $qty) throw new RuntimeException('Not enough in inventory (you have '.(int)$invRow['qty'].').');
         $itemName = $invRow['name'];
-        // Deduct 1 from inventory
-        if ((int)$invRow['qty'] <= 1) $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=?')->execute([$pid, $selItemId]);
-        else $pdo->prepare('UPDATE player_items SET qty=qty-1 WHERE player_id=? AND item_id=?')->execute([$pid, $selItemId]);
+        if ((int)$invRow['qty'] <= $qty) $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=?')->execute([$pid, $selItemId]);
+        else $pdo->prepare('UPDATE player_items SET qty=qty-? WHERE player_id=? AND item_id=?')->execute([$qty, $pid, $selItemId]);
       }
       if ($itemName === '') throw new RuntimeException('Select an item from your inventory.');
       if (strlen($itemName) > 100) throw new RuntimeException('Item name too long.');
-      // 5% listing deposit taken upfront from pocket (refunded if no bids)
-      $listFee = (int)ceil($startPx * AUCTION_FEE_PCT);
+      $feePct  = $AUCTION_LISTING_FEES[$hours] ?? 0.05;
+      $listFee = (int)ceil($startPx * $feePct);
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([$listFee, $pid, $listFee]);
       if ($u->rowCount() !== 1) throw new RuntimeException('Not enough credits. Listing fee: ' . number_format($listFee) . ' cr.');
       $endsAt = date('Y-m-d H:i:s', time() + $hours * 3600);
-      $pdo->prepare('INSERT INTO auction_listings (seller_id, item_id, item_name, starting_price, ends_at) VALUES (?,?,?,?,?)')->execute([$pid, $selItemId, $itemName, $startPx, $endsAt]);
-      $msg = 'Auction created! Listing fee of ' . number_format($listFee) . ' cr charged.';
+      // Add item_qty column if missing (silent)
+      try { $pdo->exec('ALTER TABLE auction_listings ADD COLUMN item_qty INT NOT NULL DEFAULT 1'); } catch (Throwable $e) {}
+      $pdo->prepare('INSERT INTO auction_listings (seller_id, item_id, item_name, item_qty, starting_price, ends_at) VALUES (?,?,?,?,?,?)')->execute([$pid, $selItemId, $itemName, $qty, $startPx, $endsAt]);
+      $msg = 'Auction created! Listing ' . $qty . '× ' . $itemName . '. Fee: ' . number_format($listFee) . ' cr (' . round($feePct*100) . '%).';
       $tab = 'browse';
 
     } elseif ($act === 'bid') {
@@ -307,17 +311,17 @@ try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name FROM player_items pi
 <?php elseif ($tab === 'create'): ?>
 <div class="panel">
   <p class="muted" style="font-size:12px;margin-top:0;margin-bottom:14px">
-    List any item or service for auction. A <b style="color:var(--accent)">5% listing fee</b> is charged upfront from your pocket credits. If no one bids, the fee is lost. You have a <b>5-minute free window</b> to cancel or edit — after that, a 10% penalty applies.
+    Listing fee scales with duration and is charged upfront. Fee is lost if no one bids. 5-minute free cancel window — 10% penalty after.
   </p>
-  <form method="post" style="max-width:400px">
+  <form method="post" style="max-width:440px">
     <input type="hidden" name="action" value="create">
     <div class="field">
       <span>Item</span>
       <?php if (!empty($playerInvAuction)): ?>
-      <select name="item_id">
+      <select name="item_id" id="ap-item">
         <option value="">-- Select from inventory --</option>
         <?php foreach ($playerInvAuction as $pi): ?>
-        <option value="<?= (int)$pi['item_id'] ?>"><?= e($pi['name']) ?> &times;<?= (int)$pi['qty'] ?></option>
+        <option value="<?= (int)$pi['item_id'] ?>" data-max="<?= (int)$pi['qty'] ?>"><?= e($pi['name']) ?> &times;<?= (int)$pi['qty'] ?></option>
         <?php endforeach; ?>
       </select>
       <?php else: ?>
@@ -325,18 +329,24 @@ try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name FROM player_items pi
       <input type="text" name="item_name" maxlength="100" placeholder="No items in inventory — enter listing name">
       <?php endif; ?>
     </div>
-    <div class="field" style="margin-top:10px">
-      <span>Starting Bid (credits)</span>
-      <input type="number" name="start_price" min="1" value="100" id="ap-start">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+      <div class="field">
+        <span>Quantity</span>
+        <input type="number" name="qty" id="ap-qty" min="1" max="99" value="1">
+      </div>
+      <div class="field">
+        <span>Starting Bid (cr)</span>
+        <input type="number" name="start_price" min="1" value="100" id="ap-start">
+      </div>
     </div>
     <div class="field" style="margin-top:10px">
       <span>Duration</span>
-      <select name="duration">
-        <option value="1">1 Hour</option>
-        <option value="6">6 Hours</option>
-        <option value="12">12 Hours</option>
-        <option value="24" selected>24 Hours</option>
-        <option value="48">48 Hours</option>
+      <select name="duration" id="ap-dur">
+        <option value="1">1 Hour — 2% fee</option>
+        <option value="6">6 Hours — 3% fee</option>
+        <option value="12">12 Hours — 4% fee</option>
+        <option value="24" selected>24 Hours — 5% fee</option>
+        <option value="48">48 Hours — 7% fee</option>
       </select>
     </div>
     <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px;margin:12px 0;font-size:12px;color:var(--muted)" id="ap-preview">
@@ -346,9 +356,15 @@ try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name FROM player_items pi
   </form>
   <script>
   (function(){
-    var s=document.getElementById('ap-start');
-    function upd(){var a=parseInt(s.value)||0;var fee=Math.max(1,Math.ceil(a*0.05));document.getElementById('ap-preview').innerHTML='Listing fee: <b style="color:var(--neon2)">'+fee.toLocaleString()+' cr</b> (5% of starting price) — charged now from your pocket.';}
-    s.addEventListener('input',upd);upd();
+    var s=document.getElementById('ap-start'),d=document.getElementById('ap-dur'),qi=document.getElementById('ap-qty'),it=document.getElementById('ap-item');
+    var fees={1:0.02,6:0.03,12:0.04,24:0.05,48:0.07};
+    function upd(){
+      var a=parseInt(s.value)||0;var h=parseInt(d.value)||24;var pct=fees[h]||0.05;
+      var fee=Math.max(1,Math.ceil(a*pct));
+      document.getElementById('ap-preview').innerHTML='Listing fee: <b style="color:var(--neon2)">'+fee.toLocaleString()+' cr</b> ('+(pct*100)+'% of starting price) — charged now from your pocket.';
+    }
+    if(it) it.addEventListener('change',function(){ var opt=it.options[it.selectedIndex]; if(opt&&opt.dataset.max){ qi.max=opt.dataset.max; if(parseInt(qi.value)>parseInt(opt.dataset.max)) qi.value=opt.dataset.max; }});
+    s.addEventListener('input',upd);d.addEventListener('change',upd);upd();
   })();
   </script>
 </div>

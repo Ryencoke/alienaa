@@ -139,17 +139,12 @@ endif; ?>
   $_hideTopbar = false;
   try { $htq = db()->prepare('SELECT v FROM settings WHERE k=?'); $htq->execute(['hide_topbar:'.$player['id']]); $_hideTopbar = $htq->fetchColumn() === '1'; } catch (Throwable $e) {}
 ?>
-<nav class="topbar<?= $_hideTopbar ? ' topbar-hidden' : '' ?>">
+<nav class="topbar<?= $_hideTopbar ? ' topbar-hidden' : '' ?>" id="topnav">
   <button id="nav-toggle" class="nav-toggle" aria-label="Open menu" title="Menu">&#9776;</button>
-  <a href="index.php?p=home" class="<?= $p==='home'?'active':'' ?>">Hideout</a>
-  <a href="index.php?p=stash" class="<?= $p==='stash'?'active':'' ?>">Inventory</a>
-  <a href="index.php?p=city" class="<?= $p==='city'?'active':'' ?>">The Sprawl</a>
-  <a href="index.php?p=bazaar" class="<?= $p==='bazaar'?'active':'' ?>">Bazaar</a>
-  <a href="index.php?p=boards" class="<?= $p==='boards'?'active':'' ?>">Boards</a>
-  <a href="index.php?p=messages" class="<?= $p==='messages'?'active':'' ?>">Messages</a>
-  <a href="index.php?p=friends" class="<?= $p==='friends'?'active':'' ?>">Friends</a>
-  <a href="index.php?p=account" class="<?= $p==='account'?'active':'' ?>">Account</a>
-  <a href="index.php?p=updates" class="<?= $p==='updates'?'active':'' ?>">Updates</a>
+  <?php $__nl = nav_links(); foreach (player_sidebar($player) as $__k): if (!isset($__nl[$__k])) continue;
+    $__active = (strpos($__nl[$__k][1], 'p='.$p) !== false); ?>
+  <a href="<?= $__nl[$__k][1] ?>" class="<?= $__active?'active':'' ?>" data-navkey="<?= e($__k) ?>"><?= e($__nl[$__k][0]) ?></a>
+  <?php endforeach; ?>
   <?php if ($isStaff): ?><a href="index.php?p=admin" class="<?= $p==='admin'?'active':'' ?>">Admin</a><?php endif; ?>
   <a href="index.php?p=logout">Logout</a>
 </nav>
@@ -246,6 +241,9 @@ try {
   } // end jail else block
 ?>
   </main>
+  <div style="padding:10px 14px 4px;text-align:left">
+    <button onclick="history.back()" style="font-size:11px;padding:5px 14px;background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:5px;cursor:pointer">&#8592; Back</button>
+  </div>
 
   <aside class="right">
     <?php

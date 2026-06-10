@@ -45,6 +45,12 @@ try {
   $fq->execute([(int)($_SESSION['pid']??0), $id]); $isFriend = (bool)$fq->fetchColumn();
 } catch (Throwable $e) {}
 
+$profGuild = null;
+try {
+  $pgq = $pdo->prepare("SELECT s.name, s.tag, sm.rank, sm.joined_at FROM syndicate_members sm JOIN syndicates s ON s.id=sm.syndicate_id WHERE sm.player_id=?");
+  $pgq->execute([$id]); $profGuild = $pgq->fetch();
+} catch (Throwable $e) {}
+
 $isOnline  = !empty($prof['last_seen']) && strtotime($prof['last_seen']) >= time() - 300;
 $isBanned  = $role === 'banned';
 $isSub     = is_subscribed($prof);
@@ -125,6 +131,26 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
   </div>
   <?php endif; ?>
 </div>
+
+<?php if ($profGuild): ?>
+<?php
+  $SYN_RANK_COLORS_PROF = ['leader'=>'#e8d44d','coleader'=>'var(--neon2)','treasurer'=>'#3bcf63','armourer'=>'var(--accent)','librarian'=>'#9b8cff','advisor'=>'#e8a33d','member'=>'var(--muted)'];
+  $SYN_RANK_LABELS_PROF = ['leader'=>'Leader','coleader'=>'Co-Leader','treasurer'=>'Treasurer','armourer'=>'Armourer','librarian'=>'Librarian','advisor'=>'Advisor','member'=>'Member'];
+  $pGRank = $profGuild['rank'] ?? 'member';
+?>
+<div class="panel">
+  <h3 style="margin-bottom:10px">&#128101; Syndicate</h3>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:14px;color:var(--accent)">[<?= e($profGuild['tag']) ?>] <?= e($profGuild['name']) ?></div>
+      <div style="font-size:12px;color:<?= $SYN_RANK_COLORS_PROF[$pGRank] ?? 'var(--muted)' ?>;margin-top:2px;font-weight:700"><?= $SYN_RANK_LABELS_PROF[$pGRank] ?? ucfirst($pGRank) ?></div>
+    </div>
+  </div>
+  <?php if ($profGuild['joined_at']): ?>
+  <div style="font-size:11px;color:var(--muted)">Member since <?= e(date('M j, Y', strtotime($profGuild['joined_at']))) ?></div>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
 
 <div class="panel">
   <h3 style="margin-bottom:10px">&#9876; Combat Record</h3>

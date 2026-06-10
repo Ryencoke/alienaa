@@ -51,6 +51,13 @@ $hpPct  = $player['integrity_max']>0   ? min(100,round($player['integrity']/$pla
 $sigPct = $player['signal_max']>0      ? min(100,round($player['signal']/$player['signal_max']*100))             : 0;
 $drvPct = $player['cycles_max']>0      ? min(100,round($player['cycles']/$player['cycles_max']*100))             : 0;
 
+// ── Syndicate info ──
+$myHomeGuild = null;
+try {
+  $sgq = $pdo->prepare("SELECT s.name, s.tag, sm.rank, sm.joined_at FROM syndicate_members sm JOIN syndicates s ON s.id=sm.syndicate_id WHERE sm.player_id=?");
+  $sgq->execute([$pid]); $myHomeGuild = $sgq->fetch();
+} catch (Throwable $e) {}
+
 // ── Notifications ──
 $newsFeed = [];
 try {
@@ -61,6 +68,16 @@ try {
   $q = $pdo->prepare("SELECT 'transfer' AS type,CONCAT('+',FORMAT(amount,0),' credits received from ',p.username) AS text,t.created_at AS ts FROM tx_log t JOIN players p ON p.id=t.from_id WHERE t.to_id=? AND t.kind='transfer' ORDER BY t.created_at DESC LIMIT 5");
   $q->execute([$pid]); foreach ($q as $r) $newsFeed[] = $r;
 } catch (Throwable $e) {}
+try {
+  $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+} catch (Throwable $e) {}
+try {
+  $nq = $pdo->prepare("SELECT type, body AS text, created_at AS ts FROM player_notifications WHERE player_id=? AND is_read=0 ORDER BY created_at DESC LIMIT 10");
+  $nq->execute([$pid]); foreach ($nq as $r) $newsFeed[] = $r;
+  // Mark as read
+  $pdo->prepare("UPDATE player_notifications SET is_read=1 WHERE player_id=? AND is_read=0")->execute([$pid]);
+} catch (Throwable $e) {}
+
 $attrPoints = 0;
 try { $aq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]); $attrPoints = (int)($aq->fetchColumn() ?: 0); } catch (Throwable $e) {}
 if ($attrPoints > 0) $newsFeed[] = ['type'=>'levelup','text'=>"You have <b>{$attrPoints} unspent attribute point".($attrPoints!==1?'s':'')."</b> from leveling up! <a href='index.php?p=training'>Visit Training &rarr;</a>",'ts'=>date('Y-m-d H:i:s')];
@@ -74,8 +91,8 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
     <span style="float:right;background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700"><?= count($newsFeed) ?></span>
   </h3>
   <?php foreach (array_slice($newsFeed,0,8) as $item):
-    $nicon = ['message'=>'&#9993;','transfer'=>'&#128178;','news'=>'&#128203;','levelup'=>'&#11088;'][$item['type']] ?? '&#8226;';
-    $ncol  = ['message'=>'var(--accent)','transfer'=>'#3bcf63','news'=>'#e8d44d','levelup'=>'#e8d44d'][$item['type']] ?? 'var(--muted)';
+    $nicon = ['message'=>'&#9993;','transfer'=>'&#128178;','news'=>'&#128203;','levelup'=>'&#11088;','friend_add'=>'&#128101;'][$item['type']] ?? '&#8226;';
+    $ncol  = ['message'=>'var(--accent)','transfer'=>'#3bcf63','news'=>'#e8d44d','levelup'=>'#e8d44d','friend_add'=>'var(--accent)'][$item['type']] ?? 'var(--muted)';
     $rawHtml = $item['type']==='levelup';
   ?>
   <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)<?= $rawHtml?';background:rgba(232,212,77,.04);margin:-1px -4px;padding:7px 4px;border-radius:4px':'' ?>">
@@ -117,20 +134,6 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
           </div>
         </div>
       </div>
-      <div class="hh-creds">
-        <div class="hh-cv"><?= number_format((int)$player['creds_pocket']) ?><span> cr</span></div>
-        <div class="hh-cl">Pocket</div>
-        <div class="hh-cv"><?= number_format((int)$player['creds_bank']) ?><span> cr</span></div>
-        <div class="hh-cl">Bank</div>
-        <?php if (!empty($player['shards'])): ?>
-          <div class="hh-cv" style="color:var(--neon2)"><?= number_format((int)$player['shards']) ?><span style="color:var(--neon2)"> &#9670;</span></div>
-          <div class="hh-cl">Shards</div>
-        <?php endif; ?>
-        <?php if (($player['loan']??0)>0): ?>
-          <div class="hh-cv" style="color:var(--neon2)"><?= number_format((int)$player['loan']) ?><span> owed</span></div>
-          <div class="hh-cl" style="color:var(--neon2)">Loan</div>
-        <?php endif; ?>
-      </div>
     </div>
   </div>
 </div>
@@ -156,9 +159,6 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
       </div>
     </div>
     <?php endforeach; ?>
-    <div style="border-top:1px solid var(--line);margin-top:6px;padding-top:10px">
-      <a href="index.php?p=city" style="display:block;text-align:center;font-size:11px;color:var(--muted);padding:5px;border:1px solid var(--line);border-radius:5px;text-decoration:none">&#127760; Enter the Sprawl</a>
-    </div>
   </div>
 
   <!-- Combat Stats -->
@@ -188,13 +188,11 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
     </div>
     <?php endforeach; ?>
     <?php if ((int)$cStats['unspent'] > 0): ?>
-    <div style="background:rgba(232,212,77,.07);border:1px solid rgba(232,212,77,.25);border-radius:6px;padding:7px 10px;margin-top:2px;font-size:12px">
-      &#11088; <b style="color:#e8d44d"><?= (int)$cStats['unspent'] ?></b> unspent point<?= $cStats['unspent']!=1?'s':'' ?> &mdash; <a href="index.php?p=training" style="color:#e8d44d">Spend &rarr;</a>
+    <div style="margin-top:10px;padding:8px 12px;background:rgba(232,212,77,.06);border:1px solid rgba(232,212,77,.3);border-radius:6px;font-size:12px;display:flex;align-items:center;justify-content:space-between">
+      <span>&#11088; <b style="color:#e8d44d"><?= (int)$cStats['unspent'] ?></b> unspent point<?= $cStats['unspent']!=1?'s':'' ?></span>
+      <a href="index.php?p=training" style="color:#e8d44d;font-size:11px">Spend &rarr;</a>
     </div>
     <?php endif; ?>
-    <div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">
-      <a href="index.php?p=training" style="display:block;text-align:center;font-size:11px;color:var(--muted);padding:5px;border:1px solid var(--line);border-radius:5px;text-decoration:none">&#128168; Neural Training Center</a>
-    </div>
   </div>
 
   <!-- Loadout -->
@@ -220,11 +218,45 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
           <div style="font-size:11px;color:var(--muted);margin-top:1px"><?= $slot==='weapon'?'+'.((int)$item['atk']).' ATK':'+'.((int)$item['def']).' DEF' ?></div>
         <?php else: ?>
           <div style="color:var(--muted);font-size:12px;font-style:italic">No <?= $label ?> equipped</div>
-          <a href="index.php?p=weaponcraft" style="font-size:11px;color:var(--accent)">Craft at Fabrication Lab &rarr;</a>
         <?php endif; ?>
       </div>
     </div>
     <?php endforeach; ?>
+  </div>
+
+  <!-- Guild Info -->
+  <div class="panel" style="margin-bottom:0">
+    <h3 style="margin-top:0;margin-bottom:14px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128101; Syndicate</h3>
+    <?php if ($myHomeGuild): ?>
+    <?php
+      $SYN_RANK_LABELS_HOME = ['leader'=>'Leader','coleader'=>'Co-Leader','treasurer'=>'Treasurer','armourer'=>'Armourer','librarian'=>'Librarian','advisor'=>'Advisor','member'=>'Member'];
+      $SYN_RANK_COLORS_HOME = ['leader'=>'#e8d44d','coleader'=>'var(--neon2)','treasurer'=>'#3bcf63','armourer'=>'var(--accent)','librarian'=>'#9b8cff','advisor'=>'#e8a33d','member'=>'var(--muted)'];
+      $gRank = $myHomeGuild['rank'] ?? 'member';
+      $gRankLabel = $SYN_RANK_LABELS_HOME[$gRank] ?? ucfirst($gRank);
+      $gRankColor = $SYN_RANK_COLORS_HOME[$gRank] ?? 'var(--muted)';
+    ?>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:10px 12px;margin-bottom:8px">
+      <div style="font-weight:700;font-size:14px;color:var(--accent)">[<?= e($myHomeGuild['tag']) ?>] <?= e($myHomeGuild['name']) ?></div>
+      <div style="font-size:11px;color:<?= $gRankColor ?>;margin-top:3px;font-weight:700"><?= $gRankLabel ?></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 10px">
+        <div style="color:var(--muted)">Joined</div>
+        <div style="font-weight:700;color:var(--text);margin-top:2px"><?= $myHomeGuild['joined_at'] ? e(date('M j, Y', strtotime($myHomeGuild['joined_at']))) : '—' ?></div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 10px">
+        <div style="color:var(--muted)">Rank</div>
+        <div style="font-weight:700;color:<?= $gRankColor ?>;margin-top:2px"><?= $gRankLabel ?></div>
+      </div>
+    </div>
+    <div style="margin-top:8px;text-align:center"><a href="index.php?p=guilds" style="font-size:11px;color:var(--muted);text-decoration:none;border:1px solid var(--line);border-radius:5px;padding:5px 14px;display:inline-block">View Syndicate &rarr;</a></div>
+    <?php else: ?>
+    <div style="text-align:center;padding:16px 0;color:var(--muted)">
+      <div style="font-size:28px;opacity:.2;margin-bottom:6px">&#128101;</div>
+      <div style="font-size:12px">Not in a syndicate</div>
+      <a href="index.php?p=guilds" style="display:inline-block;margin-top:8px;font-size:11px;color:var(--accent);padding:5px 14px;border:1px solid rgba(25,240,199,.2);border-radius:5px;text-decoration:none">Browse &rarr;</a>
+    </div>
+    <?php endif; ?>
   </div>
 
 </div>
@@ -247,12 +279,10 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
     </div>
     <?php endforeach; ?>
   </div>
-  <a href="index.php?p=sim" style="display:block;text-align:center;font-size:11px;color:var(--accent);padding:6px;border:1px solid rgba(25,240,199,.2);border-radius:5px;text-decoration:none">&#9889; Launch Combat Sim &rarr;</a>
   <?php else: ?>
   <div style="text-align:center;padding:18px 0;color:var(--muted)">
     <div style="font-size:30px;margin-bottom:6px;opacity:.25">&#9876;</div>
     <div style="font-size:13px">No combat logged today</div>
-    <a href="index.php?p=sim" style="display:inline-block;margin-top:10px;font-size:11px;color:var(--accent);padding:6px 14px;border:1px solid rgba(25,240,199,.2);border-radius:5px;text-decoration:none">&#9889; Go Fight &rarr;</a>
   </div>
   <?php endif; ?>
 </div>

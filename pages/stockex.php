@@ -60,7 +60,7 @@ try {
   $logPrice = $pdo->prepare('INSERT INTO stock_price_log (stock_id, price) VALUES (?,?)');
   $lastLog  = (int)($pdo->query("SELECT MAX(UNIX_TIMESTAMP(recorded_at)) FROM stock_price_log")->fetchColumn() ?: 0);
   $doLog    = (time() - $lastLog) >= 300;
-  foreach ($allStocks as $s) {
+  if ($doLog) foreach ($allStocks as $s) {
     $base = (mt_rand(-8, 8) / 1000); // ±0.8% base noise
     $boost = 0;
     switch ($s['ticker']) {
@@ -179,7 +179,7 @@ try {
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
       <div>
         <h2 style="margin:0 0 2px">&#128200; Stock Exchange</h2>
-        <p class="muted" style="margin:0;font-size:12px">Game-tied stocks. Prices shift every page load. 1% brokerage fee on all trades.</p>
+        <p class="muted" style="margin:0;font-size:12px">Game-tied stocks. Prices update every 5 minutes. 1% brokerage fee on all trades.</p>
       </div>
       <div style="font-size:12px">Pocket: <b style="color:var(--accent)"><?= number_format($player['creds_pocket']) ?> cr</b></div>
     </div>

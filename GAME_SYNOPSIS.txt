@@ -1,0 +1,198 @@
+SPRAWL-9 — GAME SYNOPSIS & PROJECT OVERVIEW
+============================================
+File: C:\Users\mcfar\Desktop\Coding\GAME_SYNOPSIS.txt
+Last updated: 2026-06-10
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT IS SPRAWL-9?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Sprawl-9 is a browser-based cyberpunk MMO text RPG. Players create a
+character and live in a dystopian city called "The Sprawl" — doing jobs,
+fighting, trading, managing resources, and climbing the ranks. The game
+is multi-player and persistent.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TECH STACK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Flat PHP (NO framework, NO MVC — intentional)
+- MySQL database
+- Entry point: index.php (AJAX nav — swaps main.center, dispatches sprawl:swapped)
+- Pages: /pages/*.php (included by index.php via ?p=pagename)
+- Helpers: lib.php (chat_color, nav_links, role_label, etc.)
+- Config: config.php (gitignored)
+- Styles: style.css (cyberpunk dark theme — neon #19f0c7, magenta #ff2d95)
+- No build pipeline — plain HTML/CSS/JS inline
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+THEME & AESTHETIC
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Cyberpunk noir. Dark backgrounds, neon accent colors, terminal-style UI.
+CSS variables: --accent (#19f0c7 teal), --neon2 (#ff2d95 magenta), --bg, --panel, --panel2, --line, --muted.
+Sticky topbar with blur, radial gradient blooms, system font stack (14px).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PLAYER STATS (DB → Display Name)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- integrity / integrity_max  → Health
+- cycles / cycles_max        → Drive (energy for actions)
+- signal / signal_max        → Signal
+- xp / xp_next               → XP / Level
+- creds_pocket               → Credits (pocket)
+- creds_bank                 → Credits (bank)
+- shards                     → Shards (premium currency, symbol ◆)
+- level                      → Level
+- loan                       → Loan (owed to bank)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ROLES & ACCESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+member    → default player
+chatmod   → can moderate chat only; color: #3bcf63
+moderator → chat + IP log; color: #4d9be8
+admin     → full access + jail + impersonate; color: #e8d44d
+manager   → all admin + daily reset trigger; color: #e23b3b
+banned    → locked out
+
+Subscribers: sub_until column (DATE); benefits include higher Drive cap (1500 vs 500),
+syndicate board access if leader, apartment market, cosmetics.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KEY PAGES (pages/*.php)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+home.php          → Hideout / dashboard; notifications at top
+profile.php       → Public player profile; badges, combat record, quick actions
+account.php       → Settings: password, bio, sidebar customization, font, country
+messages.php      → Private messages; inbox + conversation thread; ID or handle search
+friends.php       → Friends list; search by username or player ID; online status
+city.php          → The Sprawl: district map hub; links to all districts
+bazaar.php        → Open Market: buy/sell items player-to-player
+auction.php       → Black Market Auctions; timed listings
+stash.php         → Inventory / loadout; equip/unequip items
+ledger.php        → Bank: deposit/withdraw/transfer credits; bank interest
+trade.php         → Secure Trade Post: escrow trades (items+credits+shards), direct transfer
+pvp.php           → Combat Arena: PvP fights using str/spd/end stats
+training.php      → Neural Training: spend Drive to gain STR/SPD/END; 30min cooldown
+datacore.php      → Skillsoft Lab: spend Drive on skills (combat, stealth, hack, etc.)
+guilds.php        → Syndicates: create/join guilds, board, stockpile, log, applications
+boards.php        → Public message boards (topics + replies)
+tickets.php       → Support ticket system
+admin.php         → Staff hub (sub-pages via ?sec=)
+jail.php          → Confinement Grid (admin tool)
+daemon.php        → Lucky Daemon casino (slots + video poker)
+stockex.php       → Stock Exchange; prices driven by game activity
+bonds.php         → Credit Bonds
+apartments.php    → Apartment ownership, market, decoration system
+generalstore.php  → The Supply Node (item shop)
+exchange.php      → The Exchange
+accord.php        → Commerce Accord: trader registration; reduces bank fees
+cityhall.php      → City Hall hub
+library.php       → Item/skill reference
+updates.php       → Game update announcements
+welcome.php       → New player welcome screen
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KEY DATABASE TABLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+players           → main accounts (id, username, email, pass_hash, role, level, creds_pocket,
+                    creds_bank, shards, integrity, integrity_max, xp, xp_next, signal,
+                    signal_max, cycles, cycles_max, loan, sub_until, bio, sidebar,
+                    chat_color, last_seen, created_at, birthday, country, font)
+player_stats      → PvP stats (pid, str_pts, spd_pts, end_pts, unspent)
+player_items      → inventory (player_id, item_id, qty) PK(player_id, item_id)
+items             → item definitions (id, name, code, category, atk, def, slot, ...)
+messages          → private messages (id, from_id, to_id, body, is_read, created_at)
+friends           → (player_id, friend_id, UNIQUE KEY uq_pair)
+settings          → generic k/v store (k, v); used for cooldowns, prefs, sidebar
+posts             → board posts/replies (id, topic_id, author_id, body, parent_id)
+topics            → board topics (id, board_id, title, author_id)
+chat_messages     → public chat log
+combat_log        → PvP/PvE fight history (player_id, outcome)
+trade_offers      → escrow trades (from_id, to_id, from_credits, to_credits,
+                    from_shards, to_shards, note, status, created_at, resolved_at)
+trade_offer_items → per-trade items (offer_id, direction ENUM('from','to'), item_id, qty)
+jail_records      → confinement entries (player_id, reason, days, jailed_by, status)
+syndicates        → guilds (id, name, tag, leader_id, ...)
+syndicate_members → (syndicate_id, player_id, rank)
+syndicate_posts   → guild board posts (id, syndicate_id, author_id, body, parent_id)
+market_listings   → bazaar listings (id, seller_id, item_id, qty, price)
+market_sales      → completed bazaar sales log
+auction_listings  → auction house
+player_apartments → apartment ownership + decoration
+casino_log        → daemon casino history
+tx_log            → transaction log (from_id, to_id, kind, amount, note)
+admin_log         → staff edit history (admin_id, target_id, field, old_value, new_value)
+pending_signups   → email verification codes for new accounts
+updates           → game update announcements
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LAYOUT STRUCTURE (index.php)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Topbar (sticky, blurred): logo, stat bars, nav-toggle
+- Left aside: customizable sidebar nav (player_sidebar() from lib.php)
+- main.center: page content (AJAX-swapped on nav click)
+- Right aside: Online Now panel (polled every 4s via state_api.php),
+               Quickchat box (last N chat messages)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KEY LIB.PHP HELPERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+chat_color($role, $member_color)  → returns hex color for username display
+nav_links()                       → returns all sidebar-eligible pages as [key => [label, url]]
+player_sidebar($player)           → returns player's ordered sidebar key list
+is_subscribed($row)               → true if sub_until >= today
+bbcode($text)                     → parse [b], [i], [url], [color] etc.
+e($str)                           → htmlspecialchars wrapper
+db()                              → returns PDO connection
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPORTANT PATTERNS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- attachCounters() in index.php auto-adds char counters to inputs.
+  Suppress with: data-no-counter on the input/textarea.
+- char counter removal: add data-no-counter to inputs that shouldn't show one.
+- CSRF guard: csrf_guard() called at top of index.php for POST requests.
+- Admin log: all player edits logged to admin_log via $log() closure in admin.php.
+- Escrow pattern (trade.php): credits/shards/items deducted from proposer on propose,
+  returned on cancel/reject, transferred on accept — all in a DB transaction.
+- state_api.php: polled by JS every 4s; returns online list, chat messages, notifications.
+- Daily reset: triggered manually via admin panel (manager only) or runs via cron;
+  restores Health/Signal, adds +250 Drive up to cap (500 non-sub / 1500 sub).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT WE ARE DOING (ONGOING WORK)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The foundation is in place. Sessions are spent enhancing and polishing
+existing systems — fixing bugs, adding UX improvements, and building out
+new game features. Work is tracked in CHANGELOG.txt (one entry per session).
+
+Typical session workflow:
+1. User pastes a batch of bug fixes and feature requests
+2. Changes are implemented across relevant pages
+3. CHANGELOG.txt is updated
+4. Changes are committed to git
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECENTLY COMPLETED (as of 2026-06-10)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Full UI overhaul (style.css, all major pages) — cyberpunk dark theme
+- PvP Combat Arena (pvp.php, player_stats table)
+- Neural Training (training.php — STR/SPD/END, Drive cost, cooldown)
+- Skillsoft Lab (datacore.php — skill levels, Drive cost slider)
+- Syndicates / Guilds (guilds.php — full guild system, board, stockpile, applications)
+- Casino: Slots + Video Poker (daemon.php)
+- Stock Exchange with activity-driven price simulation (stockex.php)
+- Auction House (auction.php — inventory dropdown, market_sales log)
+- Apartments with decoration system (apartments.php)
+- Commerce Accord — trader registration, reduced bank fees (accord.php)
+- Secure Trade Post — escrow trades with items/credits/shards (trade.php NEW)
+- Admin panel: create user, jail/unjail, daily reset, edit log, inventory editor
+- Friends system with online status, search by ID or handle
+- Private messages with thread view, friends quick-select, ID search
+- Tickets / support system
+- Sidebar customization (drag-order, toggle pages, hide topbar)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KNOWN DEFERRED / PENDING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- guilds.php: extra Drive bonus for syndicate members when leader is subscribed
+  (requires daily reset changes)
