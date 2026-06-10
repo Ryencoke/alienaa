@@ -135,7 +135,11 @@ endif; ?>
   <a href="index.php?stop_impersonate=1" style="color:#000;text-decoration:underline;font-weight:900">&#8617; STOP</a>
 </div>
 <?php endif; ?>
-<nav class="topbar">
+<?php
+  $_hideTopbar = false;
+  try { $htq = db()->prepare('SELECT v FROM settings WHERE k=?'); $htq->execute(['hide_topbar:'.$player['id']]); $_hideTopbar = $htq->fetchColumn() === '1'; } catch (Throwable $e) {}
+?>
+<nav class="topbar<?= $_hideTopbar ? ' topbar-hidden' : '' ?>">
   <button id="nav-toggle" class="nav-toggle" aria-label="Open menu" title="Menu">&#9776;</button>
   <a href="index.php?p=home" class="<?= $p==='home'?'active':'' ?>">Hideout</a>
   <a href="index.php?p=stash" class="<?= $p==='stash'?'active':'' ?>">Inventory</a>

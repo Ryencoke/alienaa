@@ -80,10 +80,14 @@ try {
   if ($bv !== false && $bv !== '') { [$bon, $exp] = explode('|', $bv, 2); if (time() < (int)$exp) $buffDef = (int)$bon; }
 } catch (Throwable $e) {}
 
+$_simMerchantUntil = $player['merchant_until'] ?? null;
+$_simIsMerchant = !empty($_simMerchantUntil) && $_simMerchantUntil >= date('Y-m-d');
+
 /* ---------- action handling ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = $_POST['action'] ?? '';
   try {
+    if ($_simIsMerchant) throw new RuntimeException('Commerce Accord active — combat is locked until ' . $_simMerchantUntil . '.');
     if ($action === 'engage') {
       if ((int)$player['integrity'] <= 0) throw new RuntimeException('Flatlined — patch up before you fight again.');
       $eq = $pdo->prepare('SELECT * FROM enemies WHERE code = ?');
@@ -190,6 +194,9 @@ $ip = (int)$player['integrity_max'] > 0 ? min(100, round((int)$player['integrity
 $flatlined = (int)$player['integrity'] <= 0;
 ?>
 
+<?php if ($_simIsMerchant): ?>
+<div class="flash flash-err">&#9878; Commerce Accord active — combat is locked until <?= e($_simMerchantUntil) ?>.</div>
+<?php endif; ?>
 <!-- Header -->
 <div class="panel">
   <h2>&#128737; Combat Sim <span style="color:var(--muted);font-size:13px;font-weight:400;font-family:inherit">&mdash; The Firewall</span></h2>

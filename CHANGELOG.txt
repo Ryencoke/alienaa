@@ -2,7 +2,7 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
---- SESSION: 2026-06-10 ---
+--- SESSION: 2026-06-10 00:00 ---
 
 BUG FIXES
 ---------
@@ -50,7 +50,7 @@ LIBRARY (library.php)
 ---------------------
 - No structural changes; content is already current with all weapons/armor/consumables/skills
 
---- SESSION: 2026-06-10 (continued) ---
+--- SESSION: 2026-06-10 (continued) 00:00 ---
 
 BUG FIXES
 ---------
@@ -90,7 +90,7 @@ LIB (lib.php)
 -------------
 - 'guilds' added to nav_links() so Syndicate can appear in customizable sidebar
 
---- SESSION: 2026-06-10 (third batch) ---
+--- SESSION: 2026-06-10 (third batch) 00:00 ---
 
 BUG FIXES
 ---------
@@ -130,7 +130,7 @@ CITY HALL (cityhall.php)
 - Each entry has icon, title, and description; hover accent highlight
 - Removed the SVG building illustration
 
---- SESSION: 2026-06-10 (fourth batch) ---
+--- SESSION: 2026-06-10 (fourth batch) 19:30 ---
 
 BUG FIXES
 ---------
@@ -189,12 +189,41 @@ COMMERCE ACCORD (accord.php — NEW)
 - Bank page shows Accord status banner with reduced-fee notice
 - Added to city.php (The Bazaar district) and nav_links() for sidebar use
 
+--- SESSION: 2026-06-10 (fifth batch) ---
+
+BUG FIXES
+---------
+- [style.css] nav-toggle (☰) no longer visible on desktop — explicit display:none in @media(min-width:941px)
+- [combat] Confirmed: combat skillsoft already PvE-only; pvp.php uses str/spd/end stats, not combat skill
+
+ACCOUNT (account.php)
+---------------------
+- "Hide top navigation bar" toggle added in Account > Sidebar > Navigation Display
+- Preference saved as hide_topbar:{pid} in settings; topbar gets .topbar-hidden class when active
+
+COMMERCE ACCORD (training.php, sim.php, pvp.php)
+-------------------------------------------------
+- Accord now blocks training: error shown and POST rejected with expiry date
+- Accord now blocks PvE combat (sim.php): error shown and POST rejected
+- Accord now blocks PvP (pvp.php): error shown and POST rejected
+- All three pages show a red Accord banner at top when active
+
+SYNDICATES (guilds.php)
+-----------------------
+- Leader subscription check: if leader's sub_until is expired, board posting is locked for non-subscribers
+- Stockpile contributions also locked for non-subscribers when leader is unsubscribed
+- Warning banner shown on board and stockpile tabs when leader is not subscribed
+
+APARTMENTS (apartments.php)
+----------------------------
+- Sell-back: non-primary apartments can be sold back to system for 50% of base price
+  (must not be rented out or listed on market; decor is also removed)
+- Market limit: only one listing per apartment type allowed on market at a time
+- House decoration system: apartment_decor table added; 6 cosmetic items available
+  (Neon Wall Light 500cr, Holo Portrait 1500cr, Data Terminal 2000cr,
+   Cyber Plant 800cr, Weapon Rack 3000cr, Security Camera 1200cr)
+- Furnish panel per apartment in My Properties tab — place/remove decorations
+
 PENDING / DEFERRED
 ------------------
-- [account.php] Player customization — hide topbar, rearrange sidebar elements
-- [apartments.php] Limited apartments for sale per type; sell-back functionality
-- [apartments.php] House decoration system
-- [guilds.php] Guild subscriptions — leader must be subscribed; non-sub lockout; extra drive for members
-- [combat] Active skill only applies to PvE/credits, not PvP damage
-- [Bug fix] 3-dash nav-toggle visible on desktop topbar — investigate CSS breakpoint
-- [accord.php] Block combat/training pages when Accord is active (training.php, sim.php, pvp.php)
+- [guilds.php] Extra Drive bonus for syndicate members when leader is subscribed (requires daily reset changes)

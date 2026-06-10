@@ -58,6 +58,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           ->execute(['sidebar_bars:' . $pid, implode(',', $chosen)]);
       $msg = 'Stat display updated.';
     }
+    elseif ($action === 'sidebar_topbar') {
+      $hide = ($_POST['hide_topbar'] ?? '0') === '1' ? '1' : '0';
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['hide_topbar:'.$pid, $hide]);
+      $msg = $hide ? 'Top bar hidden.' : 'Top bar visible.';
+    }
     elseif ($action === 'font') {
       $validFonts = ['default','rajdhani','share_tech_mono','inter','jura','ibm_plex_mono'];
       $font = $_POST['font_choice'] ?? 'default';
@@ -173,6 +178,8 @@ $curAccent = $player['accent_color'] ?? '';
     $sbBarsRaw = '';
     try { $r = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $r->execute([$sbBarsKey]); $sbBarsRaw = (string)$r->fetchColumn(); } catch (Throwable $e) {}
     $activeBars = $sbBarsRaw !== '' ? array_filter(explode(',', $sbBarsRaw)) : ['creds','bank','shards','integrity','xp','signal','cycles'];
+    $hideTopbar = false;
+    try { $htq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $htq->execute(['hide_topbar:'.$pid]); $hideTopbar = $htq->fetchColumn() === '1'; } catch (Throwable $e) {}
     $barLabels = ['creds'=>'Credits','bank'=>'Bank','shards'=>'Shards','integrity'=>'Health','xp'=>'XP','signal'=>'Signal','cycles'=>'Drive'];
   ?>
   <h3 style="margin-top:24px">Visible Stats</h3>
@@ -189,6 +196,17 @@ $curAccent = $player['accent_color'] ?? '';
     </div>
     <button type="submit" style="margin-top:12px">Save Stat Display</button>
   </form>
+
+  <h3 style="margin-top:24px">Navigation Display</h3>
+  <form method="post" action="index.php?p=account&sec=sidebar" id="topbar-toggle-form">
+    <input type="hidden" name="action" value="sidebar_topbar">
+    <label class="stat-toggle" style="margin-bottom:12px">
+      <input type="checkbox" id="hide-topbar-chk" name="hide_topbar" value="1" <?= $hideTopbar ? 'checked' : '' ?>>
+      <span class="st-label">Hide top navigation bar</span>
+    </label>
+    <div><button type="submit">Save Display</button></div>
+  </form>
+
   <script>
   (function(){
     var cbx=document.querySelectorAll('input[name="bars[]"]');

@@ -17,6 +17,13 @@ try {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (Throwable $e) {}
 try { $pdo->exec("ALTER TABLE player_apartments ADD COLUMN market_currency ENUM('credits','shards') NOT NULL DEFAULT 'credits'"); } catch (Throwable $e) {}
+try {
+  $pdo->exec("CREATE TABLE IF NOT EXISTS apartment_decor (
+    id INT AUTO_INCREMENT PRIMARY KEY, apt_id INT NOT NULL, player_id INT NOT NULL,
+    decor_key VARCHAR(40) NOT NULL, placed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_apt (apt_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (Throwable $e) {}
 
 // Apartment type definitions
 $APT_TYPES = [
@@ -31,6 +38,15 @@ $APT_TYPES = [
 
 $REGIONS = array_unique(array_column($APT_TYPES, 'region'));
 $RARITY_COLORS = ['common'=>'var(--muted)','uncommon'=>'var(--accent)','rare'=>'var(--neon2)','legendary'=>'#e8d44d'];
+
+$DECOR_ITEMS = [
+  'neon_light'    => ['name'=>'Neon Wall Light',  'price'=>500,   'icon'=>'&#128268;'],
+  'holo_portrait' => ['name'=>'Holo Portrait',    'price'=>1500,  'icon'=>'&#128444;'],
+  'data_terminal' => ['name'=>'Data Terminal',    'price'=>2000,  'icon'=>'&#128187;'],
+  'cyber_plant'   => ['name'=>'Cyber Plant',      'price'=>800,   'icon'=>'&#127807;'],
+  'weapon_rack'   => ['name'=>'Weapon Rack',      'price'=>3000,  'icon'=>'&#9876;'],
+  'security_cam'  => ['name'=>'Security Camera',  'price'=>1200,  'icon'=>'&#128249;'],
+];
 
 // Apply or remove the stat/setting bonus for an apartment type.
 // Uses apt_perk_tid:{pid} in settings to track what's applied so reversals are safe.
@@ -116,11 +132,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('UPDATE player_apartments SET rented_to=NULL, rent_amount=0 WHERE id=? AND player_id=?')->execute([$aptId, $pid]);
       $msg = 'Rental ended.';
 
+    } elseif ($act === 'sellback') {
+      $aptId = (int)($_POST['apt_id'] ?? 0);
+      $qa = $pdo->prepare('SELECT * FROM player_apartments WHERE id=? AND player_id=? AND is_primary=0 AND on_market=0 AND rented_to IS NULL');
+      $qa->execute([$aptId, $pid]); $aptRow = $qa->fetch();
+      if (!$aptRow) throw new RuntimeException('Cannot sell back — not found, is your primary, or unavailable.');
+      $atype = $APT_TYPES[$aptRow['apt_type_id']] ?? null;
+      if (!$atype) throw new RuntimeException('Unknown apartment type.');
+      $refund = (int)($atype['price'] / 2);
+      $pdo->beginTransaction();
+      try { $pdo->prepare('DELETE FROM apartment_decor WHERE apt_id=?')->execute([$aptId]); } catch (Throwable $e) {}
+      $pdo->prepare('DELETE FROM player_apartments WHERE id=? AND player_id=?')->execute([$aptId, $pid]);
+      $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$refund, $pid]);
+      $pdo->commit();
+      $msg = 'Sold back ' . $atype['name'] . ' — refunded ' . number_format($refund) . ' credits (50% return).';
+      $player = current_player();
+
+    } elseif ($act === 'decor_buy') {
+      $aptId    = (int)($_POST['apt_id'] ?? 0);
+      $decorKey = $_POST['decor_key'] ?? '';
+      if (!isset($DECOR_ITEMS[$decorKey])) throw new RuntimeException('Invalid decor item.');
+      $qa = $pdo->prepare('SELECT id FROM player_apartments WHERE id=? AND player_id=?'); $qa->execute([$aptId, $pid]); if (!$qa->fetchColumn()) throw new RuntimeException('Apartment not found.');
+      $decor = $DECOR_ITEMS[$decorKey];
+      $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
+      $u->execute([$decor['price'], $pid, $decor['price']]);
+      if ($u->rowCount() !== 1) throw new RuntimeException('Not enough credits (costs ' . number_format($decor['price']) . ' cr).');
+      $pdo->prepare('INSERT INTO apartment_decor (apt_id, player_id, decor_key) VALUES (?,?,?)')->execute([$aptId, $pid, $decorKey]);
+      $msg = $decor['name'] . ' placed in your apartment!';
+      $player = current_player();
+
+    } elseif ($act === 'decor_remove') {
+      $decorId = (int)($_POST['decor_id'] ?? 0);
+      $pdo->prepare('DELETE FROM apartment_decor WHERE id=? AND player_id=?')->execute([$decorId, $pid]);
+      $msg = 'Decoration removed.';
+
     } elseif ($act === 'list_market') {
       $aptId    = (int)($_POST['apt_id'] ?? 0);
       $mktPrice = max(1, (int)($_POST['market_price'] ?? 0));
       $currency = ($_POST['market_currency'] ?? 'credits') === 'shards' ? 'shards' : 'credits';
-      $qa = $pdo->prepare('SELECT * FROM player_apartments WHERE id=? AND player_id=? AND rented_to IS NULL AND on_market=0'); $qa->execute([$aptId, $pid]); if (!$qa->fetch()) throw new RuntimeException('Cannot list — not found or unavailable.');
+      $qa = $pdo->prepare('SELECT * FROM player_apartments WHERE id=? AND player_id=? AND rented_to IS NULL AND on_market=0'); $qa->execute([$aptId, $pid]); $aptRow = $qa->fetch(); if (!$aptRow) throw new RuntimeException('Cannot list — not found or unavailable.');
+      $ml = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE apt_type_id=? AND on_market=1 AND id != ?'); $ml->execute([$aptRow['apt_type_id'], $aptId]);
+      if ((int)$ml->fetchColumn() >= 1) throw new RuntimeException('A listing for this apartment type is already on the market. Only one per type allowed.');
       $pdo->prepare('UPDATE player_apartments SET on_market=1, market_price=?, market_currency=? WHERE id=?')->execute([$mktPrice, $currency, $aptId]);
       $msg = 'Listed on the apartment market for ' . number_format($mktPrice) . ' ' . $currency . '.';
 
@@ -217,7 +269,9 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
         <?php if (!$a['is_primary'] && !$a['rented_to'] && !$a['on_market']): ?>
           <button style="font-size:11px;padding:5px 10px" onclick="this.closest('.panel').querySelector('.rent-form').style.display='block'">Rent Out</button>
           <button style="font-size:11px;padding:5px 10px" onclick="this.closest('.panel').querySelector('.sell-form').style.display='block'">List for Sale</button>
+          <button style="font-size:11px;padding:5px 10px;color:var(--neon2);border-color:rgba(255,45,149,.3)" onclick="this.closest('.panel').querySelector('.sellback-form').style.display='block'">Sell Back</button>
         <?php endif; ?>
+        <button style="font-size:11px;padding:5px 10px" onclick="this.closest('.panel').querySelector('.decor-form').style.display=this.closest('.panel').querySelector('.decor-form').style.display==='block'?'none':'block'">&#128268; Furnish</button>
         <?php if ($a['rented_to']): ?>
           <form method="post" style="margin:0"><input type="hidden" name="action" value="end_rent"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>"><button type="submit" style="font-size:11px;padding:5px 10px;color:var(--neon2);border-color:rgba(255,45,149,.3)">End Rental</button></form>
         <?php endif; ?>
@@ -247,6 +301,50 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
           <button type="submit" style="font-size:12px">List on Market</button>
         </div>
       </form>
+    </div>
+    <?php if (!$a['is_primary']): ?>
+    <div class="sellback-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+      <p style="margin:0 0 8px;font-size:12px;color:var(--muted)">Sell back to system for <b style="color:var(--accent)"><?= number_format((int)($atype['price'] / 2)) ?> cr</b> (50% of original price). This cannot be undone.</p>
+      <form method="post" onsubmit="return confirm('Sell this apartment back for <?= number_format((int)($atype['price'] / 2)) ?> credits? This is permanent.')">
+        <input type="hidden" name="action" value="sellback"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>">
+        <button type="submit" style="font-size:12px;color:var(--neon2);border-color:rgba(255,45,149,.3)">Confirm Sell Back</button>
+      </form>
+    </div>
+    <?php endif; ?>
+    <?php
+      $aptDecor = [];
+      try { $dq = $pdo->prepare('SELECT * FROM apartment_decor WHERE apt_id=? ORDER BY placed_at ASC'); $dq->execute([$a['id']]); $aptDecor = $dq->fetchAll(); } catch (Throwable $e) {}
+    ?>
+    <div class="decor-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+      <div style="font-size:12px;font-weight:700;margin-bottom:8px">&#128268; Furnishings</div>
+      <?php if (!empty($aptDecor)): ?>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+        <?php foreach ($aptDecor as $d): $di = $DECOR_ITEMS[$d['decor_key']] ?? null; if (!$di) continue; ?>
+        <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:11px;display:flex;align-items:center;gap:6px">
+          <span><?= $di['icon'] ?> <?= e($di['name']) ?></span>
+          <form method="post" style="margin:0"><input type="hidden" name="action" value="decor_remove"><input type="hidden" name="decor_id" value="<?= (int)$d['id'] ?>"><button type="submit" style="font-size:10px;padding:2px 6px;color:var(--neon2);border-color:rgba(255,45,149,.3)">&times;</button></form>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      <?php else: ?>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">No furnishings yet.</p>
+      <?php endif; ?>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px">
+        <?php foreach ($DECOR_ITEMS as $dk => $di):
+          $alreadyPlaced = !empty(array_filter($aptDecor, fn($d) => $d['decor_key'] === $dk));
+          $canAfford = (int)$player['creds_pocket'] >= $di['price'];
+        ?>
+        <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px 10px">
+          <div style="font-size:13px;margin-bottom:3px"><?= $di['icon'] ?> <?= e($di['name']) ?></div>
+          <div style="font-size:11px;color:var(--accent);margin-bottom:6px"><?= number_format($di['price']) ?> cr</div>
+          <?php if ($alreadyPlaced): ?>
+          <button disabled style="font-size:10px;width:100%;opacity:.4">Placed</button>
+          <?php else: ?>
+          <form method="post" style="margin:0"><input type="hidden" name="action" value="decor_buy"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>"><input type="hidden" name="decor_key" value="<?= e($dk) ?>"><button type="submit" style="font-size:10px;width:100%" <?= !$canAfford ? 'disabled style="opacity:.4"' : '' ?>>Place</button></form>
+          <?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+      </div>
     </div>
   </div>
   <?php endforeach; ?>

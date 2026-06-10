@@ -122,6 +122,17 @@ try {
   if ($mySyn) $myRank = $mySyn['rank'];
 } catch (Throwable $e) {}
 
+$leaderIsSubbed = false;
+if ($mySyn) {
+  try {
+    $lsq = $pdo->prepare('SELECT sub_until FROM players WHERE id=?');
+    $lsq->execute([$mySyn['leader_id']]);
+    $lr = $lsq->fetch();
+    $leaderIsSubbed = !empty($lr['sub_until']) && $lr['sub_until'] >= date('Y-m-d');
+  } catch (Throwable $e) {}
+}
+$playerIsSubbed = is_subscribed($player);
+
 // ── Actions ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $act = $_POST['action'] ?? '';
@@ -226,6 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     } elseif ($act === 'post') {
       if (!$mySyn || !syn_can($myRank,'post_board')) throw new RuntimeException('Members only.');
+      if (!$leaderIsSubbed && !$playerIsSubbed) throw new RuntimeException('Board locked — the leader\'s subscription has expired. Only subscribed members can post.');
       $parentId = (int)($_POST['parent_id'] ?? 0) ?: null;
       $body = trim($_POST['post_body'] ?? '');
       if (mb_strlen($body) < 2) throw new RuntimeException('Write something.');
@@ -282,6 +294,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     } elseif ($act === 'stockpile_add') {
       if (!$mySyn || !syn_can($myRank,'manage_stockpile')) throw new RuntimeException('No permission.');
+      if (!$leaderIsSubbed && !$playerIsSubbed) throw new RuntimeException('Stockpile locked — the leader\'s subscription has expired. Only subscribed members can contribute.');
       $iname = mb_substr(trim($_POST['item_name'] ?? ''),0,100); $itype = $_POST['gear_type'] ?? 'weapon';
       $atk = max(0,min(999,(int)($_POST['atk_bonus'] ?? 0))); $def = max(0,min(999,(int)($_POST['def_bonus'] ?? 0)));
       $notes = mb_substr(trim($_POST['notes'] ?? ''),0,200);
@@ -503,7 +516,11 @@ if ($tab === 'home' && $mySyn):
 <?php // ══ BOARD ══════════════════════════════════════════
 elseif ($tab === 'board' && $mySyn):
 
-if ($boardTid) {
+<?php if (!$leaderIsSubbed): ?>
+<div class="flash flash-err">&#9733; Leader subscription expired — board posting is locked for non-subscribers.</div>
+<?php endif; ?>
+
+<?php if ($boardTid) {
   // ── Topic detail view ──────────────────────────────
   $topicPost = null;
   try {
@@ -715,6 +732,9 @@ elseif ($tab === 'stockpile' && $mySyn):
   try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name,i.category FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.qty>0 ORDER BY i.category,i.name'); $piq->execute([$pid]); $playerInvStock = $piq->fetchAll(); } catch (Throwable $e) {}
 ?>
 
+<?php if (!$leaderIsSubbed): ?>
+<div class="flash flash-err">&#9733; Leader subscription expired — stockpile contributions are locked for non-subscribers.</div>
+<?php endif; ?>
 <!-- Add to stockpile -->
 <?php if ($canManageStock): ?>
 <div class="panel">

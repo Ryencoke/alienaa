@@ -70,9 +70,13 @@ $cooldownLeft  = max(0, ($lastTrain + TRAIN_COOLDOWN) - time());
 $canTrain      = $cooldownLeft === 0;
 $driveOk       = (int)$player['cycles'] >= TRAIN_DRIVE_COST;
 
+$_merchantUntil = $player['merchant_until'] ?? null;
+$_isMerchant = !empty($_merchantUntil) && $_merchantUntil >= date('Y-m-d');
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'train') {
   $reg = $_POST['regimen'] ?? '';
-  if (!isset($REGIMENS[$reg])) { $msg = 'Select a regimen.'; }
+  if ($_isMerchant)            { $msg = 'Commerce Accord active — training locked until ' . e($_merchantUntil) . '.'; }
+  elseif (!isset($REGIMENS[$reg])) { $msg = 'Select a regimen.'; }
   elseif (!$canTrain)          { $msg = 'Cooldown active — wait '.ceil($cooldownLeft/60).' min.'; }
   elseif (!$driveOk)           { $msg = 'Not enough Drive (costs '.TRAIN_DRIVE_COST.' Drive).'; }
   else {
@@ -111,6 +115,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'train
 $player = current_player();
 ?>
 
+<?php if ($_isMerchant): ?>
+<div class="flash flash-err">&#9878; Commerce Accord active — training is locked until <?= e($_merchantUntil) ?>.</div>
+<?php endif; ?>
 <!-- Header -->
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="height:3px;background:linear-gradient(90deg,var(--neon2),#e8a33d,var(--accent),transparent)"></div>

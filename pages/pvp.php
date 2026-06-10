@@ -151,11 +151,15 @@ function pvp_simulate($atk_p, $atk_s, $def_p, $def_s) {
   return ['rounds'=>$rounds, 'winner'=>$winner, 'atk_final_hp'=>$atkHp, 'def_final_hp'=>$defHp, 'total_rounds'=>$roundNum];
 }
 
+$_pvpMerchantUntil = $player['merchant_until'] ?? null;
+$_pvpIsMerchant = !empty($_pvpMerchantUntil) && $_pvpMerchantUntil >= date('Y-m-d');
+
 // ── Handle POST ────────────────────────────────────────────────────────────
 $battleResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $act = $_POST['action'] ?? '';
   try {
+    if ($_pvpIsMerchant) throw new RuntimeException('Commerce Accord active — combat is locked until ' . $_pvpMerchantUntil . '.');
     if ($act === 'spend_stat') {
       $stat = $_POST['stat'] ?? '';
       if (!in_array($stat, ['str_pts','spd_pts','end_pts'], true)) throw new RuntimeException('Invalid stat.');
@@ -219,6 +223,9 @@ try {
 ?>
 
 <!-- Header -->
+<?php if ($_pvpIsMerchant): ?>
+<div class="flash flash-err">&#9878; Commerce Accord active — combat is locked until <?= e($_pvpMerchantUntil) ?>.</div>
+<?php endif; ?>
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="height:3px;background:linear-gradient(90deg,var(--neon2),#e8a33d,transparent)"></div>
   <div style="padding:14px 20px">

@@ -66,7 +66,9 @@ img{max-width:100%;display:block}
 /* Sticky sidebars on desktop */
 @media(min-width:941px){
   aside.left,aside.right{position:sticky;top:62px;max-height:calc(100vh - 76px);overflow-y:auto}
+  .nav-toggle{display:none}
 }
+.topbar-hidden{display:none}
 .name{color:var(--accent);font-weight:bold;letter-spacing:1px;
   font-family:'Orbitron',sans-serif;font-size:11px;
   border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:5px}
