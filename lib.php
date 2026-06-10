@@ -19,6 +19,13 @@ function role_label($role) {
   return $map[$role] ?? '';
 }
 
+function role_tag($role, $extraStyle = '') {
+  $label = role_label($role);
+  if (!$label) return '';
+  $color = chat_color($role, '');
+  return '<em style="font-style:italic;color:' . $color . ';' . $extraStyle . '">' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</em>';
+}
+
 // True if the player row has an active subscription (sub_until today or later).
 function is_subscribed($row) {
   return !empty($row['sub_until']) && $row['sub_until'] >= date('Y-m-d');

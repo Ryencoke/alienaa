@@ -50,7 +50,7 @@ try {
         <span class="chattime-full"><?= e(date('H:i', strtotime($r['created_at']))) ?></span>
         <div class="chatline-body">
           <?php if ($isSub): ?><span style="color:#e8d44d;font-size:10px;vertical-align:middle">&#9733;</span><?php endif; ?>
-          <?php if ($isStaffR): ?><span style="font-size:10px;color:var(--neon2);vertical-align:middle;margin-right:2px">[<?= e(role_label($r['role'])) ?>]</span><?php endif; ?>
+          <?php if ($isStaffR): ?><em style="font-size:10px;font-style:italic;color:<?= e(chat_color($r['role'],'')) ?>;vertical-align:middle;margin-right:2px"><?= e(role_label($r['role'])) ?></em><?php endif; ?>
           <a href="index.php?p=profile&id=<?= (int)$r['uid'] ?>" style="color:<?= e($col) ?>;font-weight:700"><?= e($r['username']) ?></a><span style="color:var(--muted)">:</span>
           <span style="color:var(--text)"><?= bbcode($r['body']) ?></span>
         </div>
@@ -94,7 +94,7 @@ try {
       var body=document.createElement('div'); body.className='chatline-body';
       var stars='';
       if(m.sub) stars+='<span style="color:#e8d44d;font-size:10px;vertical-align:middle">&#9733;</span>';
-      body.innerHTML=stars+'<a href="index.php?p=profile&id='+m.id+'" style="color:'+m.color+';font-weight:700">'+m.username+'</a><span style="color:var(--muted)">:</span> <span style="color:var(--text)">'+m.html+'</span>';
+      body.innerHTML=stars+'<a href="index.php?p=profile&id='+m.id+'" style="color:'+(m.name_color||m.color)+';font-weight:700">'+m.username+'</a><span style="color:var(--muted)">:</span> <span style="color:'+(m.color||'var(--text)')+'">'+m.html+'</span>';
       line.appendChild(t); line.appendChild(body);
       room.appendChild(line);
     });

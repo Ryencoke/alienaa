@@ -52,7 +52,8 @@ $pages = max(1, (int)ceil($total / UPDATES_PER_PAGE));
 $pg    = min($pg, $pages);
 $off   = ($pg - 1) * UPDATES_PER_PAGE;
 
-$stmt = $pdo->prepare('SELECT u.id, u.body, u.credit, u.created_at, p.username AS posted_by,
+$stmt = $pdo->prepare('SELECT u.id, u.body, u.credit, u.created_at,
+                       p.id AS posted_id, p.username AS posted_by, p.role AS posted_role, p.chat_color AS posted_color,
                        (SELECT COALESCE(SUM(value),0) FROM update_votes v WHERE v.update_id = u.id) AS score,
                        (SELECT COALESCE(value,0) FROM update_votes v WHERE v.update_id = u.id AND v.player_id = ?) AS my_vote
                      FROM updates u LEFT JOIN players p ON p.id = u.author_id
@@ -100,8 +101,16 @@ function uvote($uid, $dir, $glyph, $myVote) {
       </div>
       <div class="updbody">
         <?= bbcode($r['body']) ?>
-        <div style="font-size:11px;color:var(--muted);margin-top:8px;display:flex;gap:12px;flex-wrap:wrap">
-          <span>&#128100; Posted by <b style="color:var(--accent)"><?= e($r['posted_by'] ?? 'Staff') ?></b></span>
+        <?php $puColor = chat_color($r['posted_role'] ?? '', $r['posted_color'] ?? ''); ?>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+          <span>&#128100; Posted by
+            <?php if ($r['posted_id']): ?>
+              <a href="index.php?p=profile&id=<?= (int)$r['posted_id'] ?>" style="color:<?= e($puColor) ?>;font-weight:700;text-decoration:none"><?= e($r['posted_by'] ?? 'Staff') ?></a>
+              <?= role_tag($r['posted_role'] ?? '', 'font-size:10px;margin-left:3px') ?>
+            <?php else: ?>
+              <b style="color:var(--accent)">Staff</b>
+            <?php endif; ?>
+          </span>
           <?php if (trim($r['credit']) !== ''): ?><span style="font-style:italic">&#128172; Thanks to <?= e($r['credit']) ?></span><?php endif; ?>
         </div>
       </div>

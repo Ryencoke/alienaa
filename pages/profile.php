@@ -65,7 +65,7 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
 
       <div class="prof-meta">
         <?php if ($role !== 'member'): ?>
-          <span class="prof-meta-item" style="color:<?= e($col) ?>">&#128737; <?= e($rlbl) ?></span>
+          <span class="prof-meta-item" style="color:<?= e($col) ?>">&#128737; <em style="font-style:italic"><?= e($rlbl) ?></em></span>
         <?php endif; ?>
         <?php if ($isSub): ?>
           <span class="prof-meta-item" style="color:#e8d44d">&#9733; Subscriber</span>
@@ -87,7 +87,11 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
         <?php else: ?>
           <a href="index.php?p=messages&u=<?= (int)$prof['id'] ?>" class="btn btn-ghost btn-sm">&#9993; Message</a>
           <?php if (!$isFriend): ?>
-            <a href="index.php?p=friends&add=<?= (int)$prof['id'] ?>" class="btn btn-ghost btn-sm">&#43; Add Friend</a>
+            <form method="post" action="index.php?p=friends" style="display:inline;margin:0">
+              <input type="hidden" name="action" value="add">
+              <input type="hidden" name="friend_id" value="<?= (int)$prof['id'] ?>">
+              <button type="submit" class="btn btn-ghost btn-sm">&#43; Add Friend</button>
+            </form>
           <?php endif; ?>
         <?php endif; ?>
       </div>

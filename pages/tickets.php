@@ -149,7 +149,7 @@ if ($view) {
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
     <b style="font-size:13px;color:<?= $isStaffMsg ? $rColor : 'var(--text)' ?>"><?= e($r['username']) ?></b>
     <?php if ($isStaffMsg && $rLabel): ?>
-      <span style="background:<?= e($rColor) ?>22;border:1px solid <?= e($rColor) ?>55;color:<?= e($rColor) ?>;padding:1px 8px;border-radius:10px;font-size:10px;font-family:'Orbitron',sans-serif;letter-spacing:.5px"><?= e(strtoupper($rLabel)) ?></span>
+      <em style="background:<?= e($rColor) ?>22;border:1px solid <?= e($rColor) ?>55;color:<?= e($rColor) ?>;padding:1px 8px;border-radius:10px;font-size:10px;font-family:'Orbitron',sans-serif;letter-spacing:.5px;font-style:italic"><?= e($rLabel) ?></em>
     <?php elseif ($isStaffMsg): ?>
       <span style="background:rgba(25,240,199,.12);border:1px solid rgba(25,240,199,.25);color:var(--accent);padding:1px 8px;border-radius:10px;font-size:10px;font-family:'Orbitron',sans-serif">STAFF</span>
     <?php endif; ?>
@@ -177,17 +177,15 @@ if ($view) {
     <input type="hidden" name="action" value="reply">
     <input type="hidden" name="ticket_id" value="<?= (int)$view ?>">
     <textarea name="body" style="width:100%;min-height:90px;margin-bottom:10px" placeholder="Write your reply..."></textarea>
-    <div style="display:flex;gap:8px;align-items:center">
-      <button type="submit">Send Reply</button>
-      <?php if ((int)$ticket['player_id'] === $pid && $ticket['status'] !== 'closed'): ?>
-      <form method="post" style="margin:0">
-        <input type="hidden" name="action" value="close_own">
-        <input type="hidden" name="ticket_id" value="<?= (int)$view ?>">
-        <button type="submit" style="background:rgba(100,100,120,.12);border-color:rgba(100,100,120,.3);color:var(--muted);font-size:12px">Close Ticket</button>
-      </form>
-      <?php endif; ?>
-    </div>
+    <button type="submit">Send Reply</button>
   </form>
+  <?php if ((int)$ticket['player_id'] === $pid && $ticket['status'] !== 'closed'): ?>
+  <form method="post" style="margin-top:8px">
+    <input type="hidden" name="action" value="close_own">
+    <input type="hidden" name="ticket_id" value="<?= (int)$view ?>">
+    <button type="submit" style="background:rgba(100,100,120,.12);border-color:rgba(100,100,120,.3);color:var(--muted);font-size:12px">Close Ticket</button>
+  </form>
+  <?php endif; ?>
 </div>
 
 <?php else: // ── TICKET LIST ──

@@ -7,15 +7,71 @@ $canModB = in_array($player['role'] ?? 'member', ['moderator','admin','manager']
 if (!defined('TOPICS_PER_PAGE')) define('TOPICS_PER_PAGE', 20);
 if (!defined('BODY_MAX'))        define('BODY_MAX', 8000);
 
-// Ensure threaded-reply schema additions exist
+// Auto-create all boards tables and seed defaults
 try {
-  $pdo->exec('CREATE TABLE IF NOT EXISTS post_votes (
-    post_id INT NOT NULL, player_id INT NOT NULL, value TINYINT NOT NULL,
-    PRIMARY KEY (post_id, player_id), INDEX idx_post (post_id)
+  $pdo->exec('CREATE TABLE IF NOT EXISTS board_cats (
+    id   INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(80)  NOT NULL,
+    sort TINYINT      NOT NULL DEFAULT 0
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-  try { $pdo->exec('ALTER TABLE posts ADD COLUMN parent_id INT NULL'); } catch (Throwable $e) {}
-  try { $pdo->exec('ALTER TABLE posts ADD INDEX idx_parent (parent_id)'); } catch (Throwable $e) {}
-  try { $pdo->exec('ALTER TABLE topics ADD COLUMN views INT NOT NULL DEFAULT 0'); } catch (Throwable $e) {}
+
+  $pdo->exec('CREATE TABLE IF NOT EXISTS boards (
+    id     INT AUTO_INCREMENT PRIMARY KEY,
+    cat_id INT          NOT NULL,
+    name   VARCHAR(80)  NOT NULL,
+    descr  VARCHAR(200) NOT NULL DEFAULT \'\',
+    sort   TINYINT      NOT NULL DEFAULT 0,
+    INDEX idx_cat (cat_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+  $pdo->exec('CREATE TABLE IF NOT EXISTS topics (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    board_id     INT          NOT NULL,
+    author_id    INT          NOT NULL,
+    title        VARCHAR(160) NOT NULL,
+    views        INT          NOT NULL DEFAULT 0,
+    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_post_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_board (board_id),
+    INDEX idx_last  (last_post_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+  $pdo->exec('CREATE TABLE IF NOT EXISTS posts (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    topic_id   INT      NOT NULL,
+    parent_id  INT      NULL,
+    author_id  INT      NOT NULL,
+    body       TEXT     NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_topic  (topic_id),
+    INDEX idx_parent (parent_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+  $pdo->exec('CREATE TABLE IF NOT EXISTS post_votes (
+    post_id   INT     NOT NULL,
+    player_id INT     NOT NULL,
+    value     TINYINT NOT NULL,
+    PRIMARY KEY (post_id, player_id),
+    INDEX idx_post (post_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+  // Migrate older tables that are missing columns
+  try { $pdo->exec('ALTER TABLE posts  ADD COLUMN parent_id INT NULL');             } catch (Throwable $e) {}
+  try { $pdo->exec('ALTER TABLE posts  ADD INDEX  idx_parent (parent_id)');         } catch (Throwable $e) {}
+  try { $pdo->exec('ALTER TABLE topics ADD COLUMN views INT NOT NULL DEFAULT 0');   } catch (Throwable $e) {}
+
+  // Seed default categories and boards if empty
+  if ((int)$pdo->query('SELECT COUNT(*) FROM board_cats')->fetchColumn() === 0) {
+    $pdo->exec("INSERT INTO board_cats (name, sort) VALUES ('General',0),('The Sprawl',1),('Staff',2)");
+    $pdo->exec("INSERT INTO boards (cat_id, name, descr, sort) VALUES
+      (1,'Announcements','Official news and patch notes.',0),
+      (1,'General Discussion','Anything goes. Keep it civil.',1),
+      (1,'Introductions','New to the Sprawl? Say hello.',2),
+      (2,'Bazaar Talk','Trade tips, price checks, market chatter.',0),
+      (2,'Combat Tactics','PvP strategy, loadout advice, war stories.',1),
+      (2,'Lore & Worldbuilding','Deep dives into the Grid and its history.',2),
+      (3,'Staff Notes','Internal staff coordination.',0)");
+  }
 } catch (Throwable $e) {}
 
 $bid = (int)($_GET['b'] ?? 0);   // viewing a board
@@ -59,7 +115,7 @@ if (!function_exists('render_post')) {
     echo votebox_html($p['id'], $scores[$p['id']] ?? 0, $myVotes[$p['id']] ?? 0);
     echo '<div class="postbody"><div class="posthead">';
     echo '<a href="index.php?p=profile&id=' . (int)$p['author_id'] . '" style="color:' . e($col) . ';font-weight:bold">' . e($p['author']) . '</a>';
-    if ($p['role'] !== 'member') echo ' <span class="muted">[' . e(role_label($p['role'])) . ']</span>';
+    if ($p['role'] !== 'member') echo ' <em style="font-size:11px;font-style:italic;color:' . e(chat_color($p['role'],'')) . '">' . e(role_label($p['role'])) . '</em>';
     echo ' <span class="muted">' . e($p['created_at']) . '</span>';
     echo ' &middot; <a href="index.php?p=boards&t=' . (int)$tid . '&reply=' . (int)$p['id'] . '#replyform">Reply</a>';
     if ($canModB) echo ' &middot; <form method="post" style="display:inline;margin:0"><input type="hidden" name="action" value="modkill"><input type="hidden" name="post_id" value="' . (int)$p['id'] . '"><button class="vote" style="color:var(--neon2)">delete</button></form>';
@@ -225,7 +281,7 @@ if ($tid) {
       <div class="postbody">
         <div class="posthead">
           <a href="index.php?p=profile&id=<?= (int)$op['author_id'] ?>" style="color:<?= e($col) ?>;font-weight:bold"><?= e($op['author']) ?></a>
-          <?php if ($op['role'] !== 'member'): ?> <span class="muted">[<?= e(role_label($op['role'])) ?>]</span><?php endif; ?>
+          <?php if ($op['role'] !== 'member'): ?> <em style="font-size:11px;font-style:italic;color:<?= e(chat_color($op['role'],'')) ?>"><?= e(role_label($op['role'])) ?></em><?php endif; ?>
           <span class="muted">&middot; #<?= (int)$op['id'] ?> &middot; <?= $opc ?> posts
             &middot; <?= e($op['created_at']) ?> &middot; <?= (int)$topic['views'] ?> views
             &middot; <a href="index.php?p=boards&t=<?= (int)$tid ?>&reply=<?= (int)$op['id'] ?>#replyform">Reply</a><?php if ($canModB): ?> &middot; <form method="post" style="display:inline;margin:0"><input type="hidden" name="action" value="modkill"><input type="hidden" name="post_id" value="<?= (int)$op['id'] ?>"><button class="vote" style="color:var(--neon2)">delete</button></form><?php endif; ?></span>
