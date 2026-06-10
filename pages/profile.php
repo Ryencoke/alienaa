@@ -272,7 +272,7 @@ if (!$isMe && $_SERVER['REQUEST_METHOD'] === 'POST') {
 <!-- Secure Trade -->
 <?php
   $incomingTrades = [];
-  try { $tq = $pdo->prepare('SELECT t.*,p.username AS from_name FROM trade_offers t JOIN players p ON p.id=t.from_id WHERE t.to_id=? AND t.from_id=? AND t.status="pending" ORDER BY t.id DESC'); $tq->execute([$myPid,$id]); $incomingTrades = $tq->fetchAll(); } catch (Throwable $e) {}
+  try { $tq = $pdo->prepare('SELECT tr.*,p.username AS from_name FROM trade_offers tr JOIN players p ON p.id=tr.from_id WHERE tr.to_id=? AND tr.from_id=? AND tr.status="pending" ORDER BY tr.id DESC'); $tq->execute([$myPid,$id]); $incomingTrades = $tq->fetchAll(); } catch (Throwable $e) {}
   $outgoingTrades = [];
   try { $tq2 = $pdo->prepare('SELECT * FROM trade_offers WHERE from_id=? AND to_id=? AND status="pending" ORDER BY id DESC'); $tq2->execute([$myPid,$id]); $outgoingTrades = $tq2->fetchAll(); } catch (Throwable $e) {}
 ?>
