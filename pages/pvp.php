@@ -40,8 +40,9 @@ try {
   $pdo->exec("CREATE TABLE IF NOT EXISTS player_stats (
     pid INT PRIMARY KEY, str_pts INT NOT NULL DEFAULT 5,
     spd_pts INT NOT NULL DEFAULT 5, end_pts INT NOT NULL DEFAULT 5,
-    unspent INT NOT NULL DEFAULT 0
+    unspent INT NOT NULL DEFAULT 0, training_gains INT NOT NULL DEFAULT 0
   ) ENGINE=InnoDB");
+  try { $pdo->exec("ALTER TABLE player_stats ADD COLUMN training_gains INT NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
   $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_log (
     id INT AUTO_INCREMENT PRIMARY KEY, attacker_id INT NOT NULL, defender_id INT NOT NULL,
     winner_id INT NOT NULL, rounds INT NOT NULL DEFAULT 1,
@@ -64,12 +65,13 @@ try {
   }
 } catch (Throwable $e) { $myStats = ['pid'=>$pid,'str_pts'=>5,'spd_pts'=>5,'end_pts'=>5,'unspent'=>0]; }
 
-// Level-up: each level grants 1 stat point (check against current level vs spent+unspent)
+// Level-up: grant unspent points for levels gained. Training gains are excluded
+// so they don't falsely consume level-up allocation points.
 try {
-  $totalPoints  = 5 + 5 + 5 + (int)$myStats['unspent'];
-  $spentPoints  = (int)$myStats['str_pts'] + (int)$myStats['spd_pts'] + (int)$myStats['end_pts'];
-  $earnedPoints = 15 + max(0, (int)$player['level'] - 1); // base 15 + 1 per level above 1
-  $newUnspent   = max(0, $earnedPoints - $spentPoints);
+  $trainingGains  = (int)($myStats['training_gains'] ?? 0);
+  $allocatedPts   = max(0, (int)$myStats['str_pts'] + (int)$myStats['spd_pts'] + (int)$myStats['end_pts'] - $trainingGains);
+  $earnedPoints   = 15 + max(0, (int)$player['level'] - 1); // base 15 + 1 per level above 1
+  $newUnspent     = max(0, $earnedPoints - $allocatedPts);
   if ($newUnspent !== (int)$myStats['unspent']) {
     $pdo->prepare('UPDATE player_stats SET unspent=? WHERE pid=?')->execute([$newUnspent, $pid]);
     $myStats['unspent'] = $newUnspent;

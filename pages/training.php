@@ -13,8 +13,9 @@ try {
   $pdo->exec("CREATE TABLE IF NOT EXISTS player_stats (
     pid INT PRIMARY KEY, str_pts INT NOT NULL DEFAULT 5,
     spd_pts INT NOT NULL DEFAULT 5, end_pts INT NOT NULL DEFAULT 5,
-    unspent INT NOT NULL DEFAULT 0
+    unspent INT NOT NULL DEFAULT 0, training_gains INT NOT NULL DEFAULT 0
   ) ENGINE=InnoDB");
+  try { $pdo->exec("ALTER TABLE player_stats ADD COLUMN training_gains INT NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
 } catch (Throwable $e) {}
 
 // Load / init stats
@@ -89,7 +90,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'train
       $gainChance = max(3, 60 - ($curVal * 2)); // 60% at 0, decreasing, 3% floor
       $gained = 0;
       if (mt_rand(1, 100) <= $gainChance) {
-        $pdo->prepare("UPDATE player_stats SET {$sk} = {$sk} + 1 WHERE pid=?")->execute([$pid]);
+        // Increment stat AND training_gains so pvp.php recalculation doesn't
+        // mistake this gain for a spent level-up allocation point.
+        $pdo->prepare("UPDATE player_stats SET {$sk} = {$sk} + 1, training_gains = training_gains + 1 WHERE pid=?")->execute([$pid]);
         $gained = 1;
         $q->execute([$pid]); $stats = $q->fetch();
       }
