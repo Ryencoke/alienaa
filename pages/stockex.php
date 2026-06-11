@@ -2,6 +2,7 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
+$msgErr = false;
 
 // Auto-create tables
 try {
@@ -135,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   } catch (Throwable $ex) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    $msg = $ex->getMessage();
+    $msg = $ex->getMessage(); $msgErr = true;
   }
 }
 
@@ -147,7 +148,7 @@ try {
   $qp->execute([$pid]); $portfolio = $qp->fetchAll();
 } catch (Throwable $e) {}
 
-$catColors = ['tech'=>'var(--accent)','weapons'=>'var(--neon2)','pharma'=>'#3bcf63','energy'=>'#e8a33d','manufacturing'=>'#c9d1e0','finance'=>'#e8d44d','security'=>'var(--neon2)','general'=>'var(--muted)'];
+$catColors = ['tech'=>'#19f0c7','weapons'=>'#ff2d95','pharma'=>'#3bcf63','energy'=>'#e8a33d','manufacturing'=>'#c9d1e0','finance'=>'#e8d44d','security'=>'#ff6b35','general'=>'#8fa3c8'];
 
 $stockInfo = [
   'NXUS' => ['desc'=>'Nexus Corp controls most of the grid infrastructure. Prices rise with tech demand and server activity. Sensitive to Datacore/hacking news.',       'trend'=>'Volatile — spikes during high network activity'],
@@ -168,94 +169,176 @@ try {
   $hq = $pdo->query("SELECT stock_id, price, recorded_at FROM stock_price_log WHERE recorded_at >= NOW() - INTERVAL 7 DAY ORDER BY recorded_at ASC");
   foreach ($hq as $row) { $priceHistory[$row['stock_id']][] = (int)$row['price']; }
 } catch (Throwable $e) {}
+
+// Downsample a price series to at most $max points (for inline sparklines)
+function sx_downsample(array $h, int $max = 40): array {
+  $n = count($h);
+  if ($n <= $max) return $h;
+  $out = [];
+  for ($i = 0; $i < $max; $i++) $out[] = $h[(int)floor($i * ($n - 1) / ($max - 1))];
+  return $out;
+}
+// Inline SVG sparkline path
+function sx_sparkpath(array $h, int $w, int $ht): string {
+  $mn = min($h); $mx = max($h); $rng = max(1, $mx - $mn);
+  $n = count($h); $pts = '';
+  for ($xi = 0; $xi < $n; $xi++) {
+    $x = round($xi / max(1, $n - 1) * ($w - 2), 1) + 1;
+    $y = round($ht - 2 - ($h[$xi] - $mn) / $rng * ($ht - 4), 1);
+    $pts .= ($xi === 0 ? 'M' : 'L') . "{$x},{$y} ";
+  }
+  return trim($pts);
+}
+
+// Sprawl Composite index — average of each stock's history normalised to its start
+$composite = [];
+$histLens = array_map('count', array_filter($priceHistory, fn($h) => count($h) >= 2));
+if (!empty($histLens)) {
+  $cLen = min(120, min($histLens));
+  if ($cLen >= 2) {
+    for ($i = 0; $i < $cLen; $i++) {
+      $sum = 0; $n2 = 0;
+      foreach ($priceHistory as $h) {
+        if (count($h) < 2) continue;
+        $hh = sx_downsample($h, $cLen);
+        if ($hh[0] > 0) { $sum += $hh[$i] / $hh[0]; $n2++; }
+      }
+      if ($n2 > 0) $composite[] = round($sum / $n2 * 100, 2);
+    }
+  }
+}
+
+// Ticker tape data (real prices + change)
+$tickerData = [];
+foreach ($stocks as $s) {
+  $d = (int)$s['price'] - (int)$s['prev_price'];
+  $tickerData[] = ['t'=>$s['ticker'], 'p'=>(int)$s['price'],
+    'pct'=>$s['prev_price'] > 0 ? round($d / $s['prev_price'] * 100, 1) : 0];
+}
 ?>
+<style>
+#sx-canvas{display:block;width:100%;height:130px;border-radius:9px 9px 0 0}
+#sx-head h2{text-shadow:0 0 14px rgba(232,212,77,.4)}
+.sx-tab{padding:7px 14px;border-radius:20px;font-size:12px;text-decoration:none;border:1px solid var(--line);background:var(--panel2);color:var(--muted);transition:border-color .15s,color .15s}
+.sx-tab.on{border-color:#e8d44d;background:rgba(232,212,77,.1);color:#e8d44d;box-shadow:0 0 10px rgba(232,212,77,.14)}
+.sx-row{transition:background .12s}
+.sx-row:hover{background:rgba(232,212,77,.03)}
+.sx-pill{display:inline-block;font-size:10px;font-weight:700;padding:1px 8px;border-radius:9px}
+.sx-pill.up{color:#3bcf63;background:rgba(59,207,99,.1);border:1px solid rgba(59,207,99,.3)}
+.sx-pill.down{color:var(--neon2);background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.3)}
+.sx-pill.flat{color:var(--muted);border:1px solid var(--line)}
+@keyframes sxUp{0%{background:rgba(59,207,99,.14)}100%{background:transparent}}
+@keyframes sxDown{0%{background:rgba(255,45,149,.10)}100%{background:transparent}}
+.sx-row.just-up{animation:sxUp 1.6s ease-out}
+.sx-row.just-down{animation:sxDown 1.6s ease-out}
+.sx-detail{display:none;overflow:hidden}
+.sx-detail.open{display:block;animation:sxSlide .22s ease-out}
+@keyframes sxSlide{0%{opacity:0;transform:translateY(-6px)}100%{opacity:1;transform:none}}
+.sx-cost{font-size:9px;color:var(--muted);margin-top:2px;white-space:nowrap}
+.sx-holding{transition:transform .12s,box-shadow .15s}
+.sx-holding:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.3)}
+.sx-alloc{display:flex;height:10px;border-radius:5px;overflow:hidden;border:1px solid var(--line)}
+.sx-alloc>div{height:100%}
+</style>
 
 <!-- Header -->
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,#e8d44d,var(--accent),transparent)"></div>
-  <div style="padding:14px 20px">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-      <div>
-        <h2 style="margin:0 0 2px">&#128200; Stock Exchange</h2>
-        <p class="muted" style="margin:0;font-size:12px">Game-tied stocks. Prices update every 5 minutes. 1% brokerage fee on all trades.</p>
-      </div>
-      <div style="font-size:12px">Pocket: <b style="color:var(--accent)"><?= number_format($player['creds_pocket']) ?> cr</b></div>
+<div class="panel" id="sx-head" style="padding:0;overflow:hidden">
+  <div style="position:relative">
+    <canvas id="sx-canvas"></canvas>
+    <div style="position:absolute;left:16px;top:10px;pointer-events:none">
+      <h2 style="margin:0">&#128200; Stock Exchange</h2>
+      <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">Game-tied stocks. Prices update every 5 minutes. 1% brokerage fee on all trades.</p>
     </div>
+    <div style="position:absolute;right:14px;top:12px;text-align:right">
+      <div class="muted" style="font-size:10px;text-shadow:0 1px 4px #000">POCKET</div>
+      <div style="font-size:17px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent);text-shadow:0 1px 6px #000"><?= number_format($player['creds_pocket']) ?> <span style="font-size:11px;font-weight:400">cr</span></div>
+    </div>
+    <?php if (count($composite) >= 2): ?>
+    <div style="position:absolute;left:16px;bottom:22px;pointer-events:none">
+      <span style="font-size:9px;letter-spacing:.12em;color:var(--muted)">SPRAWL COMPOSITE</span>
+      <b style="font-family:'Orbitron',sans-serif;font-size:13px;color:<?= end($composite) >= 100 ? '#3bcf63' : 'var(--neon2)' ?>;margin-left:6px"><?= number_format(end($composite), 2) ?></b>
+      <span style="font-size:10px;color:<?= end($composite) >= $composite[0] ? '#3bcf63' : 'var(--neon2)' ?>"><?= end($composite) >= $composite[0] ? '▲' : '▼' ?> <?= abs(round((end($composite) - $composite[0]) / max(.01, $composite[0]) * 100, 2)) ?>% / 7d</span>
+    </div>
+    <?php endif; ?>
+    <button id="sx-mute" onclick="toggleSxSound()" title="Toggle sound" style="position:absolute;top:8px;right:120px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
   </div>
 </div>
 
 <div style="display:flex;gap:8px">
   <?php foreach (['market'=>'&#128202; Market','portfolio'=>'&#128218; My Portfolio ('.count($portfolio).')'] as $tid=>$tl): ?>
-  <a href="index.php?p=stockex&tab=<?= $tid ?>" style="padding:7px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $tab===$tid ? '#e8d44d' : 'var(--line)' ?>;background:<?= $tab===$tid ? 'rgba(232,212,77,.1)' : 'var(--panel2)' ?>;color:<?= $tab===$tid ? '#e8d44d' : 'var(--muted)' ?>"><?= $tl ?></a>
+  <a href="index.php?p=stockex&tab=<?= $tid ?>" class="sx-tab <?= $tab===$tid ? 'on' : '' ?>"><?= $tl ?></a>
   <?php endforeach; ?>
 </div>
 
 <?php if ($msg): ?>
-<div style="background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.25);border-radius:6px;padding:10px 14px;font-size:13px"><?= e($msg) ?></div>
+<div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>
 <?php endif; ?>
 
 <?php if ($tab === 'market'): ?>
 <div class="panel" style="padding:0;overflow:hidden">
-  <div style="display:grid;grid-template-columns:1fr 80px 80px 80px 130px;padding:8px 14px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line);font-weight:700">
-    <span>Company</span><span style="text-align:right">Price</span><span style="text-align:right">Change</span><span style="text-align:right">Prev</span><span></span>
+  <div style="display:grid;grid-template-columns:1fr 70px 84px 86px 132px;padding:8px 14px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line);font-weight:700">
+    <span>Company</span><span style="text-align:center">7d</span><span style="text-align:right">Price</span><span style="text-align:right">Change</span><span></span>
   </div>
   <?php foreach ($stocks as $s):
     $diff    = (int)$s['price'] - (int)$s['prev_price'];
     $diffPct = $s['prev_price'] > 0 ? round($diff / $s['prev_price'] * 100, 1) : 0;
-    $diffCol = $diff > 0 ? '#3bcf63' : ($diff < 0 ? 'var(--neon2)' : 'var(--muted)');
-    $catCol  = $catColors[$s['category']] ?? 'var(--muted)';
+    $catCol  = $catColors[$s['category']] ?? '#8fa3c8';
     $hold    = null; foreach ($portfolio as $ph) { if ($ph['stock_id'] == $s['id']) { $hold = $ph; break; } }
     $info    = $stockInfo[$s['ticker']] ?? ['desc'=>'','trend'=>''];
     $hist    = $priceHistory[$s['id']] ?? [];
+    $spark   = count($hist) >= 2 ? sx_downsample($hist, 40) : [];
+    $sparkCol = $spark ? (end($spark) >= $spark[0] ? '#3bcf63' : '#ff2d95') : '#8fa3c8';
+    $rowAnim = $diff > 0 ? ' just-up' : ($diff < 0 ? ' just-down' : '');
   ?>
   <div style="border-bottom:1px solid rgba(255,255,255,.04)">
-    <div style="display:grid;grid-template-columns:1fr 80px 80px 80px 130px;align-items:center;gap:4px;padding:10px 14px;cursor:pointer" onclick="var d=this.nextElementSibling;d.style.display=d.style.display==='none'?'block':'none'">
+    <div class="sx-row<?= $rowAnim ?>" style="display:grid;grid-template-columns:1fr 70px 84px 86px 132px;align-items:center;gap:4px;padding:10px 14px;cursor:pointer" onclick="var d=this.nextElementSibling;d.classList.toggle('open')">
       <div>
         <span style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:<?= $catCol ?>"><?= e($s['ticker']) ?></span>
         <span style="font-size:12px;color:var(--text);margin-left:6px"><?= e($s['name']) ?></span>
         <?php if ($hold): ?><span style="font-size:10px;color:var(--accent);margin-left:4px">(<?= number_format($hold['shares']) ?> owned)</span><?php endif; ?>
         <span style="font-size:10px;color:var(--muted);margin-left:4px">&#9660;</span>
       </div>
+      <div style="text-align:center">
+        <?php if ($spark): ?>
+        <svg width="58" height="20" style="display:block;margin:0 auto"><path d="<?= sx_sparkpath($spark, 58, 20) ?>" fill="none" stroke="<?= $sparkCol ?>" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        <?php else: ?><span style="font-size:9px;color:var(--muted)">—</span><?php endif; ?>
+      </div>
       <div style="text-align:right;font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;color:var(--text)"><?= number_format($s['price']) ?></div>
-      <div style="text-align:right;font-size:11px;font-weight:700;color:<?= $diffCol ?>"><?= $diff >= 0 ? '+' : '' ?><?= $diffPct ?>%</div>
-      <div style="text-align:right;font-size:11px;color:var(--muted)"><?= number_format($s['prev_price']) ?></div>
+      <div style="text-align:right">
+        <span class="sx-pill <?= $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'flat') ?>"><?= $diff > 0 ? '▲' : ($diff < 0 ? '▼' : '•') ?> <?= abs($diffPct) ?>%</span>
+      </div>
       <div onclick="event.stopPropagation()">
-        <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
+        <form method="post" style="margin:0;display:flex;gap:4px;align-items:center;flex-wrap:wrap" data-sxfx="buy"
+              data-sx-ticker="<?= e($s['ticker']) ?>" data-sx-price="<?= (int)$s['price'] ?>">
           <input type="hidden" name="action" value="buy">
           <input type="hidden" name="stock_id" value="<?= (int)$s['id'] ?>">
-          <input type="number" name="qty" value="1" min="1" style="width:48px;padding:3px 5px;font-size:11px">
+          <input type="number" name="qty" value="1" min="1" class="sx-qty" data-price="<?= (int)$s['price'] ?>" style="width:48px;padding:3px 5px;font-size:11px">
           <button type="submit" style="padding:4px 10px;font-size:11px;color:#3bcf63;border-color:rgba(59,207,99,.3);background:rgba(59,207,99,.08)">Buy</button>
+          <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$s['price'] + max(1, (int)ceil($s['price'] * 0.01))) ?> cr w/fee</span>
         </form>
       </div>
     </div>
     <!-- Detail panel -->
-    <div style="display:none;padding:12px 14px 14px;background:var(--panel2);border-top:1px solid rgba(255,255,255,.04)">
+    <div class="sx-detail" style="padding:12px 14px 14px;background:var(--panel2);border-top:1px solid rgba(255,255,255,.04)">
       <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start">
         <div>
           <div style="font-size:12px;color:var(--text);margin-bottom:6px;line-height:1.5"><?= e($info['desc']) ?></div>
           <?php if ($info['trend']): ?>
           <div style="font-size:11px"><span style="color:var(--muted)">Trend: </span><span style="color:#e8d44d"><?= e($info['trend']) ?></span></div>
           <?php endif; ?>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">Category: <span style="color:<?= $catCol ?>"><?= ucfirst($s['category']) ?></span></div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Category: <span style="color:<?= $catCol ?>"><?= ucfirst($s['category']) ?></span>
+            &middot; Prev: <?= number_format($s['prev_price']) ?> cr
+            <?php if ($hist): ?>&middot; 7d range: <?= number_format(min($hist)) ?>–<?= number_format(max($hist)) ?> cr<?php endif; ?>
+          </div>
         </div>
-        <?php if (count($hist) >= 2): ?>
+        <?php if (count($hist) >= 2): $big = sx_downsample($hist, 80); ?>
         <div>
           <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-align:center">7-Day Price</div>
-          <?php
-            $mn = min($hist); $mx = max($hist); $rng = max(1, $mx - $mn);
-            $w = 120; $h = 40; $pts = '';
-            $n = count($hist);
-            for ($xi = 0; $xi < $n; $xi++) {
-              $x = (int)round($xi / max(1, $n-1) * ($w-2)) + 1;
-              $y = (int)round($h - 2 - ($hist[$xi] - $mn) / $rng * ($h-4));
-              $pts .= ($xi===0?'M':'L') . "{$x},{$y} ";
-            }
-            $trend_color = $hist[count($hist)-1] >= $hist[0] ? '#3bcf63' : 'var(--neon2)';
-          ?>
-          <svg width="<?= $w ?>" height="<?= $h ?>" style="display:block;overflow:visible">
-            <path d="<?= trim($pts) ?>" fill="none" stroke="<?= $trend_color ?>" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <svg width="150" height="46" style="display:block;overflow:visible">
+            <rect width="150" height="46" fill="rgba(0,0,0,.2)" rx="3"/>
+            <path d="<?= sx_sparkpath($big, 150, 46) ?>" fill="none" stroke="<?= $sparkCol ?>" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
           </svg>
-          <div style="font-size:9px;color:var(--muted);text-align:center"><?= number_format($hist[0]) ?> → <?= number_format($hist[count($hist)-1]) ?></div>
+          <div style="font-size:9px;color:var(--muted);text-align:center"><?= number_format($hist[0]) ?> → <?= number_format(end($hist)) ?></div>
         </div>
         <?php else: ?>
         <div style="font-size:10px;color:var(--muted);text-align:center;padding:8px">Not enough<br>history yet</div>
@@ -276,9 +359,25 @@ try {
     $totalPL = $totalValue - $totalCost;
     $plCol = $totalPL >= 0 ? '#3bcf63' : 'var(--neon2)';
   ?>
-  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;padding:12px;background:var(--panel2);border:1px solid var(--line);border-radius:7px">
-    <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--accent)"><?= number_format($totalValue) ?> cr</div><div style="font-size:10px;color:var(--muted)">Portfolio Value</div></div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;padding:12px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;align-items:center">
+    <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--accent)" data-sxcnt="<?= $totalValue ?>"><?= number_format($totalValue) ?> cr</div><div style="font-size:10px;color:var(--muted)">Portfolio Value</div></div>
     <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:<?= $plCol ?>"><?= $totalPL>=0?'+':'' ?><?= number_format($totalPL) ?> cr</div><div style="font-size:10px;color:var(--muted)">Unrealized P/L</div></div>
+    <div style="flex:1;min-width:180px">
+      <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Allocation</div>
+      <div class="sx-alloc">
+        <?php foreach ($portfolio as $h):
+          $hv = (int)$h['price'] * (int)$h['shares'];
+          $w = $totalValue > 0 ? max(1, round($hv / $totalValue * 100, 1)) : 0;
+        ?>
+        <div style="width:<?= $w ?>%;background:<?= $catColors[$h['category']] ?? '#8fa3c8' ?>" title="<?= e($h['ticker']) ?> — <?= $w ?>% (<?= number_format($hv) ?> cr)"></div>
+        <?php endforeach; ?>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+        <?php foreach ($portfolio as $h): ?>
+        <span style="font-size:9px;color:<?= $catColors[$h['category']] ?? '#8fa3c8' ?>">&#9632; <?= e($h['ticker']) ?></span>
+        <?php endforeach; ?>
+      </div>
+    </div>
   </div>
   <div style="display:flex;flex-direction:column;gap:10px">
     <?php foreach ($portfolio as $h):
@@ -286,11 +385,11 @@ try {
       $costBasis  = (int)$h['avg_buy_price'] * (int)$h['shares'];
       $pl = $currentVal - $costBasis;
       $plCol = $pl >= 0 ? '#3bcf63' : 'var(--neon2)';
-      $catCol = $catColors[$h['category']] ?? 'var(--muted)';
+      $catCol = $catColors[$h['category']] ?? '#8fa3c8';
       $hist = $priceHistory[$h['stock_id']] ?? [];
       $plPct = $costBasis > 0 ? round(($pl / $costBasis) * 100, 1) : 0;
     ?>
-    <div style="background:var(--panel2);border:1px solid <?= $pl >= 0 ? 'rgba(59,207,99,.2)' : 'rgba(255,45,149,.2)' ?>;border-radius:8px;padding:14px">
+    <div class="sx-holding" style="background:var(--panel2);border:1px solid <?= $pl >= 0 ? 'rgba(59,207,99,.2)' : 'rgba(255,45,149,.2)' ?>;border-radius:8px;padding:14px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
         <div style="flex:1;min-width:160px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
@@ -298,32 +397,36 @@ try {
             <span style="font-size:12px;color:var(--text)"><?= e($h['name']) ?></span>
           </div>
           <div style="font-size:11px;color:var(--muted);margin-bottom:6px"><?= number_format($h['shares']) ?> shares &middot; avg buy <b style="color:#e8d44d"><?= number_format($h['avg_buy_price']) ?></b> cr &middot; now <b style="color:var(--text)"><?= number_format($h['price']) ?></b> cr</div>
-          <div style="display:flex;align-items:center;gap:16px">
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
             <div>
               <div style="font-size:14px;font-weight:700;color:var(--text)"><?= number_format($currentVal) ?> cr</div>
               <div style="font-size:11px;color:<?= $plCol ?>"><?= $pl>=0?'+':'' ?><?= number_format($pl) ?> cr &nbsp;<span style="opacity:.7">(<?= $pl>=0?'+':'' ?><?= $plPct ?>%)</span></div>
             </div>
-            <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
+            <form method="post" style="margin:0;display:flex;gap:4px;align-items:center;flex-wrap:wrap" data-sxfx="sell"
+                  data-sx-ticker="<?= e($h['ticker']) ?>" data-sx-price="<?= (int)$h['price'] ?>">
               <input type="hidden" name="action" value="sell">
               <input type="hidden" name="stock_id" value="<?= (int)$h['stock_id'] ?>">
-              <input type="number" name="qty" value="1" min="1" max="<?= (int)$h['shares'] ?>" style="width:52px;padding:3px 6px;font-size:11px">
+              <input type="number" name="qty" value="1" min="1" max="<?= (int)$h['shares'] ?>" class="sx-qty sell" data-price="<?= (int)$h['price'] ?>" style="width:52px;padding:3px 6px;font-size:11px">
+              <button type="button" class="fill-max" style="font-size:9px;padding:3px 7px" onclick="var i=this.previousElementSibling;i.value=<?= (int)$h['shares'] ?>;i.dispatchEvent(new Event('input'))">All</button>
               <button type="submit" style="padding:4px 10px;font-size:11px;color:var(--neon2);border-color:rgba(255,45,149,.3);background:rgba(255,45,149,.08)">Sell</button>
+              <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$h['price'] - max(1, (int)ceil($h['price'] * 0.01))) ?> cr after fee</span>
             </form>
           </div>
         </div>
         <?php if (count($hist) >= 2):
+          $hh = sx_downsample($hist, 60);
           $buyPx = (int)$h['avg_buy_price'];
-          $allPts = array_merge($hist, [$buyPx]);
+          $allPts = array_merge($hh, [$buyPx]);
           $mn = min($allPts); $mx = max($allPts); $rng = max(1, $mx - $mn);
           $cw = 150; $ch = 52;
-          $pts = ''; $n = count($hist);
+          $pts = ''; $n = count($hh);
           for ($xi = 0; $xi < $n; $xi++) {
             $x = (int)round($xi / max(1,$n-1) * ($cw-2)) + 1;
-            $y = (int)round($ch - 2 - ($hist[$xi] - $mn) / $rng * ($ch-4));
+            $y = (int)round($ch - 2 - ($hh[$xi] - $mn) / $rng * ($ch-4));
             $pts .= ($xi===0?'M':'L')."{$x},{$y} ";
           }
           $buyY = (int)round($ch - 2 - ($buyPx - $mn) / $rng * ($ch-4));
-          $trendCol = $hist[count($hist)-1] >= $hist[0] ? '#3bcf63' : 'var(--neon2)';
+          $trendCol = end($hh) >= $hh[0] ? '#3bcf63' : '#ff2d95';
         ?>
         <div style="flex:none;text-align:right">
           <svg width="<?= $cw ?>" height="<?= $ch ?>" style="display:block;overflow:visible;border-radius:4px">
@@ -347,3 +450,211 @@ try {
   <?php endif; ?>
 </div>
 <?php endif; ?>
+
+<script>
+(function(){
+'use strict';
+
+/* ── Big board header: composite chart + scrolling ticker tape ── */
+var sx=document.getElementById('sx-canvas');
+if(sx){
+  var c=sx.getContext('2d');
+  var SW=560, SH=130;
+  var dpr=Math.min(2,window.devicePixelRatio||1);
+  sx.width=SW*dpr; sx.height=SH*dpr;
+  c.scale(dpr,dpr);
+  var COMP=<?= json_encode($composite) ?>;
+  var TAPE=<?= json_encode($tickerData) ?>;
+  var tapeX=0;
+  // pre-measure tape segments
+  var segs=[];
+  (function(){
+    c.font='700 10px monospace';
+    TAPE.forEach(function(s){
+      var txt=s.t+' '+s.p.toLocaleString('en-US');
+      var chg=(s.pct>0?'▲':(s.pct<0?'▼':'•'))+Math.abs(s.pct)+'%';
+      segs.push({txt:txt,chg:chg,col:s.pct>0?'#3bcf63':(s.pct<0?'#ff2d95':'#8fa3c8'),
+                 w:c.measureText(txt).width+c.measureText(' '+chg).width+26});
+    });
+  })();
+  var tapeW=segs.reduce(function(a,s){return a+s.w;},0)||1;
+
+  function sxLoop(t){
+    if(!document.body.contains(sx)) return;
+    requestAnimationFrame(sxLoop);
+    c.clearRect(0,0,SW,SH);
+    var bg=c.createLinearGradient(0,0,0,SH);
+    bg.addColorStop(0,'#0b0a12'); bg.addColorStop(1,'#100e18');
+    c.fillStyle=bg; c.fillRect(0,0,SW,SH);
+    // faint grid
+    c.strokeStyle='rgba(232,212,77,.04)';
+    for(var gx=0;gx<SW;gx+=40){ c.beginPath(); c.moveTo(gx,0); c.lineTo(gx,SH-18); c.stroke(); }
+    for(var gy=18;gy<SH-18;gy+=22){ c.beginPath(); c.moveTo(0,gy); c.lineTo(SW,gy); c.stroke(); }
+
+    // composite index area chart
+    if(COMP.length>=2){
+      var mn=Math.min.apply(null,COMP), mx=Math.max.apply(null,COMP);
+      var rng=Math.max(.01,mx-mn);
+      var x0=0, x1=SW, y0=34, y1=SH-26;
+      var up=COMP[COMP.length-1]>=COMP[0];
+      var col=up?'#3bcf63':'#ff2d95';
+      c.beginPath();
+      COMP.forEach(function(v,i){
+        var x=x0+i/(COMP.length-1)*(x1-x0);
+        var y=y1-(v-mn)/rng*(y1-y0);
+        i?c.lineTo(x,y):c.moveTo(x,y);
+      });
+      c.strokeStyle=col; c.lineWidth=1.6; c.shadowColor=col; c.shadowBlur=6;
+      c.stroke();
+      c.shadowBlur=0;
+      c.lineTo(x1,y1); c.lineTo(x0,y1); c.closePath();
+      var fg=c.createLinearGradient(0,y0,0,y1);
+      fg.addColorStop(0,up?'rgba(59,207,99,.16)':'rgba(255,45,149,.13)');
+      fg.addColorStop(1,'rgba(0,0,0,0)');
+      c.fillStyle=fg; c.fill();
+      c.lineWidth=1;
+      // live dot on the last point
+      var lx=x1, ly=y1-(COMP[COMP.length-1]-mn)/rng*(y1-y0);
+      var pulse=.5+.5*Math.sin(t/300);
+      c.fillStyle=col; c.shadowColor=col; c.shadowBlur=8*pulse;
+      c.beginPath(); c.arc(lx-3,ly,2.4+pulse,0,Math.PI*2); c.fill();
+      c.shadowBlur=0;
+    } else {
+      c.fillStyle='rgba(255,255,255,.25)';
+      c.font='10px monospace'; c.textAlign='center';
+      c.fillText('Composite index builds as price history accumulates',SW/2,SH/2);
+      c.textAlign='left';
+    }
+
+    // ticker tape
+    c.fillStyle='#05050c'; c.fillRect(0,SH-18,SW,18);
+    c.fillStyle='rgba(232,212,77,.14)'; c.fillRect(0,SH-18,SW,1);
+    tapeX-=.7;
+    if(tapeX<-tapeW) tapeX+=tapeW;
+    var x=tapeX;
+    c.textBaseline='middle'; c.font='700 10px monospace'; c.textAlign='left';
+    for(var rep=0;rep<2;rep++){
+      segs.forEach(function(s){
+        if(x>-220&&x<SW+10){
+          c.fillStyle='#cfd4dc';
+          c.fillText(s.txt,x,SH-9);
+          c.fillStyle=s.col;
+          c.fillText(s.chg,x+c.measureText(s.txt).width+6,SH-9);
+        }
+        x+=s.w;
+      });
+    }
+  }
+  requestAnimationFrame(sxLoop);
+}
+
+/* ── live order previews ── */
+document.querySelectorAll('.sx-qty').forEach(function(inp){
+  inp.addEventListener('input',function(){
+    var price=parseInt(inp.dataset.price,10)||0;
+    var q=Math.max(0,parseInt(inp.value,10)||0);
+    var gross=price*q;
+    var fee=Math.max(1,Math.ceil(gross*0.01));
+    var span=inp.closest('form').querySelector('.sx-cost');
+    if(!span) return;
+    if(inp.classList.contains('sell')) span.textContent='= '+Math.max(0,gross-fee).toLocaleString('en-US')+' cr after fee';
+    else span.textContent='= '+(gross+fee).toLocaleString('en-US')+' cr w/fee';
+  });
+});
+})();
+</script>
+
+<script>
+/* Order-ticket FX — overlay on document.body so it survives the AJAX swap. */
+(function(){
+  if(window._sxFxBound) return;
+  window._sxFxBound=true;
+
+  var css=document.createElement('style');
+  css.textContent=
+    '#sxfx{position:fixed;inset:0;z-index:10001;display:flex;align-items:center;justify-content:center;'
+    +'background:rgba(5,5,10,.55);backdrop-filter:blur(2px);opacity:0;transition:opacity .18s;pointer-events:none}'
+    +'#sxfx.show{opacity:1}'
+    +'.sxfx-ticket{position:relative;min-width:230px;background:#0b0b16;border:1px solid rgba(255,255,255,.16);'
+    +'border-radius:8px;padding:14px 18px 16px;font-family:monospace;box-shadow:0 0 28px rgba(0,0,0,.6),0 0 16px var(--sx-col-a);'
+    +'animation:sxfxIn .22s ease-out}'
+    +'@keyframes sxfxIn{0%{transform:translateY(12px);opacity:0}100%{transform:none;opacity:1}}'
+    +'.sxfx-head{display:flex;justify-content:space-between;font-size:10px;color:#5d6680;letter-spacing:.14em;'
+    +'border-bottom:1px dashed rgba(255,255,255,.14);padding-bottom:6px;margin-bottom:8px}'
+    +'.sxfx-side{font-weight:900;color:var(--sx-col)}'
+    +'.sxfx-line{display:flex;justify-content:space-between;gap:20px;font-size:12px;padding:2px 0;color:#cfd4dc}'
+    +'.sxfx-line span:first-child{color:#5d6680}'
+    +'.sxfx-stamp{position:absolute;right:10px;top:8px;font-size:11px;font-weight:900;letter-spacing:.1em;'
+    +'color:var(--sx-col);border:2px solid var(--sx-col);border-radius:4px;padding:2px 8px;transform:rotate(8deg) scale(2);'
+    +'opacity:0;text-shadow:0 0 8px var(--sx-col);animation:sxfxStamp .28s .4s cubic-bezier(.2,1.7,.4,1) forwards}'
+    +'@keyframes sxfxStamp{to{opacity:1;transform:rotate(8deg) scale(1)}}';
+  document.head.appendChild(css);
+
+  var ac=null, muted=localStorage.getItem('stockMuted')==='1';
+  function tone(freq,dur,type,vol,slide){
+    if(muted) return;
+    try{
+      ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+      var o=ac.createOscillator(),g=ac.createGain();
+      o.type=type||'sine'; o.frequency.value=freq;
+      if(slide) o.frequency.exponentialRampToValueAtTime(slide,ac.currentTime+dur);
+      g.gain.value=vol||.05;
+      g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime+dur);
+    }catch(e){}
+  }
+  window.toggleSxSound=function(){
+    muted=!muted; localStorage.setItem('stockMuted',muted?'1':'0');
+    var b=document.getElementById('sx-mute'); if(b) b.innerHTML=muted?'&#128263;':'&#128266;';
+    if(!muted) tone(660,.08,'sine',.05);
+  };
+  (function(){ var b=document.getElementById('sx-mute'); if(b) b.innerHTML=muted?'&#128263;':'&#128266;'; })();
+
+  function hexA(hex,a){
+    if(hex.charAt(0)!=='#') return hex;
+    var n=parseInt(hex.slice(1),16);
+    return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';
+  }
+
+  function ticket(side,ticker,qty,price,col){
+    var old=document.getElementById('sxfx'); if(old) old.remove();
+    var gross=qty*price;
+    var fee=Math.max(1,Math.ceil(gross*0.01));
+    var total=side==='BUY'?gross+fee:gross-fee;
+    var o=document.createElement('div'); o.id='sxfx';
+    o.style.setProperty('--sx-col',col);
+    o.style.setProperty('--sx-col-a',hexA(col,.35));
+    o.innerHTML='<div class="sxfx-ticket">'
+      +'<div class="sxfx-head"><span>GRID EXCHANGE · ORDER</span><span class="sxfx-side">'+side+'</span></div>'
+      +'<div class="sxfx-line"><span>TICKER</span><b>'+ticker+'</b></div>'
+      +'<div class="sxfx-line"><span>QTY</span><b>×'+qty.toLocaleString('en-US')+'</b></div>'
+      +'<div class="sxfx-line"><span>PRICE</span><b>'+price.toLocaleString('en-US')+' cr</b></div>'
+      +'<div class="sxfx-line"><span>FEE 1%</span><b>'+fee.toLocaleString('en-US')+' cr</b></div>'
+      +'<div class="sxfx-line" style="border-top:1px dashed rgba(255,255,255,.14);margin-top:4px;padding-top:5px"><span>'+(side==='BUY'?'TOTAL':'NET')+'</span><b style="color:'+col+'">'+total.toLocaleString('en-US')+' cr</b></div>'
+      +'<div class="sxfx-stamp">FILLED</div>'
+      +'</div>';
+    document.body.appendChild(o);
+    requestAnimationFrame(function(){o.classList.add('show');});
+    tone(1200,.05,'square',.03); setTimeout(function(){tone(1500,.05,'square',.03);},90); // order ticks
+    setTimeout(function(){ tone(95,.1,'square',.05); },420); // stamp
+    setTimeout(function(){
+      if(side==='BUY'){ tone(523,.09,'sine',.045); setTimeout(function(){tone(784,.13,'sine',.045);},80); }
+      else { tone(659,.09,'sine',.045); setTimeout(function(){tone(440,.13,'sine',.045);},80); }
+    },560);
+    setTimeout(function(){o.classList.remove('show');setTimeout(function(){o.remove();},220);},1900);
+  }
+
+  document.addEventListener('submit',function(ev){
+    var f=ev.target;
+    if(!f||!f.getAttribute) return;
+    var kind=f.getAttribute('data-sxfx');
+    if(!kind) return;
+    var qty=Math.max(1,parseInt((f.querySelector('input[name=qty]')||{}).value,10)||1);
+    var price=parseInt(f.getAttribute('data-sx-price'),10)||0;
+    var ticker=f.getAttribute('data-sx-ticker')||'';
+    if(kind==='buy') ticket('BUY',ticker,qty,price,'#3bcf63');
+    else ticket('SELL',ticker,qty,price,'#ff2d95');
+  },true);
+})();
+</script>

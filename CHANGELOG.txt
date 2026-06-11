@@ -2,6 +2,33 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-41 ---
+
+STOCK EXCHANGE (stockex.php) — TRADING FLOOR OVERHAUL
+-------------------------------------------------------
+[stockex.php]
+- BIG BOARD HEADER: canvas with the new SPRAWL COMPOSITE INDEX — an area
+  chart of all stocks' 7-day history normalised to a 100 baseline (computed
+  server-side from stock_price_log), green/red by direction with a pulsing
+  live dot, plus the index value and 7d % in the corner. Below it scrolls a
+  real TICKER TAPE of every stock's current price and ▲/▼ change (live data,
+  per-segment coloring).
+- MARKET TABLE: inline 7-day sparkline on every row (downsampled to 40 pts);
+  change column upgraded to ▲/▼ colored pills; rows whose price moved this
+  cycle flash green/red on load; detail panels slide open with 7d range
+  added; live "= N cr w/fee" cost preview under every buy box.
+- PORTFOLIO: new ALLOCATION BAR — stacked, category-colored split of your
+  portfolio value with ticker legend and hover tooltips; sell forms gain an
+  "All" button and a live "= N cr after fee" proceeds preview; holdings
+  cards get hover lift; cost-basis charts now downsample long history
+  (previously could emit 2,000-point SVG paths).
+- ORDER-TICKET CEREMONY: every trade prints a monospace GRID EXCHANGE order
+  slip (ticker / qty / price / 1% fee / total) and slams a green BUY or
+  magenta SELL "FILLED" stamp with order-tick + stamp + chime SFX —
+  body-level overlay surviving the AJAX swap; persisted mute toggle.
+- Pill-style gold tabs; error messages now render as flash-err. All trading
+  SQL verified unchanged (zero query lines touched).
+
 --- SESSION: 2026-06-11 BATCH-40 ---
 
 IRON LEDGER (ledger.php) — INTERACTIVE OVERHAUL + MAX-WITHDRAW FIX
