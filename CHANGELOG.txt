@@ -2,6 +2,31 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-35 ---
+
+THE EXCHANGE (exchange.php) — INTERACTIVE OVERHAUL
+----------------------------------------------------
+[exchange.php]
+- THE VAULT IS NOW A VAULT: the daily shard pull is a full canvas vault-
+  cracking sequence — click the vault door and the 3-spoke combination dial
+  spins through three alternating turns with ratchet ticks, heavy bolts
+  release, the door slides open, and the result is revealed: a glowing
+  "+N ◆" with a burst of spinning shard particles and a rising chime (or a
+  dim "EMPTY" with a sad slide for zero-pulls). Already-pulled state renders
+  the door SEALED. Pull converted to AJAX (exch_ajax) so the animation
+  reveals the real server result with no reload; header count + sidebar
+  state update live. No-JS POST fallback kept.
+- SHARD RAIN HEADER: canvas of slowly falling, rotating shard gems (teal +
+  rare gold) with facet shimmer, center bloom, and random sparkles; shard
+  balance + sub status float in a glass chip over it.
+- Shard pack cards: hover lift + shine sweep, spinning ◆ icon, pulsing glow
+  on BEST VALUE packs. FIXED the ¢/shard math (was off by 100× — showed
+  "0.199¢" instead of "19.9¢").
+- Subscription: gold-themed plan cards, perks check in with a staggered
+  slide, subscribe/extend plays a body-level gold star burst with expanding
+  ring + ascending chime ("SUBSCRIPTION +30 DAYS"), surviving the AJAX swap.
+- Error messages now render as flash-err; persisted mute toggle.
+
 --- SESSION: 2026-06-11 BATCH-34 ---
 
 THE BAZAAR (bazaar.php) — INTERACTIVE OVERHAUL
