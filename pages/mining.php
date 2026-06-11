@@ -2,17 +2,7 @@
 $pdo = db();
 $pid = (int)$player['id'];
 
-if (!function_exists('grant_xp')) {
-  function grant_xp($pid, $amount) {
-    $p2 = db();
-    $r = $p2->prepare('SELECT level,xp,xp_next FROM players WHERE id=?'); $r->execute([$pid]); $p = $r->fetch();
-    if (!$p) return;
-    $lv=(int)$p['level']; $xp=(int)$p['xp']+$amount; $nx=(int)$p['xp_next']; $g=0;
-    while($xp>=$nx&&$lv<999){$xp-=$nx;$lv++;$nx=(int)round($nx*1.5);$g++;}
-    $p2->prepare('UPDATE players SET level=?,xp=?,xp_next=? WHERE id=?')->execute([$lv,$xp,$nx,$pid]);
-    if($g>0) try{$p2->prepare('INSERT INTO player_stats(pid,unspent)VALUES(?,?)ON DUPLICATE KEY UPDATE unspent=unspent+?')->execute([$pid,$g*5,$g*5]);}catch(Throwable $e){}
-  }
-}
+// grant_xp() lives in lib.php (shared, concurrency-safe)
 
 // ── Schema ─────────────────────────────────────────────────────────────────
 try { $pdo->exec('CREATE TABLE IF NOT EXISTS player_ore (

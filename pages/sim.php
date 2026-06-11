@@ -13,28 +13,7 @@ const DEF_PER_SKILL= 30;
 $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points)
                SELECT ?, id, 0 FROM skills')->execute([$pid]);
 
-if (!function_exists('grant_xp')) {
-  function grant_xp($pid, $amount) {
-    $pdo = db();
-    try { $bq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $bq->execute(["apt_xp_bonus:{$pid}"]); $b=(int)$bq->fetchColumn(); if($b>0) $amount=(int)ceil($amount*(1+$b/100)); } catch(Throwable $e){}
-    $r = $pdo->prepare('SELECT level, xp, xp_next FROM players WHERE id = ?');
-    $r->execute([$pid]); $p = $r->fetch();
-    $level = (int)$p['level']; $xp = (int)$p['xp'] + $amount; $next = (int)$p['xp_next'];
-    $gained = 0;
-    while ($xp >= $next && $level < 999) { $xp -= $next; $level++; $next = (int)round($next * 1.5); $gained++; }
-    $pdo->prepare('UPDATE players SET level = ?, xp = ?, xp_next = ? WHERE id = ?')
-        ->execute([$level, $xp, $next, $pid]);
-    if ($gained > 0) {
-      // Award 5 attribute points per level gained — player_stats.unspent is the
-      // sole source of truth (BATCH-25); the legacy settings key is no longer read.
-      try {
-        $pdo->prepare('INSERT INTO player_stats (pid, unspent) VALUES (?,?)
-                       ON DUPLICATE KEY UPDATE unspent = unspent + ?')->execute([$pid, $gained * 5, $gained * 5]);
-      } catch(Throwable $e) {}
-    }
-    return $gained;
-  }
-}
+// grant_xp() lives in lib.php (shared, concurrency-safe)
 
 function sim_fight($pHp, $pAtk, $pDef, $e, $tacticAtk = 1.0, $tacticDef = 1.0) {
   $eHp = (int)$e['hp']; $dealt = 0; $taken = 0;
@@ -60,15 +39,10 @@ $cs = $pdo->prepare("SELECT ps.points FROM player_skills ps
 $cs->execute([$pid]);
 $combat = (int)($cs->fetchColumn() ?: 0);
 
-// Gear bonuses (from Fabrication Lab)
+// Gear bonuses (Fabrication Lab crafts or stash-equipped items)
 $gearAtk = 0; $gearDef = 0;
-try {
-  $gq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
-  $gq->execute(["equipped_weapon:{$pid}"]); $wid = (int)$gq->fetchColumn();
-  if ($wid > 0) { $gq2 = $pdo->prepare('SELECT atk_bonus FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$wid,$pid]); $gearAtk = (int)($gq2->fetchColumn() ?: 0); }
-  $gq->execute(["equipped_armor:{$pid}"]); $aid = (int)$gq->fetchColumn();
-  if ($aid > 0) { $gq2 = $pdo->prepare('SELECT def_bonus FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$aid,$pid]); $gearDef = (int)($gq2->fetchColumn() ?: 0); }
-} catch (Throwable $e) { $gearAtk = 0; $gearDef = 0; }
+if ($wg = equipped_gear($pdo, $pid, 'weapon')) $gearAtk = $wg['atk'];
+if ($ag = equipped_gear($pdo, $pid, 'armor'))  $gearDef = $ag['def'];
 
 // Active lounge buffs (stored as "bonus|expiry_ts" in settings)
 $buffAtk = 0; $buffDef = 0;
@@ -115,7 +89,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       $credsWon = 0; $xpWon = 0; $lootMsg = '';
       $pdo->beginTransaction();
-      $pdo->prepare('UPDATE players SET integrity = ? WHERE id = ?')->execute([$endHp, $pid]);
+      // Apply damage RELATIVELY with a liveness guard — the old absolute write
+      // ($endHp from a stale read) let parallel engages each fight from full HP
+      // and stack rewards while only the last HP write stuck.
+      $hpLost = max(0, (int)$player['integrity'] - (int)$endHp);
+      if ($hpLost > 0) {
+        $hu = $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id = ? AND integrity > 0');
+        $hu->execute([$hpLost, $pid]);
+        if ($hu->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Flatlined — patch up before you fight again.'); }
+      }
       if ($outcome === 'win') {
         $credsWon = random_int((int)$e['creds_min'], (int)$e['creds_max']);
         $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$credsWon, $pid]);

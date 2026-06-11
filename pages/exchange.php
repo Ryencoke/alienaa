@@ -39,7 +39,10 @@ if (!empty($_POST['exch_ajax'])) {
     if (($pl['shard_pull_at'] ?? null) === $today) throw new RuntimeException('Already cracked today. Back tomorrow.');
     $isSub = is_subscribed($pl);
     $got = random_int(0, $isSub ? 10 : 6);
-    $pdo->prepare('UPDATE players SET shards = shards + ?, shard_pull_at = ? WHERE id = ?')->execute([$got, $today, (int)$pl['id']]);
+    // Atomic daily gate — WHERE re-checks the date so parallel requests can't all award shards
+    $u = $pdo->prepare('UPDATE players SET shards = shards + ?, shard_pull_at = ? WHERE id = ? AND (shard_pull_at IS NULL OR shard_pull_at <> ?)');
+    $u->execute([$got, $today, (int)$pl['id'], $today]);
+    if ($u->rowCount() !== 1) throw new RuntimeException('Already cracked today. Back tomorrow.');
     $pl = current_player();
     echo json_encode(['ok'=>true,'got'=>$got,'shards'=>(int)$pl['shards']]);
   } catch (Throwable $e) {
@@ -55,7 +58,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (($player['shard_pull_at'] ?? null) === $today) throw new RuntimeException('Already cracked today. Back tomorrow.');
       $isSub = is_subscribed($player);
       $got = random_int(0, $isSub ? 10 : 6);
-      $pdo->prepare('UPDATE players SET shards = shards + ?, shard_pull_at = ? WHERE id = ?')->execute([$got, $today, $pid]);
+      $u = $pdo->prepare('UPDATE players SET shards = shards + ?, shard_pull_at = ? WHERE id = ? AND (shard_pull_at IS NULL OR shard_pull_at <> ?)');
+      $u->execute([$got, $today, $pid, $today]);
+      if ($u->rowCount() !== 1) throw new RuntimeException('Already cracked today. Back tomorrow.');
       $msg = $got > 0 ? "Cracked it — {$got} Shard" . ($got === 1 ? '' : 's') . " secured." : 'Vault was empty today. Come back tomorrow.';
     }
     elseif ($a === 'subscribe30') {

@@ -180,6 +180,63 @@ function theme_css($theme, $accent) {
   return '<style>' . $css . '</style>';
 }
 
+// ---- XP / level-ups (shared, concurrency-safe) ----
+
+// Atomic xp increment + single-winner level bumps. The old per-page copies did
+// read-modify-write on (level, xp), so two concurrent grants near a threshold
+// could both award level-up stat points while losing one grant's xp.
+function grant_xp(int $pid, int $amount): int {
+  $pdo = db();
+  if ($amount <= 0) return 0;
+  try {
+    $bq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
+    $bq->execute(["apt_xp_bonus:{$pid}"]);
+    $b = (int)$bq->fetchColumn();
+    if ($b > 0) $amount = (int)ceil($amount * (1 + $b / 100));
+  } catch (Throwable $e) {}
+  $pdo->prepare('UPDATE players SET xp = xp + ? WHERE id = ?')->execute([$amount, $pid]);
+  $gained = 0;
+  $r = $pdo->prepare('SELECT level, xp, xp_next FROM players WHERE id = ?');
+  for ($i = 0; $i < 60; $i++) {
+    $r->execute([$pid]); $p = $r->fetch();
+    if (!$p || (int)$p['xp'] < (int)$p['xp_next'] || (int)$p['level'] >= 999) break;
+    // WHERE level=? makes each bump single-winner: a concurrent caller's bump
+    // fails the gate, loops, and re-reads instead of double-awarding.
+    $u = $pdo->prepare('UPDATE players SET level = level + 1, xp = xp - ?, xp_next = ? WHERE id = ? AND level = ? AND xp >= ?');
+    $u->execute([(int)$p['xp_next'], (int)round((int)$p['xp_next'] * 1.5), $pid, (int)$p['level'], (int)$p['xp_next']]);
+    if ($u->rowCount() === 1) $gained++;
+  }
+  if ($gained > 0) {
+    try {
+      $pdo->prepare('INSERT INTO player_stats (pid, unspent) VALUES (?,?) ON DUPLICATE KEY UPDATE unspent = unspent + ?')
+          ->execute([$pid, $gained * 5, $gained * 5]);
+    } catch (Throwable $e) {}
+  }
+  return $gained;
+}
+
+// ---- equipped gear resolution (shared) ----
+
+// The equipped_weapon/equipped_armor settings can hold an id from either
+// player_gear (Fabrication Lab crafts) or items (stash-equipped drops/buys).
+// Resolve in the same order everywhere so combat matches what stash/home show.
+function equipped_gear(PDO $pdo, int $pid, string $slot): ?array {
+  if ($slot !== 'weapon' && $slot !== 'armor') return null;
+  try {
+    $q = $pdo->prepare('SELECT v FROM settings WHERE k=?');
+    $q->execute(["equipped_{$slot}:{$pid}"]);
+    $id = (int)$q->fetchColumn();
+    if ($id <= 0) return null;
+    $g = $pdo->prepare('SELECT id, name, atk_bonus AS atk, def_bonus AS def FROM player_gear WHERE id=? AND player_id=?');
+    $g->execute([$id, $pid]);
+    if ($row = $g->fetch()) return ['id'=>(int)$row['id'],'name'=>$row['name'],'atk'=>(int)$row['atk'],'def'=>(int)$row['def'],'src'=>'gear'];
+    $i = $pdo->prepare('SELECT i.id, i.name, i.atk, i.def FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0');
+    $i->execute([$pid, $id]);
+    if ($row = $i->fetch()) return ['id'=>(int)$row['id'],'name'=>$row['name'],'atk'=>(int)$row['atk'],'def'=>(int)$row['def'],'src'=>'item'];
+  } catch (Throwable $e) {}
+  return null;
+}
+
 // ---- animated scene headers (shared canvas engine) ----
 
 // Panel header with a themed animated canvas. Themes are drawn by the shared

@@ -242,6 +242,7 @@ $rarityStyle = [
     var el=document.getElementById('foundry-cd'); if(!el) return;
     var left=<?= (int)$cdLeft ?>;
     var iv=setInterval(function(){
+      if(!document.body.contains(el)){ clearInterval(iv); return; }
       left--; if(left<=0){ clearInterval(iv); el.textContent='Ready'; el.style.color='var(--accent)'; return; }
       var m=Math.floor(left/60), s=left%60;
       el.textContent=m+':'+(s<10?'0':'')+s;

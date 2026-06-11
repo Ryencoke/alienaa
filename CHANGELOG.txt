@@ -2,6 +2,55 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-52 (part 1) ---
+
+FULL CODE REVIEW — CRITICAL RACE/EXPLOIT FIXES (first wave)
+------------------------------------------------------
+A five-agent audit of the whole codebase found a class of check-then-act
+races (exploitable with two sessions / parallel requests) plus integration
+gaps. This commit lands the first wave of fixes; more to follow.
+
+[lib.php]
+- grant_xp() is now a single shared, concurrency-safe helper (xp added
+  atomically; level bumps are single-winner via a WHERE level=? gate, so
+  two simultaneous XP grants can no longer double-award level-up stat
+  points). Removed the three divergent per-page copies (mining/pvp/sim).
+- New equipped_gear() helper: resolves equipped weapon/armor from
+  player_gear with a fallback to items/player_items — the same order
+  stash/home already used.
+
+[pvp.php]
+- FIXED credit minting: loser's pocket is now deducted with a balance
+  guard and the winner receives only what was actually deducted (the old
+  GREATEST(0,...) clamp let stale reads credit more than was lost).
+- FIXED daily-fight-cap bypass: Signal is charged atomically BEFORE the
+  fight simulates (WHERE signal >= 1 + rowCount gate).
+- Flatlined players (HP < 10) can no longer be attacked.
+- Stash-equipped weapons/armor now actually count in PvP via
+  equipped_gear() (they previously gave 0 in combat while the stash
+  showed them equipped).
+
+[sim.php]
+- FIXED reward stacking: damage is applied relatively with a liveness
+  guard instead of an absolute HP write from a stale read — parallel
+  engages can't each fight from full HP.
+- Stash-equipped gear now counts in sim combat (same fix as PvP).
+
+[exchange.php] FIXED daily Shard vault replay: award UPDATE now re-checks
+  shard_pull_at in its WHERE (both the AJAX and no-JS paths).
+[ledger.php] FIXED daily interest race: today's marker is claimed as an
+  atomic gate BEFORE crediting interest.
+[auction.php] FIXED double payout: ended listings are claimed by a
+  status='ended' flip (rowCount-gated) before any payout; FIXED listing
+  creation destroying items when the fee charge failed — fee, item
+  escrow and listing INSERT are now one transaction (with the item_qty
+  ALTER moved out, since ALTER implicitly commits).
+[training.php] FIXED free/parallel training: Drive charged atomically
+  first; cooldown claimed via a unique token gate (refunds Drive if the
+  claim loses). Countdown timer stops after AJAX nav (no more stray
+  location.reload from other pages).
+[foundry.php] Cooldown countdown interval self-clears after AJAX nav.
+
 --- SESSION: 2026-06-11 BATCH-51 ---
 
 FIRST IMPRESSIONS — LANDING + LOGIN + REGISTER POLISH

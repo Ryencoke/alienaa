@@ -16,24 +16,7 @@ $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 
-if (!function_exists('grant_xp')) {
-  function grant_xp($pid, $amount) {
-    $pdo = db();
-    try { $bq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $bq->execute(["apt_xp_bonus:{$pid}"]); $b=(int)$bq->fetchColumn(); if($b>0) $amount=(int)ceil($amount*(1+$b/100)); } catch(Throwable $e){}
-    $r = $pdo->prepare('SELECT level, xp, xp_next FROM players WHERE id = ?');
-    $r->execute([$pid]); $p = $r->fetch();
-    $level = (int)$p['level']; $xp = (int)$p['xp'] + $amount; $next = (int)$p['xp_next'];
-    $gained = 0;
-    while ($xp >= $next && $level < 999) { $xp -= $next; $level++; $next = (int)round($next * 1.5); $gained++; }
-    $pdo->prepare('UPDATE players SET level = ?, xp = ?, xp_next = ? WHERE id = ?')->execute([$level, $xp, $next, $pid]);
-    if ($gained > 0) {
-      try {
-        $pdo->prepare('INSERT INTO player_stats (pid, unspent) VALUES (?,?) ON DUPLICATE KEY UPDATE unspent = unspent + ?')
-            ->execute([$pid, $gained * 5, $gained * 5]);
-      } catch(Throwable $e) {}
-    }
-  }
-}
+// grant_xp() lives in lib.php (shared, concurrency-safe)
 
 try {
   $pdo->exec("CREATE TABLE IF NOT EXISTS player_stats (
@@ -87,13 +70,8 @@ function pvp_calc_stats($p, $stats, $pdo) {
 
   // Gear bonuses — also retrieve names for battle log display
   $weaponAtk = 0; $armorDef = 0; $weaponName = null; $armorName = null;
-  try {
-    $gq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
-    $gq->execute(["equipped_weapon:{$pid2}"]); $wid = (int)$gq->fetchColumn();
-    if ($wid > 0) { $gq2 = $pdo->prepare('SELECT name, atk_bonus FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$wid,$pid2]); $wr=$gq2->fetch(); if($wr){$weaponAtk=(int)$wr['atk_bonus'];$weaponName=$wr['name'];} }
-    $gq->execute(["equipped_armor:{$pid2}"]); $aid = (int)$gq->fetchColumn();
-    if ($aid > 0) { $gq2 = $pdo->prepare('SELECT name, def_bonus FROM player_gear WHERE id=? AND player_id=?'); $gq2->execute([$aid,$pid2]); $ar=$gq2->fetch(); if($ar){$armorDef=(int)$ar['def_bonus'];$armorName=$ar['name'];} }
-  } catch (Throwable $e) {}
+  if ($wg = equipped_gear($pdo, $pid2, 'weapon')) { $weaponAtk = $wg['atk']; $weaponName = $wg['name']; }
+  if ($ag = equipped_gear($pdo, $pid2, 'armor'))  { $armorDef  = $ag['def']; $armorName  = $ag['name']; }
 
   // Active buffs
   $buffAtk = 0; $buffDef = 0;
@@ -194,7 +172,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$defPlayer) throw new RuntimeException('"' . htmlspecialchars($target, ENT_QUOTES) . '" is not a ghost in the Sprawl.');
       if ((int)$defPlayer['id'] === $pid) throw new RuntimeException("You can't fight yourself.");
       if ((int)$player['integrity'] < 10) throw new RuntimeException('Your Health is too low to fight. Rest first.');
-      if ((int)$player['signal'] < 1) throw new RuntimeException('Signal depleted — daily combat limit reached. Signal resets at midnight.');
+      if ((int)$defPlayer['integrity'] < 10) throw new RuntimeException('That ghost is already flatlined. Let them recover.');
+      // Charge Signal atomically BEFORE simulating — the WHERE gate means parallel
+      // challenges can't all pass a stale read and fight past the daily cap.
+      $sg = $pdo->prepare('UPDATE players SET `signal` = `signal` - 1 WHERE id=? AND `signal` >= 1');
+      $sg->execute([$pid]);
+      if ($sg->rowCount() !== 1) throw new RuntimeException('Signal depleted — daily combat limit reached. Signal resets at midnight.');
 
       // Load defender stats
       $qd = $pdo->prepare('SELECT * FROM player_stats WHERE pid=?'); $qd->execute([(int)$defPlayer['id']]); $defStats = $qd->fetch();
@@ -213,20 +196,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $atkXp = $won ? mt_rand(8, 20) + (int)$defPlayer['level'] * 2 : mt_rand(2, 6);
       $defXp = !$won ? mt_rand(5, 15) + (int)$player['level'] * 2   : mt_rand(1, 4);
 
-      // Credit transfer — loser drops 10% of pocket credits to winner
+      // Credit transfer — loser drops 10% of pocket credits to winner.
+      // Deduct with a balance guard and only credit what was actually deducted,
+      // so a stale pocket read can never mint credits (the old GREATEST(0,...)
+      // clamp let the winner receive more than the loser lost).
       $creditsLooted = 0;
-      if ($won) {
-        $creditsLooted = max(0, (int)floor((int)$defPlayer['creds_pocket'] * 0.10));
-        if ($creditsLooted > 0) {
-          $pdo->prepare('UPDATE players SET creds_pocket = GREATEST(0, creds_pocket - ?) WHERE id=?')->execute([$creditsLooted, (int)$defPlayer['id']]);
-          $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$creditsLooted, $pid]);
+      $loserId    = $won ? (int)$defPlayer['id'] : $pid;
+      $winnerGets = $won ? $pid : (int)$defPlayer['id'];
+      $loserPocket = (int)($won ? $defPlayer['creds_pocket'] : $player['creds_pocket']);
+      $loot = max(0, (int)floor($loserPocket * 0.10));
+      if ($loot > 0) {
+        $d = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id=? AND creds_pocket >= ?');
+        $d->execute([$loot, $loserId, $loot]);
+        if ($d->rowCount() !== 1) {
+          // Pocket changed since we read it — recompute from the live balance
+          $lp = $pdo->prepare('SELECT creds_pocket FROM players WHERE id=?');
+          $lp->execute([$loserId]);
+          $loot = max(0, (int)floor((int)$lp->fetchColumn() * 0.10));
+          if ($loot > 0) { $d->execute([$loot, $loserId, $loot]); if ($d->rowCount() !== 1) $loot = 0; }
         }
-      } else {
-        $creditsLooted = max(0, (int)floor((int)$player['creds_pocket'] * 0.10));
-        if ($creditsLooted > 0) {
-          $pdo->prepare('UPDATE players SET creds_pocket = GREATEST(0, creds_pocket - ?) WHERE id=?')->execute([$creditsLooted, $pid]);
-          $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$creditsLooted, (int)$defPlayer['id']]);
-        }
+        if ($loot > 0) $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$loot, $winnerGets]);
+        $creditsLooted = $loot;
       }
 
       // Integrity damage — proportional to HP lost in combat, applied to both players
@@ -256,7 +246,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mortalityDelta = -2; // fighting a neutral player = slight evil shift
       }
       try { $pdo->prepare('UPDATE players SET mortality = GREATEST(-200, LEAST(200, mortality + ?)) WHERE id=?')->execute([$mortalityDelta, $winnerId2]); } catch (Throwable $ex) {}
-      $pdo->prepare('UPDATE players SET `signal` = GREATEST(0, `signal` - 1) WHERE id=?')->execute([$pid]);
 
       $player = current_player();
 

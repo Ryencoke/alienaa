@@ -20,11 +20,15 @@ try {
   $q->execute(["bank_interest:{$pid}"]);
   $lastInterest = $q->fetchColumn();
   if ($lastInterest !== $today && (int)$player['creds_bank'] > 0) {
+    // Claim today's marker FIRST as an atomic gate — rowCount is 0 when the value
+    // is already $today, so parallel requests can't each credit a day's interest.
+    $gate = $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)');
+    $gate->execute(["bank_interest:{$pid}", $today]);
+    if ($gate->rowCount() === 0) throw new RuntimeException('interest already applied');
     $q->execute(["apt_bank_bonus:{$pid}"]); $bankBonus = (int)$q->fetchColumn();
     $rate = BANK_INTEREST_RATE + ($bankBonus > 0 ? $bankBonus / 10000 : 0); // perk_val 25 = +0.0025 = +0.25%
     $interestEarned = (int)max(1, floor((int)$player['creds_bank'] * $rate));
     $pdo->prepare('UPDATE players SET creds_bank = creds_bank + ? WHERE id = ?')->execute([$interestEarned, $pid]);
-    $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["bank_interest:{$pid}", $today]);
     $player = current_player();
     $ratePct = round($rate * 100, 3);
     $msg = '&#9733; Daily interest applied: +' . number_format($interestEarned) . ' creds (' . $ratePct . '% on your balance).';

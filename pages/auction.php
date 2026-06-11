@@ -63,6 +63,11 @@ try {
   foreach ($ended as $el) {
     $pdo->beginTransaction();
     try {
+      // Claim the listing first — only the request that wins this flip pays out,
+      // so two tabs resolving the same auction can't double-credit the seller.
+      $claim = $pdo->prepare("UPDATE auction_listings SET status='ended' WHERE id=? AND status='active'");
+      $claim->execute([$el['id']]);
+      if ($claim->rowCount() !== 1) { $pdo->rollBack(); continue; }
       $iqty = max(1, (int)($el['item_qty'] ?? 1));
       if ((int)$el['bidder_id'] && (int)$el['current_bid'] > 0) {
         $fee      = (int)max(1, ceil($el['current_bid'] * AUCTION_FEE_PCT));
@@ -81,7 +86,6 @@ try {
               ->execute([(int)$el['seller_id'], (int)$el['item_id'], $iqty]);
         }
       }
-      $pdo->prepare("UPDATE auction_listings SET status='ended' WHERE id=?")->execute([$el['id']]);
       $pdo->commit();
     } catch (Throwable $e) { $pdo->rollBack(); }
   }
@@ -108,21 +112,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$invRow) throw new RuntimeException('Item not found in inventory.');
       if ((int)$invRow['qty'] < $qty) throw new RuntimeException('Not enough in inventory (you have '.(int)$invRow['qty'].').');
       $itemName = $invRow['name'];
-      $dec = $pdo->prepare('UPDATE player_items SET qty=qty-? WHERE player_id=? AND item_id=? AND qty>=?');
-      $dec->execute([$qty, $pid, $selItemId, $qty]);
-      if ($dec->rowCount() !== 1) throw new RuntimeException('Not enough in inventory.');
-      $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=? AND qty<=0')->execute([$pid, $selItemId]);
       if ($itemName === '') throw new RuntimeException('Select an item from your inventory.');
       if (strlen($itemName) > 100) throw new RuntimeException('Item name too long.');
       $feePct  = $AUCTION_LISTING_FEES[$hours] ?? 0.05;
       $listFee = (int)ceil($startPx * $feePct);
+      // Add item_qty column if missing (silent) — must run BEFORE the transaction
+      // (ALTER implicitly commits in MySQL and would break the rollback below)
+      try { $pdo->exec('ALTER TABLE auction_listings ADD COLUMN item_qty INT NOT NULL DEFAULT 1'); } catch (Throwable $e) {}
+      // Fee, item escrow, and listing land or fail together — without this, a
+      // failed fee charge would still have destroyed the seller's items.
+      $pdo->beginTransaction();
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([$listFee, $pid, $listFee]);
       if ($u->rowCount() !== 1) throw new RuntimeException('Not enough credits. Listing fee: ' . number_format($listFee) . ' cr.');
+      $dec = $pdo->prepare('UPDATE player_items SET qty=qty-? WHERE player_id=? AND item_id=? AND qty>=?');
+      $dec->execute([$qty, $pid, $selItemId, $qty]);
+      if ($dec->rowCount() !== 1) throw new RuntimeException('Not enough in inventory.');
+      $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=? AND qty<=0')->execute([$pid, $selItemId]);
       $endsAt = date('Y-m-d H:i:s', time() + $hours * 3600);
-      // Add item_qty column if missing (silent)
-      try { $pdo->exec('ALTER TABLE auction_listings ADD COLUMN item_qty INT NOT NULL DEFAULT 1'); } catch (Throwable $e) {}
       $pdo->prepare('INSERT INTO auction_listings (seller_id, item_id, item_name, item_qty, starting_price, ends_at) VALUES (?,?,?,?,?,?)')->execute([$pid, $selItemId, $itemName, $qty, $startPx, $endsAt]);
+      $pdo->commit();
       $msg = 'Auction created! Listing ' . $qty . '× ' . $itemName . '. Fee: ' . number_format($listFee) . ' cr (' . round($feePct*100) . '%).';
       $tab = 'browse';
 

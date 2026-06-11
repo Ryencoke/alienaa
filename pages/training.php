@@ -86,6 +86,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'train
       $sk     = $r['stat_key'];
       $curVal = (int)($stats[$sk] ?? 5);
 
+      // Charge Drive FIRST, atomically — the old clamped, unconditional deduct
+      // ran after the gain, so parallel POSTs (or sub-cost Drive) trained free.
+      $charge = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id=? AND cycles >= ?');
+      $charge->execute([TRAIN_DRIVE_COST, $pid, TRAIN_DRIVE_COST]);
+      if ($charge->rowCount() !== 1) throw new RuntimeException('Not enough Drive (costs '.TRAIN_DRIVE_COST.' Drive).');
+
+      // Claim the cooldown atomically — only advances if the window has expired,
+      // so parallel POSTs can't each roll a gain
+      $now = time();
+      $tok = $now . '.' . mt_rand(100000, 999999); // unique so same-second claims can't both win
+      $cd = $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?)
+                           ON DUPLICATE KEY UPDATE v = IF(CAST(v AS UNSIGNED) + ' . (int)TRAIN_COOLDOWN . ' <= CAST(VALUES(v) AS UNSIGNED), VALUES(v), v)');
+      $cd->execute(["training_at:{$pid}", $tok]);
+      $cq2 = $pdo->prepare('SELECT v FROM settings WHERE k=?');
+      $cq2->execute(["training_at:{$pid}"]);
+      if ($cq2->fetchColumn() !== $tok) {
+        $pdo->prepare('UPDATE players SET cycles = cycles + ? WHERE id=?')->execute([TRAIN_DRIVE_COST, $pid]);
+        throw new RuntimeException('Cooldown active — wait a few minutes.');
+      }
+
       // Diminishing returns: chance decreases as stat grows (no hard cap)
       $gainChance = max(3, 60 - ($curVal * 2)); // 60% at 0, decreasing, 3% floor
       $gained = 0;
@@ -97,13 +117,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'train
         $q->execute([$pid]); $stats = $q->fetch();
       }
 
-      // Deduct Drive
-      $pdo->prepare('UPDATE players SET cycles = GREATEST(0, cycles - ?) WHERE id=?')->execute([TRAIN_DRIVE_COST, $pid]);
       $player = current_player();
-
-      // Store cooldown
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["training_at:{$pid}", (string)time()]);
-      $lastTrain    = time();
+      $lastTrain    = $now;
       $cooldownLeft = TRAIN_COOLDOWN;
       $canTrain     = false;
 
@@ -226,6 +241,7 @@ $player = current_player();
   if (!cd) return;
   var secs = <?= max(0, $cooldownLeft) ?>;
   function tick() {
+    if (!document.body.contains(cd)) return; // page was AJAX-swapped away
     if (secs <= 0) { location.reload(); return; }
     secs--;
     var m = Math.floor(secs/60), s = secs%60;
