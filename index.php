@@ -370,7 +370,6 @@ try {
           $onlineStaff = $oq3->fetchAll();
         } catch (Throwable $e) {}
 
-      <?php
         foreach (['friends'=>$onlineFriends,'syndicate'=>$onlineSyndicate,'staff'=>$onlineStaff] as $tid=>$olist):
       ?>
       <div id="jackedin-<?= $tid ?>" style="display:none">
