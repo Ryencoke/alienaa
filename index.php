@@ -342,67 +342,57 @@ try {
     })();
     </script>
     <div class="panel">
-      <h3 style="margin-bottom:10px">Online</h3>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <h3 style="margin:0">Online</h3>
+        <div style="display:flex;gap:3px" id="online-tabs">
+          <?php foreach (['friends'=>'Friends','syndicate'=>'Syndicate','staff'=>'Staff'] as $tid=>$tl): ?>
+          <button onclick="switchOnlineTab('<?= $tid ?>')" data-tab="<?= $tid ?>"
+            style="font-size:10px;padding:3px 7px;border-radius:4px;cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--muted)"><?= $tl ?></button>
+          <?php endforeach; ?>
+        </div>
+      </div>
+
       <?php
-        // Friends online
-        $onlineFriends = [];
+        $onlineFriends = $onlineSyndicate = $onlineStaff = [];
         try {
-          $oq1 = db()->prepare("SELECT p.id, p.username, p.role, p.chat_color, COALESCE(p.mortality,0) AS mortality
-            FROM friends f JOIN players p ON p.id = f.friend_id
-            WHERE f.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
-            ORDER BY p.username LIMIT 30");
+          $oq1 = db()->prepare("SELECT p.id, p.username, p.role, p.chat_color FROM friends f JOIN players p ON p.id=f.friend_id WHERE f.player_id=? AND p.last_seen>=(NOW()-INTERVAL 5 MINUTE) ORDER BY p.username LIMIT 30");
           $oq1->execute([$player['id']]); $onlineFriends = $oq1->fetchAll();
         } catch (Throwable $e) {}
-        // Syndicate members online
-        $onlineSyndicate = [];
         try {
-          $oq2 = db()->prepare("SELECT p.id, p.username, p.role, p.chat_color, COALESCE(p.mortality,0) AS mortality
-            FROM syndicate_members sm1
-            JOIN syndicate_members sm2 ON sm2.syndicate_id=sm1.syndicate_id AND sm2.player_id != ?
-            JOIN players p ON p.id = sm2.player_id
-            WHERE sm1.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
-            ORDER BY p.username LIMIT 30");
+          $oq2 = db()->prepare("SELECT p.id, p.username, p.role, p.chat_color FROM syndicate_members sm1 JOIN syndicate_members sm2 ON sm2.syndicate_id=sm1.syndicate_id AND sm2.player_id!=? JOIN players p ON p.id=sm2.player_id WHERE sm1.player_id=? AND p.last_seen>=(NOW()-INTERVAL 5 MINUTE) ORDER BY p.username LIMIT 30");
           $oq2->execute([$player['id'], $player['id']]); $onlineSyndicate = $oq2->fetchAll();
         } catch (Throwable $e) {}
-        // Staff online
-        $onlineStaff = [];
         try {
-          $oq3 = db()->query("SELECT id, username, role, chat_color, COALESCE(mortality,0) AS mortality FROM players
-            WHERE role IN ('manager','admin','moderator','chatmod') AND last_seen >= (NOW() - INTERVAL 5 MINUTE)
-            ORDER BY username LIMIT 20");
+          $oq3 = db()->query("SELECT id, username, role, chat_color FROM players WHERE role IN ('manager','admin','moderator','chatmod') AND last_seen>=(NOW()-INTERVAL 5 MINUTE) ORDER BY username LIMIT 20");
           $onlineStaff = $oq3->fetchAll();
         } catch (Throwable $e) {}
+
+        foreach (['friends'=>$onlineFriends,'syndicate'=>$onlineSyndicate,'staff'=>$onlineStaff] as $tid=>$olist):
       ?>
-
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px">Friends</div>
-      <div id="jackedin-friends">
-        <?php if (empty($onlineFriends)): ?>
-          <p class="muted" style="font-size:11px;margin:3px 0 6px">None online.</p>
-        <?php else: foreach ($onlineFriends as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
-          <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a><?= mortality_icon((int)$o['mortality']) ?></div>
-        <?php endforeach; endif; ?>
-      </div>
-      <p style="font-size:10px;margin:3px 0 10px"><a href="index.php?p=friends" style="color:var(--muted)">[View all friends]</a></p>
-
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px">Syndicate</div>
-      <div id="jackedin-syndicate">
-        <?php if (empty($onlineSyndicate)): ?>
-          <p class="muted" style="font-size:11px;margin:3px 0 10px">None online.</p>
-        <?php else: foreach ($onlineSyndicate as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
-          <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a><?= mortality_icon((int)$o['mortality']) ?></div>
-        <?php endforeach; endif; ?>
-      </div>
-      <?php if (!empty($onlineSyndicate)): ?><div style="margin-bottom:10px"></div><?php endif; ?>
-
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px">Staff</div>
-      <div id="jackedin-staff">
-        <?php if (empty($onlineStaff)): ?>
+      <div id="jackedin-<?= $tid ?>" style="display:none">
+        <?php if (empty($olist)): ?>
           <p class="muted" style="font-size:11px;margin:3px 0">None online.</p>
-        <?php else: foreach ($onlineStaff as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
-          <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a><?= mortality_icon((int)$o['mortality']) ?></div>
+        <?php else: foreach ($olist as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
+          <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>"><?= e($o['username']) ?></a></div>
         <?php endforeach; endif; ?>
+        <?php if ($tid === 'friends'): ?><p style="font-size:10px;margin:6px 0 0"><a href="index.php?p=friends" style="color:var(--muted)">View all friends &rarr;</a></p><?php endif; ?>
       </div>
+      <?php endforeach; ?>
     </div>
+    <script>
+    (function(){
+      var _activeTab = localStorage.getItem('onlineTab') || 'friends';
+      window.switchOnlineTab = function(tab){
+        _activeTab = tab; localStorage.setItem('onlineTab', tab);
+        ['friends','syndicate','staff'].forEach(function(t){
+          var el=document.getElementById('jackedin-'+t); if(el) el.style.display=(t===tab?'block':'none');
+          var btn=document.querySelector('#online-tabs [data-tab="'+t+'"]');
+          if(btn){ btn.style.background=t===tab?'rgba(25,240,199,.1)':'var(--panel2)'; btn.style.color=t===tab?'var(--accent)':'var(--muted)'; btn.style.borderColor=t===tab?'rgba(25,240,199,.3)':'var(--line)'; }
+        });
+      };
+      switchOnlineTab(_activeTab);
+    })();
+    </script>
   </aside>
 
   <script>
@@ -420,34 +410,34 @@ try {
     }
     function renderOnline(data){
       var sections=[
-        ['jackedin-friends',  data.friends   || []],
-        ['jackedin-syndicate',data.syndicate || []],
-        ['jackedin-staff',    data.staff     || []]
+        ['jackedin-friends',  data.friends   || [], true],
+        ['jackedin-syndicate',data.syndicate || [], false],
+        ['jackedin-staff',    data.staff     || [], false]
       ];
       sections.forEach(function(sec){
         var box=document.getElementById(sec[0]); if(!box) return;
-        var list=sec[1];
+        var list=sec[1], isFriends=sec[2];
+        var wasVisible = box.style.display !== 'none';
         box.innerHTML='';
         if(!list.length){
           var p=document.createElement('p');
-          p.style.cssText='font-size:11px;color:var(--muted);margin:3px 0 6px';
-          p.textContent='None online.'; box.appendChild(p); return;
+          p.style.cssText='font-size:11px;color:var(--muted);margin:3px 0';
+          p.textContent='None online.'; box.appendChild(p);
+        } else {
+          list.forEach(function(o){
+            var d=document.createElement('div'); d.className='online-player';
+            var dot=document.createElement('span'); dot.className='online-dot';
+            var a=document.createElement('a'); a.href='index.php?p=profile&id='+o.id;
+            a.textContent=o.name; a.style.color=o.color;
+            d.appendChild(dot); d.appendChild(a);
+            box.appendChild(d);
+          });
         }
-        list.forEach(function(o){
-          var d=document.createElement('div'); d.className='online-player';
-          var dot=document.createElement('span'); dot.className='online-dot';
-          var a=document.createElement('a'); a.href='index.php?p=profile&id='+o.id;
-          a.textContent=o.name; a.style.color=o.color; a.style.fontWeight='bold';
-          d.appendChild(dot); d.appendChild(a);
-          if(o.mortality){
-            var mi=document.createElement('span');
-            mi.style.cssText='font-size:11px;margin-left:3px;color:'+(o.mortality>0?'#e8d44d':'#ff2d95');
-            mi.title=(o.mortality>0?'Good +':'Evil ')+Math.abs(o.mortality);
-            mi.innerHTML=o.mortality>0?'&#9728;':'&#9760;';
-            d.appendChild(mi);
-          }
-          box.appendChild(d);
-        });
+        if(isFriends){
+          var fl=document.createElement('p'); fl.style.cssText='font-size:10px;margin:6px 0 0';
+          var fa=document.createElement('a'); fa.href='index.php?p=friends'; fa.style.color='var(--muted)'; fa.textContent='View all friends →';
+          fl.appendChild(fa); box.appendChild(fl);
+        }
       });
     }
     function refresh(){
