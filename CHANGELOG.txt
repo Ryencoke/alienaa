@@ -2,6 +2,39 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-29 ---
+
+MINING.PHP — VISUAL/INTERACTION OVERHAUL + ORE SCANNER FOG
+------------------------------------------------------------
+[mining.php]
+- NEW FOG MODEL (two-tier visibility): explored terrain (walls/floors/exit) persists
+  as dim "map memory", but ORE is only visible inside a 2.5-tile scanner radius
+  around the player. Ore outside the radius renders as plain floor and fades off
+  the map when you walk away. Enforced SERVER-SIDE: mine_to_client masks ore tiles
+  as floor in the JSON payload, so the client never receives off-scanner ore
+  positions (can't be cheated via devtools).
+- Dashed scanner ring drawn around the player showing the 2.5-tile detection range;
+  lobby explains the mechanic.
+- RENDERING REWRITE: requestAnimationFrame loop with smooth camera lerp, 110ms
+  player movement interpolation, radial lighting falloff (map memory dims with
+  distance), vignette, pulsing ore crystals (rotated diamonds with glow + sparkle),
+  animated exit-shaft beacon, textured walls/floors (deterministic hash variation),
+  devicePixelRatio-aware canvas (24px cells, crisp on retina).
+- INTERACTION: click any explored tile to AUTO-PATH (client BFS over explored tiles
+  only — fog blocks routing); click a scanned ore deposit to auto-approach and mine
+  it; hover highlights tiles and shows an ore name tooltip; held WASD/arrow keys
+  walk continuously; Esc cancels the path queue.
+- JUICE: particle bursts + floating "+1 Ore / -X Drive" text + screen shake on
+  extraction, ore-chip pop-in animation, pulsing Exit button, minimap (top-right,
+  explored terrain + exit + player only — never shows ore), WebAudio synth SFX
+  (move-block, extract, exit-found, surface fanfare) with mute toggle persisted
+  in localStorage.
+- Result screen now shows total ore + XP earned and a "Dive Again" button.
+- BUG FIX: harvest Drive deduction was non-atomic (GREATEST(0, cycles-?) with a
+  stale pre-check); now guarded UPDATE ... WHERE cycles >= ? + rowCount.
+- BUG FIX: stale keyboard/render handlers from previous AJAX page visits now
+  self-disable when the canvas is detached (previously leaked per navigation).
+
 --- SESSION: 2026-06-11 BATCH-28 ---
 
 FULL-CODEBASE BUG AUDIT — EXPLOITS, RACES, LOGIC FIXES
