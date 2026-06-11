@@ -1,13 +1,34 @@
-<?php /* players_search.php — autocomplete for username fields; also searches by numeric ID */
+<?php /* players_search.php — autocomplete for username fields; also supports ?lookup= for player confirmation info */
 require __DIR__ . '/config.php';
 require __DIR__ . '/lib.php';
 header('Content-Type: application/json');
 header('Cache-Control: no-store, max-age=0');
 $player = current_player();
 if (!$player) { echo '[]'; exit; }
+$db = db();
+
+// Lookup mode: return single player details for trade confirmation
+if (isset($_GET['lookup'])) {
+  $lq = trim($_GET['lookup'] ?? '');
+  if ($lq === '') { echo 'null'; exit; }
+  try {
+    $st = null;
+    if (ctype_digit($lq)) {
+      $st = $db->prepare('SELECT id, username, level, role FROM players WHERE id = ? AND id != ? LIMIT 1');
+      $st->execute([(int)$lq, $player['id']]);
+    } else {
+      $st = $db->prepare('SELECT id, username, level, role FROM players WHERE username = ? AND id != ? LIMIT 1');
+      $st->execute([$lq, $player['id']]);
+    }
+    $row = $st->fetch();
+    if (!$row) { echo 'null'; exit; }
+    echo json_encode(['id'=>(int)$row['id'],'username'=>$row['username'],'level'=>(int)$row['level'],'role'=>$row['role']]);
+  } catch (Throwable $e) { echo 'null'; }
+  exit;
+}
+
 $q = trim($_GET['q'] ?? '');
 if (strlen($q) < 1) { echo '[]'; exit; }
-$db = db();
 $results = [];
 // If query is purely numeric, try searching by player ID first
 if (ctype_digit($q)) {

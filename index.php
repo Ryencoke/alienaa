@@ -85,7 +85,8 @@ if ($player && !$isImpersonating) {
 $noteKey = 'staff_note:' . $p . (isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? ':' . (int)$_GET['id'] : '');
 if ($isStaff && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['__staffnote'])) {
   $sn = trim($_POST['staffnote'] ?? ''); if (mb_strlen($sn) > 2000) $sn = mb_substr($sn, 0, 2000);
-  try { db()->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute([$noteKey, $sn]); } catch (Throwable $e) {}
+  $snVal = json_encode(['note'=>$sn, 'by'=>$player['username'], 'at'=>date('M j Y, g:ia')]);
+  try { db()->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute([$noteKey, $snVal]); } catch (Throwable $e) {}
 }
 
 function bar($label, $val, $max, $key = '') {
@@ -216,13 +217,21 @@ try {
   <main class="center">
 <?php
   if ($isStaff) {
-    $snote = '';
-    try { $s = db()->prepare('SELECT v FROM settings WHERE k=?'); $s->execute([$noteKey]); $snote = (string)$s->fetchColumn(); } catch (Throwable $e) {}
+    $snote = ''; $snoteAuthor = ''; $snoteEditText = '';
+    try {
+      $s = db()->prepare('SELECT v FROM settings WHERE k=?'); $s->execute([$noteKey]); $sv = $s->fetchColumn();
+      if ($sv !== false && $sv !== '') {
+        $sj = json_decode($sv, true);
+        if (is_array($sj)) { $snote = $sj['note'] ?? ''; $snoteAuthor = ($sj['by'] ?? '') . ($sj['at'] ? ' · ' . $sj['at'] : ''); $snoteEditText = $snote; }
+        else { $snote = $sv; $snoteEditText = $sv; } // legacy plain text
+      }
+    } catch (Throwable $e) {}
+    $snoteView = $snote !== '' ? nl2br(e($snote)) . ($snoteAuthor ? '<div style="margin-top:5px;font-size:10px;color:var(--muted);border-top:1px solid rgba(255,255,255,.06);padding-top:4px">&#9999; ' . e($snoteAuthor) . '</div>' : '') : '<span class="muted">+ Add note for this page</span>';
     echo '<div class="staffnote"><div class="staffnote-head">&#128204; <b>Staff Note</b>'
        . '<a href="#" onclick="var n=this.closest(\'.staffnote\');n.querySelector(\'.staffnote-edit\').style.display=\'block\';n.querySelector(\'.staffnote-view\').style.display=\'none\';return false;" style="float:right;font-size:11px">[Edit]</a></div>'
-       . '<div class="staffnote-view">' . ($snote !== '' ? nl2br(e($snote)) : '<span class="muted">+ Add note for this page</span>') . '</div>'
+       . '<div class="staffnote-view">' . $snoteView . '</div>'
        . '<form class="staffnote-edit" method="post" style="display:none;margin-top:6px"><input type="hidden" name="__staffnote" value="1">'
-       . '<textarea name="staffnote" style="width:100%;min-height:50px" placeholder="Leave empty to clear...">' . e($snote) . '</textarea>'
+       . '<textarea name="staffnote" style="width:100%;min-height:50px" placeholder="Leave empty to clear...">' . e($snoteEditText) . '</textarea>'
        . '<p style="margin:6px 0 0"><button type="submit">Save Note</button></p></form></div>';
   }
   // Jail block — jailed players see only the notice (admins/managers bypass)

@@ -32,10 +32,10 @@ $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 
-define('AUCTION_FEE_PCT',     0.05);   // 5% auctioneer fee on successful sale (used on bid resolution)
+define('AUCTION_FEE_PCT',     0.01);   // 1% auctioneer fee on successful sale
 // Listing fee by duration (% of starting price)
 $AUCTION_LISTING_FEES = [1=>0.02, 6=>0.03, 12=>0.04, 24=>0.05, 48=>0.07];
-define('AUCTION_CANCEL_PCT',  0.10);   // 10% penalty fee to pull listing after 5-minute grace
+define('AUCTION_CANCEL_PCT',  0.025);  // 2.5% penalty fee to pull listing after 5-minute grace
 define('AUCTION_GRACE_SEC',   300);    // 5-minute free edit/cancel window
 
 // Auto-setup tables if missing
@@ -62,19 +62,22 @@ try {
   foreach ($ended as $el) {
     $pdo->beginTransaction();
     try {
+      $iqty = max(1, (int)($el['item_qty'] ?? 1));
       if ((int)$el['bidder_id'] && (int)$el['current_bid'] > 0) {
         $fee      = (int)max(1, ceil($el['current_bid'] * AUCTION_FEE_PCT));
         $proceeds = $el['current_bid'] - $fee;
         // Give item to winner
-        if ($el['player_item_id']) {
-          $pdo->prepare('UPDATE players_items SET owner_id=? WHERE id=?')->execute([$el['bidder_id'], $el['player_item_id']]);
+        if ((int)$el['item_id'] > 0) {
+          $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)')
+              ->execute([(int)$el['bidder_id'], (int)$el['item_id'], $iqty]);
         }
         // Give credits to seller (minus fee)
         $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$proceeds, $el['seller_id']]);
       } else {
         // Return item to seller if no bids
-        if ($el['player_item_id']) {
-          try { $pdo->prepare('UPDATE player_items SET owner_id=? WHERE id=?')->execute([$el['seller_id'], $el['player_item_id']]); } catch(Throwable $e) {}
+        if ((int)$el['item_id'] > 0) {
+          $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)')
+              ->execute([(int)$el['seller_id'], (int)$el['item_id'], $iqty]);
         }
       }
       $pdo->prepare("UPDATE auction_listings SET status='ended' WHERE id=?")->execute([$el['id']]);
@@ -83,7 +86,7 @@ try {
   }
 } catch (Throwable $e) {}
 
-$tab = in_array($_GET['tab'] ?? '', ['browse','mine','create']) ? $_GET['tab'] : 'browse';
+$tab = in_array($_GET['tab'] ?? '', ['browse','mine','create','history','myhistory']) ? $_GET['tab'] : 'browse';
 
 // ── Handle POST ────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -171,18 +174,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ── Fetch listings ─────────────────────────────────────────────────────────
 $active = [];
 try {
-  $active = $pdo->query("SELECT al.*, p.username AS seller_name, (UNIX_TIMESTAMP(al.ends_at) - UNIX_TIMESTAMP()) AS secs_left
+  $active = $pdo->query("SELECT al.*, p.username AS seller_name,
+    UNIX_TIMESTAMP(al.ends_at) AS ends_unix,
+    (UNIX_TIMESTAMP(al.ends_at) - UNIX_TIMESTAMP()) AS secs_left
     FROM auction_listings al JOIN players p ON p.id = al.seller_id
     WHERE al.status = 'active' ORDER BY al.ends_at ASC LIMIT 100")->fetchAll();
 } catch (Throwable $e) {}
 
 $myListings = [];
 try {
-  $q = $pdo->prepare("SELECT *, (UNIX_TIMESTAMP(ends_at) - UNIX_TIMESTAMP()) AS secs_left FROM auction_listings WHERE seller_id=? AND status='active' ORDER BY ends_at ASC");
+  $q = $pdo->prepare("SELECT *, UNIX_TIMESTAMP(ends_at) AS ends_unix, (UNIX_TIMESTAMP(ends_at) - UNIX_TIMESTAMP()) AS secs_left FROM auction_listings WHERE seller_id=? AND status='active' ORDER BY ends_at ASC");
   $q->execute([$pid]); $myListings = $q->fetchAll();
 } catch (Throwable $e) {}
 $playerInvAuction = [];
 try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.qty>0 ORDER BY i.name'); $piq->execute([$pid]); $playerInvAuction = $piq->fetchAll(); } catch (Throwable $e) {}
+
+// ── History ────────────────────────────────────────────────────────────────
+$historyAll = []; $historyMine = [];
+if ($tab === 'history') {
+  try { $historyAll = $pdo->query("SELECT al.*, p.username AS seller_name, b.username AS bidder_name FROM auction_listings al JOIN players p ON p.id=al.seller_id LEFT JOIN players b ON b.id=al.bidder_id WHERE al.status IN ('ended','cancelled') ORDER BY al.created_at DESC LIMIT 60")->fetchAll(); } catch (Throwable $e) {}
+}
+if ($tab === 'myhistory') {
+  try { $q2=$pdo->prepare("SELECT al.*, b.username AS bidder_name FROM auction_listings al LEFT JOIN players b ON b.id=al.bidder_id WHERE al.seller_id=? AND al.status IN ('ended','cancelled') ORDER BY al.created_at DESC LIMIT 60"); $q2->execute([$pid]); $historyMine=$q2->fetchAll(); } catch (Throwable $e) {}
+}
 ?>
 
 <!-- Header -->
@@ -201,14 +215,14 @@ try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name FROM player_items pi
 
 <!-- Fees notice -->
 <div style="background:rgba(25,240,199,.04);border:1px solid rgba(25,240,199,.12);border-radius:6px;padding:9px 14px;font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;gap:12px">
-  <span>&#9888; <b style="color:var(--text)">5% auctioneer fee</b> charged on listing creation (non-refundable if no bids)</span>
-  <span>&#9888; <b style="color:var(--text)">10% cancellation penalty</b> after the 5-minute free window</span>
+  <span>&#9888; <b style="color:var(--text)">1% auctioneer fee</b> deducted from sale proceeds</span>
+  <span>&#9888; <b style="color:var(--text)">2.5% cancellation penalty</b> after the 5-minute free window</span>
   <span>&#9888; Outbid deposits are automatically refunded to your pocket</span>
 </div>
 
 <!-- Tabs -->
-<div style="display:flex;gap:8px">
-  <?php $tabs=['browse'=>'&#128269; Live Auctions ('.count($active).')','mine'=>'&#128230; My Listings ('.count($myListings).')','create'=>'&#43; Post Listing']; foreach ($tabs as $tid=>$tl): ?>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+  <?php $tabs=['browse'=>'&#128269; Live ('.count($active).')','mine'=>'&#128230; My Listings ('.count($myListings).')','create'=>'&#43; Post Listing','history'=>'&#128196; History','myhistory'=>'&#128203; My History']; foreach ($tabs as $tid=>$tl): ?>
   <a href="index.php?p=auction&tab=<?= $tid ?>" style="padding:7px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $tab===$tid ? 'var(--neon2)' : 'var(--line)' ?>;background:<?= $tab===$tid ? 'rgba(255,45,149,.1)' : 'var(--panel2)' ?>;color:<?= $tab===$tid ? 'var(--neon2)' : 'var(--muted)' ?>"><?= $tl ?></a>
   <?php endforeach; ?>
 </div>
@@ -245,7 +259,7 @@ try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name FROM player_items pi
       </div>
       <div style="text-align:right;font-size:12px;color:var(--muted)"><?= number_format($row['starting_price']) ?> cr</div>
       <div style="text-align:right;font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:var(--accent)"><?= number_format($topBid) ?> <span style="font-size:10px;font-weight:400;color:var(--muted)">cr</span></div>
-      <div style="text-align:center;font-size:12px;color:<?= $secsLeft < 3600 && !$ended ? 'var(--neon2)' : 'var(--muted)' ?>" data-ends="<?= (int)strtotime($row['ends_at']) ?>" class="auction-timer"><?= $tLeft ?></div>
+      <div style="text-align:center;font-size:12px;color:<?= $secsLeft < 3600 && !$ended ? 'var(--neon2)' : 'var(--muted)' ?>" data-ends="<?= (int)$row['ends_unix'] ?>" class="auction-timer"><?= $tLeft ?></div>
       <div>
         <?php if (!$ended): ?>
         <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
@@ -289,7 +303,7 @@ try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name FROM player_items pi
         <?php if ($inGrace): ?>
           <div style="font-size:11px;color:#3bcf63;margin-top:2px">&#9989; Free cancellation window: <?= round($graceLeft/60,1) ?> min left</div>
         <?php elseif ($canCancel): ?>
-          <div style="font-size:11px;color:var(--neon2);margin-top:2px">&#9888; Cancellation penalty: <?= number_format($penalty) ?> cr (10%)</div>
+          <div style="font-size:11px;color:var(--neon2);margin-top:2px">&#9888; Cancellation penalty: <?= number_format($penalty) ?> cr (2.5%)</div>
         <?php endif; ?>
       </div>
       <?php if ($canCancel): ?>
@@ -307,11 +321,74 @@ try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name FROM player_items pi
   <?php endif; ?>
 </div>
 
+<!-- ===================== HISTORY ===================== -->
+<?php elseif ($tab === 'history'): ?>
+<div class="panel" style="padding:0;overflow:hidden">
+  <?php if (empty($historyAll)): ?>
+    <div style="padding:32px;text-align:center;color:var(--muted)">No completed auctions yet.</div>
+  <?php else: ?>
+  <div style="padding:8px 14px;border-bottom:1px solid var(--line);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;display:grid;grid-template-columns:2fr 100px 100px 80px 90px">
+    <span>Item</span><span style="text-align:right">Start</span><span style="text-align:right">Final</span><span style="text-align:center">Status</span><span style="text-align:right">Date</span>
+  </div>
+  <?php foreach ($historyAll as $row):
+    $sold = ($row['status']==='ended' && (int)$row['bid_count'] > 0);
+  ?>
+  <div style="display:grid;grid-template-columns:2fr 100px 100px 80px 90px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;align-items:center">
+    <div>
+      <div style="font-weight:600"><?= e($row['item_name']) ?></div>
+      <div style="font-size:10px;color:var(--muted)">Seller: <?= e($row['seller_name']) ?><?= $sold && $row['bidder_name'] ? ' · Buyer: '.e($row['bidder_name']) : '' ?></div>
+    </div>
+    <div style="text-align:right;color:var(--muted);font-size:12px"><?= number_format($row['starting_price']) ?> cr</div>
+    <div style="text-align:right;font-weight:700;color:<?= $sold ? 'var(--accent)' : 'var(--muted)' ?>">
+      <?= $sold ? number_format($row['current_bid']).' cr' : '—' ?>
+    </div>
+    <div style="text-align:center">
+      <?php if ($row['status']==='cancelled'): ?><span style="font-size:10px;color:var(--neon2)">Cancelled</span>
+      <?php elseif ($sold): ?><span style="font-size:10px;color:var(--accent)">Sold</span>
+      <?php else: ?><span style="font-size:10px;color:var(--muted)">No bids</span><?php endif; ?>
+    </div>
+    <div style="text-align:right;font-size:11px;color:var(--muted)"><?= e(date('M j, Y', strtotime($row['created_at']))) ?></div>
+  </div>
+  <?php endforeach; ?>
+  <?php endif; ?>
+</div>
+
+<!-- ===================== MY HISTORY ===================== -->
+<?php elseif ($tab === 'myhistory'): ?>
+<div class="panel" style="padding:0;overflow:hidden">
+  <?php if (empty($historyMine)): ?>
+    <div style="padding:32px;text-align:center;color:var(--muted)">No auction history yet. Your completed and cancelled listings will appear here.</div>
+  <?php else: ?>
+  <div style="padding:8px 14px;border-bottom:1px solid var(--line);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;display:grid;grid-template-columns:2fr 100px 110px 90px 80px">
+    <span>Item</span><span style="text-align:right">Starting</span><span style="text-align:right">Final Bid</span><span style="text-align:right">Date</span><span style="text-align:center">Status</span>
+  </div>
+  <?php foreach ($historyMine as $row):
+    $sold = ($row['status']==='ended' && (int)$row['bid_count'] > 0);
+    $fee  = $sold ? (int)max(1, ceil($row['current_bid'] * AUCTION_FEE_PCT)) : 0;
+  ?>
+  <div style="display:grid;grid-template-columns:2fr 100px 110px 90px 80px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;align-items:center">
+    <div>
+      <div style="font-weight:600"><?= e($row['item_name']) ?></div>
+      <?php if ($sold): ?><div style="font-size:10px;color:var(--muted)">Buyer: <?= e($row['bidder_name'] ?? '?') ?> · You received: <b style="color:#3bcf63"><?= number_format($row['current_bid'] - $fee) ?> cr</b> (after 1% fee)</div><?php endif; ?>
+    </div>
+    <div style="text-align:right;color:var(--muted)"><?= number_format($row['starting_price']) ?> cr</div>
+    <div style="text-align:right;font-weight:700;color:<?= $sold ? 'var(--accent)' : 'var(--muted)' ?>"><?= $sold ? number_format($row['current_bid']).' cr' : '—' ?></div>
+    <div style="text-align:right;font-size:11px;color:var(--muted)"><?= e(date('M j, Y', strtotime($row['created_at']))) ?></div>
+    <div style="text-align:center">
+      <?php if ($row['status']==='cancelled'): ?><span style="font-size:10px;color:var(--neon2)">Cancelled</span>
+      <?php elseif ($sold): ?><span style="font-size:10px;color:var(--accent)">Sold</span>
+      <?php else: ?><span style="font-size:10px;color:var(--muted)">No bids</span><?php endif; ?>
+    </div>
+  </div>
+  <?php endforeach; ?>
+  <?php endif; ?>
+</div>
+
 <!-- ===================== CREATE ===================== -->
 <?php elseif ($tab === 'create'): ?>
 <div class="panel">
   <p class="muted" style="font-size:12px;margin-top:0;margin-bottom:14px">
-    Listing fee scales with duration and is charged upfront. Fee is lost if no one bids. 5-minute free cancel window — 10% penalty after.
+    Listing fee scales with duration and is charged upfront. Fee is lost if no one bids. 5-minute free cancel window — 2.5% penalty after. 1% auctioneer fee deducted from sale proceeds.
   </p>
   <form method="post" style="max-width:440px">
     <input type="hidden" name="action" value="create">

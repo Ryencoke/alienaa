@@ -224,7 +224,7 @@ try { $q=$pdo->prepare('SELECT pi.item_id,pi.qty,i.name,i.category FROM player_i
 $tradeFriends = [];
 try { $q=$pdo->prepare('SELECT p.id,p.username,p.role,p.chat_color FROM friends f JOIN players p ON p.id=f.friend_id WHERE f.player_id=? ORDER BY p.username LIMIT 30'); $q->execute([$pid]); $tradeFriends=$q->fetchAll(); } catch (Throwable $e) {}
 
-$tab = in_array($_GET['tab'] ?? '', ['pending','transfer']) ? $_GET['tab'] : ($withId ? 'new' : 'pending');
+$tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab'] : ($withId ? 'new' : 'pending');
 ?>
 
 <div class="panel" style="padding:0;overflow:hidden">
@@ -327,6 +327,7 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer']) ? $_GET['tab'] : ($w
         <input type="text" name="to_name" id="tradeToName" value="<?= e($withName) ?>" autocomplete="off" data-no-counter>
         <div class="ac-list" id="tradeAcList" style="display:none"></div>
       </div>
+      <div id="tradeConfirm" style="display:none;margin-top:6px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px">
@@ -392,6 +393,7 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer']) ? $_GET['tab'] : ($w
     <div class="field"><span>Recipient (handle or ID)</span>
       <div class="ac-wrap"><input type="text" name="to_name" id="xferToName" value="<?= e($withName) ?>" autocomplete="off" data-no-counter>
       <div class="ac-list" id="xferAcList" style="display:none"></div></div>
+      <div id="xferConfirm" style="display:none;margin-top:6px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
     </div>
     <div class="field"><span>Amount</span><input type="number" name="amount" min="1" value="1"></div>
     <div class="field"><span>Currency</span>
@@ -416,15 +418,33 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer']) ? $_GET['tab'] : ($w
     row.appendChild(sel); row.appendChild(qty); c.appendChild(row);
   };
   // Autocomplete helper
-  function ac(inp,listEl){
+  function ac(inp,listEl,confirmEl){
     if(!inp||!listEl) return;
     var cur=-1,items=[];
-    function show(names){ items=names; cur=-1; if(!names.length){listEl.style.display='none';return;} listEl.innerHTML=''; names.forEach(function(n,i){ var d=document.createElement('div'); d.className='ac-item'; d.textContent=n; d.addEventListener('mousedown',function(e){e.preventDefault();inp.value=n;listEl.style.display='none';}); listEl.appendChild(d); }); listEl.style.display='block'; }
-    inp.addEventListener('input',function(){ var q=inp.value.trim(); if(q.length<1){listEl.style.display='none';return;} fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'}).then(function(r){return r.json();}).then(show).catch(function(){}); });
-    inp.addEventListener('keydown',function(e){ if(!items.length) return; var rows=listEl.querySelectorAll('.ac-item'); if(e.key==='ArrowDown'){e.preventDefault();cur=Math.min(cur+1,rows.length-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}else if(e.key==='ArrowUp'){e.preventDefault();cur=Math.max(cur-1,-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}else if(e.key==='Enter'&&cur>=0){e.preventDefault();inp.value=items[cur];listEl.style.display='none';}else if(e.key==='Escape'){listEl.style.display='none';} });
+    function show(names){ items=names; cur=-1; if(!names.length){listEl.style.display='none';return;} listEl.innerHTML=''; names.forEach(function(n,i){ var d=document.createElement('div'); d.className='ac-item'; d.textContent=n; d.addEventListener('mousedown',function(e){e.preventDefault();inp.value=n;listEl.style.display='none';lookupPlayer(n,confirmEl);}); listEl.appendChild(d); }); listEl.style.display='block'; }
+    inp.addEventListener('input',function(){ var q=inp.value.trim(); if(confirmEl) confirmEl.style.display='none'; if(q.length<1){listEl.style.display='none';return;} fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'}).then(function(r){return r.json();}).then(show).catch(function(){}); });
+    inp.addEventListener('blur',function(){ var q=inp.value.trim(); if(q.length>0 && confirmEl) lookupPlayer(q,confirmEl); });
+    inp.addEventListener('keydown',function(e){ if(!items.length) return; var rows=listEl.querySelectorAll('.ac-item'); if(e.key==='ArrowDown'){e.preventDefault();cur=Math.min(cur+1,rows.length-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}else if(e.key==='ArrowUp'){e.preventDefault();cur=Math.max(cur-1,-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}else if(e.key==='Enter'&&cur>=0){e.preventDefault();inp.value=items[cur];listEl.style.display='none';lookupPlayer(items[cur],confirmEl);}else if(e.key==='Escape'){listEl.style.display='none';} });
     document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!listEl.contains(e.target)) listEl.style.display='none'; });
   }
-  ac(document.getElementById('tradeToName'),document.getElementById('tradeAcList'));
-  ac(document.getElementById('xferToName'), document.getElementById('xferAcList'));
+  function lookupPlayer(val,confirmEl){
+    if(!confirmEl||!val) return;
+    fetch('players_search.php?lookup='+encodeURIComponent(val),{credentials:'same-origin'})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d){confirmEl.innerHTML='<span style="color:var(--neon2)">&#9888; Player not found.</span>';confirmEl.style.display='block';return;}
+        var roles={admin:'<span style="color:#ff4444;font-weight:700">[Admin]</span>',manager:'<span style="color:#ff8800;font-weight:700">[Mgr]</span>',moderator:'<span style="color:#4488ff;font-weight:700">[Mod]</span>'};
+        var rb=roles[d.role]||'';
+        confirmEl.innerHTML='&#10003; <b style="color:var(--accent)">'+d.username+'</b> '+rb+' &middot; ID #'+d.id+' &middot; Level '+d.level;
+        confirmEl.style.display='block';
+      }).catch(function(){confirmEl.style.display='none';});
+  }
+  ac(document.getElementById('tradeToName'),document.getElementById('tradeAcList'),document.getElementById('tradeConfirm'));
+  ac(document.getElementById('xferToName'), document.getElementById('xferAcList'),document.getElementById('xferConfirm'));
+  // Pre-fill confirm if name already set
+  (function(){
+    var v=document.getElementById('tradeToName'); if(v&&v.value.trim()) lookupPlayer(v.value.trim(),document.getElementById('tradeConfirm'));
+    var x=document.getElementById('xferToName'); if(x&&x.value.trim()) lookupPlayer(x.value.trim(),document.getElementById('xferConfirm'));
+  })();
 })();
 </script>

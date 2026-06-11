@@ -76,9 +76,7 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
 </div>
 
 <div class="panel">
-  <h3 style="margin-bottom:12px">&#9876; Active Loadout
-    <a href="index.php?p=weaponcraft" style="float:right;font-size:11px;font-weight:400;color:var(--accent)">Manage at Fabrication Lab &rarr;</a>
-  </h3>
+  <h3 style="margin-bottom:12px">&#9876; Active Loadout</h3>
   <?php if ($ew || $ea): ?>
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
     <?php foreach ([['weapon','&#9876;',$ew,$gearAtk,'ATK','rgba(255,45,149,.08)','rgba(255,45,149,.25)'],

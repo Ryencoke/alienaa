@@ -169,11 +169,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   try {
     if ($act === 'spend_stat') {
       $stat = $_POST['stat'] ?? '';
-      if (!in_array($stat, ['str_pts','spd_pts','end_pts'], true)) throw new RuntimeException('Invalid stat.');
-      if ((int)$myStats['unspent'] < 1) throw new RuntimeException('No unspent stat points.');
-      $pdo->prepare("UPDATE player_stats SET {$stat} = {$stat} + 1, unspent = unspent - 1 WHERE pid=?")->execute([$pid]);
-      $qs->execute([$pid]); $myStats = $qs->fetch();
-      $msg = 'Stat point spent!';
+      if ($stat === 'signal_max') {
+        if ((int)$myStats['unspent'] < 1) throw new RuntimeException('No unspent stat points.');
+        if ((int)$player['signal_max'] >= 50) throw new RuntimeException('Signal is already at maximum capacity (50).');
+        $pdo->prepare('UPDATE players SET signal_max = LEAST(50, signal_max + 1) WHERE id=?')->execute([$pid]);
+        $pdo->prepare('UPDATE player_stats SET unspent = unspent - 1 WHERE pid=?')->execute([$pid]);
+        $qs->execute([$pid]); $myStats = $qs->fetch(); $player = current_player();
+        $msg = 'Signal bandwidth upgraded!';
+      } else {
+        if (!in_array($stat, ['str_pts','spd_pts','end_pts'], true)) throw new RuntimeException('Invalid stat.');
+        if ((int)$myStats['unspent'] < 1) throw new RuntimeException('No unspent stat points.');
+        $pdo->prepare("UPDATE player_stats SET {$stat} = {$stat} + 1, unspent = unspent - 1 WHERE pid=?")->execute([$pid]);
+        $qs->execute([$pid]); $myStats = $qs->fetch();
+        $msg = 'Stat point spent!';
+      }
 
     } elseif ($act === 'challenge') {
       if ($_pvpIsMerchant) throw new RuntimeException('Commerce Accord active — combat is locked until ' . $_pvpMerchantUntil . '.');
@@ -183,6 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$defPlayer) throw new RuntimeException('"' . htmlspecialchars($target, ENT_QUOTES) . '" is not a ghost in the Sprawl.');
       if ((int)$defPlayer['id'] === $pid) throw new RuntimeException("You can't fight yourself.");
       if ((int)$player['integrity'] < 10) throw new RuntimeException('Your Health is too low to fight. Rest first.');
+      if ((int)$player['signal'] < 1) throw new RuntimeException('Signal depleted — daily combat limit reached. Signal resets at midnight.');
 
       // Load defender stats
       $qd = $pdo->prepare('SELECT * FROM player_stats WHERE pid=?'); $qd->execute([(int)$defPlayer['id']]); $defStats = $qd->fetch();
@@ -243,6 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mortalityDelta = -2; // fighting a neutral player = slight evil shift
       }
       try { $pdo->prepare('UPDATE players SET mortality = GREATEST(-200, LEAST(200, mortality + ?)) WHERE id=?')->execute([$mortalityDelta, $winnerId2]); } catch (Throwable $ex) {}
+      $pdo->prepare('UPDATE players SET signal = GREATEST(0, signal - 1) WHERE id=?')->execute([$pid]);
 
       $player = current_player();
 
@@ -415,21 +426,22 @@ if (($tab === 'log') && isset($_GET['detail'])) {
 <div class="panel">
   <h3 style="margin-top:0">Challenge a Ghost</h3>
   <p class="muted" style="font-size:13px;margin-bottom:12px">Combat draws from your STR, SPD, END, gear, and active stim buffs. Your stats remain hidden from others unless they use a <b>Spy Protocol</b> item. Each fight costs Health — rest to recover.</p>
-  <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px 14px;font-size:12px;margin-bottom:14px">
-    Current Health: <b style="color:<?= (int)$player['integrity'] < 20 ? 'var(--neon2)' : 'var(--accent)' ?>"><?= number_format($player['integrity']) ?> / <?= number_format($player['integrity_max']) ?></b>
-    <?php if ((int)$player['integrity'] < 10): ?>
-    <span style="color:var(--neon2);margin-left:8px">&#9888; Too low to fight — use a stim or wait for daily reset</span>
-    <?php endif; ?>
+  <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px 14px;font-size:12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:16px;align-items:center">
+    <span>Health: <b style="color:<?= (int)$player['integrity'] < 20 ? 'var(--neon2)' : 'var(--accent)' ?>"><?= number_format($player['integrity']) ?> / <?= number_format($player['integrity_max']) ?></b>
+    <?php if ((int)$player['integrity'] < 10): ?><span style="color:var(--neon2);margin-left:4px">&#9888; Too low to fight</span><?php endif; ?></span>
+    <span>Signal: <b style="color:<?= (int)$player['signal'] < 1 ? 'var(--neon2)' : 'var(--neon2)' ?>"><?= (int)$player['signal'] ?> / <?= (int)$player['signal_max'] ?></b>
+    <span class="muted" style="font-size:11px"> fights remaining today</span>
+    <?php if ((int)$player['signal'] < 1): ?><span style="color:var(--neon2);margin-left:4px">&#9888; Depleted</span><?php endif; ?></span>
   </div>
   <form method="post" style="display:flex;gap:8px;align-items:center;max-width:400px">
     <input type="hidden" name="action" value="challenge">
     <div class="ac-wrap" style="flex:1;position:relative">
       <input type="text" id="pvpTarget" name="target" placeholder="Ghost's handle"
              autocomplete="off" maxlength="32" data-no-counter
-             style="width:100%" <?= (int)$player['integrity'] < 10 ? 'disabled' : '' ?>>
+             style="width:100%" <?= ((int)$player['integrity'] < 10 || (int)$player['signal'] < 1) ? 'disabled' : '' ?>>
       <div class="ac-list" id="pvpAcList" style="display:none"></div>
     </div>
-    <button type="submit" style="padding:10px 20px;flex:none" <?= (int)$player['integrity'] < 10 ? 'disabled' : '' ?>>&#9876; Fight</button>
+    <button type="submit" style="padding:10px 20px;flex:none" <?= ((int)$player['integrity'] < 10 || (int)$player['signal'] < 1) ? 'disabled' : '' ?>>&#9876; Fight</button>
   </form>
   <script>
   (function(){
@@ -523,6 +535,26 @@ if (!empty($arenaLatest) && !$battleResult): ?>
     <?php endif; ?>
   </div>
   <?php endforeach; ?>
+
+  <!-- Signal bandwidth upgrade -->
+  <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="flex:1;min-width:160px">
+      <div style="font-weight:700;font-size:14px;color:var(--neon2)">Signal <span style="font-family:'Orbitron',sans-serif;font-size:16px"><?= (int)$player['signal_max'] ?></span> <span class="muted" style="font-size:11px;font-weight:400">/ 50 max</span></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">Daily combat limit. Resets each midnight. +1 capacity per point spent.</div>
+    </div>
+    <div style="height:6px;flex:1;min-width:80px;background:rgba(0,0,0,.3);border-radius:3px;overflow:hidden">
+      <div style="width:<?= min(100, (int)round((int)$player['signal_max']/50*100)) ?>%;height:100%;background:var(--neon2);border-radius:3px"></div>
+    </div>
+    <?php if ((int)$myStats['unspent'] > 0 && (int)$player['signal_max'] < 50): ?>
+    <form method="post" style="margin:0">
+      <input type="hidden" name="action" value="spend_stat">
+      <input type="hidden" name="stat" value="signal_max">
+      <button type="submit" style="font-size:12px;padding:5px 14px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.25);color:var(--accent)">+ Spend</button>
+    </form>
+    <?php elseif ((int)$player['signal_max'] >= 50): ?>
+    <span style="font-size:11px;color:var(--muted);font-style:italic">Max reached</span>
+    <?php endif; ?>
+  </div>
 
   <!-- Derived stats panel -->
   <?php $calcStats = pvp_calc_stats($player, $myStats, $pdo); ?>

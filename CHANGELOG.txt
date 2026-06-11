@@ -2,6 +2,67 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-18 ---
+
+MAJOR UPDATE: SIGNAL STAT, TRADE CONFIRM, STAFF NOTES, AUCTIONS, NEW PAGES
+-----------------------------------------------------------------------------
+[stash.php]
+- Removed "Manage at Fabrication Lab" link from Active Loadout header
+
+[trade.php]
+- Fixed "New Trade" tab not activating via ?tab=new (was missing from in_array check)
+- Added player confirmation div: shows username, ID, level, role after entering recipient name
+- Lookup fires on autocomplete select, Enter, or blur of the recipient field
+
+[players_search.php]
+- Added ?lookup=NAME_OR_ID mode returning full player JSON {id, username, level, role}
+
+[index.php - staff notes]
+- Notes now stored as JSON {note, by, at} to track who wrote it
+- Author + timestamp shown in view mode below the note text
+- Edit textarea shows raw note text only (no author line when editing)
+- Legacy plain-text notes still load correctly
+
+[pvp.php - Signal stat]
+- Signal now consumed: each fight deducts 1 signal (UPDATE players SET signal-1)
+- Signal check blocks challenge if signal < 1 with a clear error message
+- Arena tab shows Health + Signal side by side with "fights remaining today" label
+- Fight button and input disabled when signal=0 or health<10
+- Stats tab: signal_max is now upgradeable (costs 1 unspent point, capped at 50)
+- signal_max row added to stats tab display with progress bar and spend button
+
+[auction.php]
+- CRITICAL BUG FIX: Item transfer on auction resolution was using wrong table (players_items)
+  and non-existent owner_id column. Fixed to INSERT INTO player_items with correct player_id
+- Auctioneer fee lowered from 5% to 1% of sale proceeds
+- Cancellation penalty lowered from 10% to 2.5%
+- Added "History" tab: shows last 60 completed/cancelled auctions site-wide
+- Added "My History" tab: shows player's own ended/cancelled auctions with proceeds info
+- Fixed countdown timer: now uses MySQL UNIX_TIMESTAMP column for accuracy
+- Updated all fee notice text and create form description
+
+[lounge.php - NEW FULLY BUILT]
+- Chem Bar: 4 combat compounds (Stim Patch, Armor Gel, Rush Cocktail, Clarity Chip)
+- Buffs stored via existing buff:atk/buff:def settings keys — visible in PvP combat
+- Active buff display with live countdown timers
+- Street Intel feed: last 15 PvP fights site-wide with outcome and loot info
+- Bartender Tip: rotating contextual tip based on time of day
+
+[registry.php - NEW FULLY BUILT]
+- Identity card showing username, ID, level, clearance tier, registration date
+- Clearance tier system: Civilian/Operator/Ghost/Fixer/Syndicate/Phantom by level
+- Handle change: costs 50 shards, 30-day cooldown, validates uniqueness and format
+- Stores prev_username + handle_changed_at columns (auto-migrated)
+- Clearance tier info panel with unlock descriptions
+
+[vats.php - NEW FULLY BUILT]
+- player_vats table (auto-created): plant → wait → harvest cycle
+- 4 crops: Nutriblast (10m), Synth Kelp (20m), Hydro Fungi (45m), Bio Culture (90m)
+- Harvests yield Drive (cycles), bonus scales with Hydroponics skill level
+- Max plots = 2 + floor(hydroLevel/2), grows with skill investment
+- Live countdown timers per plot, auto-highlight when ready
+- Recent harvest history panel
+
 --- SESSION: 2026-06-10 BATCH-17 ---
 
 PVP STAT SPENDING BUGFIX
