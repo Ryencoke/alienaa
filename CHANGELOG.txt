@@ -2,6 +2,32 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-43 ---
+
+GAME UPDATES (updates.php) — EDITORIAL POLISH
+-----------------------------------------------
+[updates.php]
+- BROADCAST HEADER: canvas with a transmission mast — pulsing beacon,
+  expanding signal rings, a drifting terminal feed of patch-log one-liners,
+  and a scanline. Blinking LIVE FEED badge with bulletin count + "latest 2h
+  ago" readout. Theme-aware accent.
+- TIMELINE LAYOUT: updates now render on a vertical timeline — node dots on
+  a gradient spine, cards that lift on hover, staggered entrance animation.
+  The newest update gets a glowing accent dot + "LATEST PATCH" tag; anything
+  under 48h old gets a "NEW" tag.
+- Dates show both absolute and relative time ("Jun 11 · 2h ago"); update
+  bodies now respect line breaks (nl2br over bbcode — multi-line patch
+  notes previously collapsed into one paragraph).
+- VOTE WIDGET: redesigned as a compact pill — score colored green/red by
+  sign with +/− prefix, active vote states tinted, press-pop animation,
+  hover feedback, tooltips ("Helpful / Not helpful").
+- PAGE FILTER: client-side filter box narrows the current page by body
+  text, author, or credited player.
+- MANAGER COMPOSER: restyled as a "Broadcast an Update" panel with bbcode
+  hint and an accent Publish button.
+- "Thanks to" credits highlighted in gold; error messages now render as
+  flash-err. Post/vote SQL unchanged.
+
 --- SESSION: 2026-06-11 BATCH-42 ---
 
 FIX: GAME AJAX "NETWORK ERROR" + UNIFIED BUY BUTTON COLOR
