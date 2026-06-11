@@ -2,6 +2,37 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-40 ---
+
+IRON LEDGER (ledger.php) — INTERACTIVE OVERHAUL + MAX-WITHDRAW FIX
+--------------------------------------------------------------------
+[ledger.php]
+- BUG FIX: the Withdraw "Max" button filled in your entire bank balance,
+  which ALWAYS failed because amount + fee exceeds the balance. Max now
+  computes the largest withdrawal that fits including the fee.
+- BUG FIX: the withdraw fee notice and JS preview hardcoded 2% even when
+  the Commerce Accord rate (0.5%) was active — both now use the real rate.
+- ANIMATED FACADE: the static SVG bank is now a live canvas — neoclassical
+  pediment/columns/steps, a rotating vault dial in the doorway, skyline
+  towers with flickering windows, ¤ credit glyphs drifting up out of the
+  vault, and a neon BANK sign (theme-aware via CSS variables) with rare
+  flicker. Bank/Pocket/Owed balances float over it in glass chips.
+- TELLER CEREMONIES: every action plays a body-level vault animation that
+  survives the AJAX swap — credit chips slide INTO the vault on deposit
+  (green "DEPOSITED"), OUT on withdraw (amber "WITHDRAWN"), teal "TRANSFER
+  SENT → handle", orange "LOAN ISSUED (+4.5% owed)", and repay shows
+  "DEBT REPAID" — or "DEBT CLEARED" when the payment settles the whole
+  loan. Coin clinks, vault thunk, and chime SFX with persisted mute.
+- LIVE PREVIEWS: deposit shows tomorrow's projected interest on the new
+  balance; borrow shows exactly what you'll owe (+surcharge); withdraw
+  preview now also shows total bank payout. Daily-interest payouts get a
+  dedicated gold drop-in banner instead of a generic flash.
+- LOAN PANEL: amber/orange used-vs-cap progress bar; color-coded action
+  cards (deposit green, withdraw amber, transfer teal, loan orange) with
+  hover lift; economic data tiles get hover polish.
+- Error messages now render as flash-err. All banking SQL verified
+  unchanged (zero query lines touched).
+
 --- SESSION: 2026-06-11 BATCH-39 ---
 
 STAFF COMMAND (admin.php) — HUB OVERHAUL + NEW TOOLS
