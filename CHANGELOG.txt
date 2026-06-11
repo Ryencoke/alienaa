@@ -2,6 +2,31 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-33 ---
+
+THE SUPPLY NODE (generalstore.php) — INTERACTIVE OVERHAUL
+-----------------------------------------------------------
+[generalstore.php]
+- BUG FIX: the `signal` reserved-word fix from BATCH-24 never reached this
+  page — buying a Signal Booster / Signal Array charged the player, then the
+  effect UPDATE failed on MariaDB (SIGNAL keyword) and the error surfaced as
+  the flash message. Column now backticked; Signal items apply correctly.
+- Error messages now render as flash-err (previously always green).
+- NEON STOREFRONT HEADER: canvas scene — "SUPPLY NODE" neon sign with
+  per-letter flicker/buzz-out, shelf silhouettes stocked with glowing product
+  dots, a slow light sweep, and a scrolling amber LED stock ticker
+  ("NO REFUNDS /// SHOPLIFTERS WILL BE UPLOADED").
+- CATEGORY FILTERS: All / Restoratives / Utility chips with staggered
+  card fade-in on switch.
+- CARD POLISH: effect-colored theming (Health green, Signal magenta, Drive
+  amber, Utility slate) — colored top edge, name, effect pill ("+40 Health"),
+  buy button; icon glow + hover lift; red price when unaffordable; stash
+  count shown on owned collectibles.
+- DISPENSE ANIMATION: buying plays a body-level vending overlay (survives
+  the AJAX swap) — the item drops from a glowing dispenser slot with a
+  bounce, then its effect label pops in, with vend-beep/thunk/chime SFX
+  (WebAudio, persisted mute toggle).
+
 --- SESSION: 2026-06-11 BATCH-32 ---
 
 THE FORGE (blacksmith.php) — INTERACTIVE OVERHAUL + CRITICAL BUY FIX
