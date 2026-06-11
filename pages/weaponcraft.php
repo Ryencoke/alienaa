@@ -219,11 +219,10 @@ function canAfford($cost, $oreInv) {
 }
 ?>
 
-<div class="panel">
-  <h2>&#9874; Fabrication Lab</h2>
-  <p class="muted" style="text-align:center;margin-top:-8px">"Every weapon in the Sprawl started as raw junk. The rest is engineering."</p>
-  <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
-</div>
+<?= scene_header('wc-canvas', '&#9874;', 'Fabrication Lab',
+      '"Every weapon in the Sprawl started as raw junk. The rest is engineering."', 'blueprint', '#19f0c7') ?>
+<?= scene_header_js() ?>
+<?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
 
 <!-- Ore Stockpile Summary -->
 <div class="panel">

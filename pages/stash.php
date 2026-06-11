@@ -69,11 +69,11 @@ $inv->execute([$pid]);
 $inv = $inv->fetchAll();
 $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_keys($cats);
 ?>
-<div class="panel">
-  <h2>&#9876; Inventory</h2>
-  <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
-  <p class="muted">Everything you're carrying. Listed items are in Bazaar escrow.</p>
-</div>
+<?= scene_header('st-canvas', '&#9876;', 'Inventory',
+      "Everything you're carrying. Listed items are in Bazaar escrow.", 'shelf', '#19f0c7',
+      '<span style="font-size:11px;color:var(--muted)"><b style="font-family:\'Orbitron\',sans-serif;color:var(--accent)">' . count($inv) . '</b> ITEM TYPE' . (count($inv) !== 1 ? 'S' : '') . '</span>') ?>
+<?= scene_header_js() ?>
+<?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
 
 <div class="panel">
   <h3 style="margin-bottom:12px">&#9876; Active Loadout</h3>

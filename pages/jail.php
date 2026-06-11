@@ -72,13 +72,9 @@ try {
 ?>
 
 <!-- Header -->
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,var(--neon2),rgba(255,45,149,.3),transparent)"></div>
-  <div style="padding:14px 20px">
-    <h2 style="margin:0 0 2px">&#128274; Confinement Grid</h2>
-    <p class="muted" style="margin:0;font-size:12px">Ghosts in lock-down. Violations of Grid Authority directives result in forced account suspension.</p>
-  </div>
-</div>
+<?= scene_header('jl-canvas', '&#128274;', 'Confinement Grid',
+      'Ghosts in lock-down. Violations of Grid Authority directives result in forced account suspension.', 'cell', '#ff2d95') ?>
+<?= scene_header_js() ?>
 
 <?php if ($msg): ?>
 <div style="background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.3);border-radius:6px;padding:10px 14px;font-size:13px;color:var(--neon2)"><?= e($msg) ?></div>

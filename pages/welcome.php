@@ -35,13 +35,11 @@ try {
 ?>
 
 <!-- Header -->
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,var(--accent),var(--neon2),#e8d44d,transparent)"></div>
-  <div style="padding:18px 20px;text-align:center">
-    <h2 style="margin:0 0 6px">&#9889; Welcome to Sprawl-9, <?= e($player['username']) ?></h2>
-    <p class="muted" style="margin:0;font-size:13px">You're one of <?= number_format($totalPlayers) ?> ghosts on the Grid &mdash; <b style="color:var(--accent)"><?= $onlineNow ?> online now</b>.</p>
-  </div>
-</div>
+<?= scene_header('wel-canvas', '&#9889;', 'Welcome back, ' . e($player['username']),
+      "You're one of " . number_format($totalPlayers) . ' ghosts on the Grid.',
+      'pulse', '#19f0c7',
+      '<span style="font-size:11px;color:var(--muted)"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#3bcf63;box-shadow:0 0 8px #3bcf63;vertical-align:middle"></span> <b style="font-family:\'Orbitron\',sans-serif;color:#3bcf63">' . (int)$onlineNow . '</b> ONLINE NOW</span>') ?>
+<?= scene_header_js() ?>
 
 <!-- Staff Post -->
 <?php if ($staffPost): ?>

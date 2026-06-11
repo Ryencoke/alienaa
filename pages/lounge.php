@@ -63,13 +63,9 @@ try {
 } catch (Throwable $e) {}
 ?>
 <!-- Header -->
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,#e8a33d,var(--neon2),transparent)"></div>
-  <div style="padding:14px 20px">
-    <h2 style="margin:0 0 2px">&#127864; The Static Lounge</h2>
-    <p class="muted" style="margin:0;font-size:12px">Cheap synthahol. Expensive company. Combat stims, street intel, and the Sprawl's dirty gossip — all under one roof.</p>
-  </div>
-</div>
+<?= scene_header('lg-canvas', '&#127864;', 'The Static Lounge',
+      "Cheap synthahol. Expensive company. Combat stims, street intel, and the Sprawl's dirty gossip — all under one roof.", 'shelf', '#e8a33d') ?>
+<?= scene_header_js() ?>
 
 <?php if ($msg): ?>
 <div class="flash <?= str_contains($msg,'Not enough')||str_contains($msg,'Unknown') ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>

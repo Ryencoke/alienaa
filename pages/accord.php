@@ -35,18 +35,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
 }
 ?>
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,#e8a33d,#e8d44d,transparent)"></div>
-  <div style="padding:16px 20px">
-    <div style="display:flex;align-items:center;gap:12px">
-      <span style="font-size:28px">&#9878;</span>
-      <div>
-        <h2 style="margin:0;font-family:'Orbitron',sans-serif;letter-spacing:2px;font-size:16px">COMMERCE ACCORD</h2>
-        <p class="muted" style="margin:2px 0 0;font-size:12px">Register as a neutral trader. Lower fees. No combat. No training.</p>
-      </div>
-    </div>
-  </div>
-</div>
+<?= scene_header('ac-canvas', '&#9878;', 'COMMERCE ACCORD',
+      'Register as a neutral trader. Lower fees. No combat. No training.', 'seal', '#e8a33d') ?>
+<?= scene_header_js() ?>
 
 <?php if ($msg): ?>
 <div style="background:rgba(232,163,61,.08);border:1px solid rgba(232,163,61,.3);border-radius:6px;padding:10px 14px;font-size:13px"><?= e($msg) ?></div>

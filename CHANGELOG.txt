@@ -2,6 +2,39 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-47 ---
+
+FINAL SWEEP — ANIMATED HEADERS FOR ALL REMAINING PAGES
+--------------------------------------------------------
+[lib.php — NEW SHARED ENGINE]
+- scene_header() + scene_header_js(): a reusable animated header system.
+  One canvas engine with seven themes, parameterized by accent color, with
+  title/subtitle overlay and an optional right-side stat slot. Self-guards
+  against double-init across AJAX swaps (data-scene-live).
+  Themes: pulse (neural core with expanding rings, orbiting synapse nodes,
+  rising sparks) · podium (1-2-3 winners' blocks under two sweeping
+  spotlights with falling gold glitter) · seal (swaying scales of justice
+  over drifting ledger lines) · cell (prison bars with a searchlight
+  passing behind, blinking status lamp) · shelf (three rows of stocked
+  goods blinking in five colors under a light sweep) · blueprint (drafting
+  grid with marching-ants schematic outlines and corner ticks) · ink
+  (ruled datapad with margin line, typing cursor, drifting letterforms).
+
+[Applied across the final ten pages]
+- welcome.php   → pulse (teal) + live online-now chip
+- journal.php   → ink (teal) "Ghost Journal" masthead above the author bar
+- awards.php    → podium (gold)
+- accord.php    → seal (amber)
+- jail.php      → cell (magenta)
+- stash.php     → shelf (teal) + item-type count chip
+- datacore.php  → pulse (violet)
+- training.php  → pulse (magenta)
+- lounge.php    → shelf (amber)
+- weaponcraft.php → blueprint (teal)
+- No logic changes anywhere — pure header/markup substitutions.
+
+Every player-facing page in the game now shares the animated house style.
+
 --- SESSION: 2026-06-11 BATCH-46 ---
 
 FOUNDRY / COMBAT SIM / LIBRARY / MESSAGES — INTERACTIVE PASS

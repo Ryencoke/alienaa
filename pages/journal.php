@@ -23,6 +23,10 @@ $country = strtolower(trim($jPlayer['country'] ?? ''));
 $isMe    = ((int)$jPlayer['id'] === (int)($_SESSION['pid'] ?? 0));
 ?>
 
+<?= scene_header('jn-canvas', '&#128214;', 'Ghost Journal',
+      'A public log, written in the first person. The Grid remembers everything.', 'ink', '#19f0c7') ?>
+<?= scene_header_js() ?>
+
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="height:3px;background:linear-gradient(90deg,var(--accent),transparent)"></div>
   <div style="padding:14px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">

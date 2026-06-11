@@ -48,9 +48,10 @@ $rows = $pdo->prepare('SELECT s.id, s.code, s.name, s.max_pts, ps.points
 $rows->execute([$pid]);
 $skills = $rows->fetchAll();
 ?>
+<?= scene_header('dc-canvas', '&#129504;', 'Datacore &mdash; Skillsoft Lab',
+      'Jack a skillsoft into your cortex. Costs Drive. The deeper you go, the more the Sprawl opens up.', 'pulse', '#a66de8') ?>
+<?= scene_header_js() ?>
 <div class="panel">
-  <h2>Datacore &mdash; Skillsoft Lab</h2>
-  <p class="muted" style="text-align:center;margin-top:-8px">Jack a skillsoft into your cortex. Costs Drive. The deeper you go, the more the Sprawl opens up.</p>
   <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
   <div style="text-align:center;margin:10px 0">
     <span class="muted" style="font-size:12px">Available Drive:&nbsp;</span>

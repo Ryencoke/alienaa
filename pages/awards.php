@@ -48,13 +48,9 @@ $medals = ['&#127945;','&#129352;','&#129353;'];
 ?>
 
 <!-- Header -->
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,#e8d44d,var(--neon2),transparent)"></div>
-  <div style="padding:16px 20px;text-align:center">
-    <h2 style="margin:0 0 4px">&#127942; The Grid Rankings</h2>
-    <p class="muted" style="margin:0;font-size:13px">The Sprawl keeps score. How do you stack up?</p>
-  </div>
-</div>
+<?= scene_header('aw-canvas', '&#127942;', 'The Grid Rankings',
+      'The Sprawl keeps score. How do you stack up?', 'podium', '#e8d44d') ?>
+<?= scene_header_js() ?>
 
 <!-- Category Tabs -->
 <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">

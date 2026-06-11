@@ -122,13 +122,9 @@ $player = current_player();
 <div class="flash flash-err">&#9878; Commerce Accord active — training is locked until <?= e($_merchantUntil) ?>.</div>
 <?php endif; ?>
 <!-- Header -->
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,var(--neon2),#e8a33d,var(--accent),transparent)"></div>
-  <div style="padding:14px 20px">
-    <h2 style="margin:0 0 2px">&#128168; Neural Training Center</h2>
-    <p class="muted" style="margin:0;font-size:12px">Augmentation pods and biofeedback harnesses. Spend Drive for a chance to increase your combat stats. Gains are small — consistency is the edge.</p>
-  </div>
-</div>
+<?= scene_header('tn-canvas', '&#128168;', 'Neural Training Center',
+      'Augmentation pods and biofeedback harnesses. Spend Drive for a chance to increase your combat stats.', 'pulse', '#ff2d95') ?>
+<?= scene_header_js() ?>
 
 <?php if ($msg): ?>
 <div style="background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.25);border-radius:6px;padding:10px 14px;font-size:13px"><?= e($msg) ?></div>
