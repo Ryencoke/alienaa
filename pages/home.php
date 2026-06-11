@@ -40,9 +40,14 @@ $online = count($recentOnline);
 // ── Today's combat ──
 $todayWins = $todayLoss = $todayXp = $todayCredits = 0;
 try {
-  $tc = $pdo->prepare("SELECT outcome,SUM(xp_won) xp,SUM(creds_won) cr,COUNT(*) n FROM combat_log WHERE player_id=? AND DATE(fought_at)=CURDATE() GROUP BY outcome");
-  $tc->execute([$pid]);
-  foreach ($tc as $r) { if ($r['outcome']==='win'){ $todayWins=(int)$r['n']; $todayXp=(int)$r['xp']; $todayCredits=(int)$r['cr']; } else $todayLoss=(int)$r['n']; }
+  $tc = $pdo->prepare("SELECT attacker_id, defender_id, winner_id, atk_xp, def_xp, credits_looted FROM pvp_log WHERE (attacker_id=? OR defender_id=?) AND DATE(fought_at)=CURDATE()");
+  $tc->execute([$pid, $pid]);
+  foreach ($tc as $r) {
+    $won = ((int)$r['winner_id'] === (int)$pid);
+    $myXp = ((int)$r['attacker_id'] === (int)$pid) ? (int)$r['atk_xp'] : (int)$r['def_xp'];
+    if ($won) { $todayWins++; $todayXp += $myXp; $todayCredits += (int)$r['credits_looted']; }
+    else { $todayLoss++; }
+  }
 } catch (Throwable $e) {}
 
 // ── Vital pcts ──
@@ -80,7 +85,7 @@ try {
 
 $attrPoints = 0;
 try { $aq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]); $attrPoints = (int)($aq->fetchColumn() ?: 0); } catch (Throwable $e) {}
-if ($attrPoints > 0) $newsFeed[] = ['type'=>'levelup','text'=>"You have <b>{$attrPoints} unspent attribute point".($attrPoints!==1?'s':'')."</b> from leveling up! <a href='index.php?p=training'>Visit Training &rarr;</a>",'ts'=>date('Y-m-d H:i:s')];
+if ($attrPoints > 0) $newsFeed[] = ['type'=>'levelup','text'=>"You have <b>{$attrPoints} unspent attribute point".($attrPoints!==1?'s':'')."</b> from leveling up! <a href='index.php?p=pvp&tab=stats'>Spend Stats &rarr;</a>",'ts'=>date('Y-m-d H:i:s')];
 usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0));
 ?>
 
@@ -196,7 +201,7 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
     <?php if ((int)$cStats['unspent'] > 0): ?>
     <div style="margin-top:10px;padding:8px 12px;background:rgba(232,212,77,.06);border:1px solid rgba(232,212,77,.3);border-radius:6px;font-size:12px;display:flex;align-items:center;justify-content:space-between">
       <span>&#11088; <b style="color:#e8d44d"><?= (int)$cStats['unspent'] ?></b> unspent point<?= $cStats['unspent']!=1?'s':'' ?></span>
-      <a href="index.php?p=training" style="color:#e8d44d;font-size:11px">Spend &rarr;</a>
+      <a href="index.php?p=pvp&tab=stats" style="color:#e8d44d;font-size:11px">Spend &rarr;</a>
     </div>
     <?php endif; ?>
   </div>

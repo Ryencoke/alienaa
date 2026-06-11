@@ -1,7 +1,7 @@
 SPRAWL-9 — GAME SYNOPSIS & PROJECT OVERVIEW
 ============================================
 File: C:\Users\mcfar\Desktop\Coding\GAME_SYNOPSIS.txt
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WHAT IS SPRAWL-9?
@@ -190,6 +190,15 @@ RECENTLY COMPLETED (as of 2026-06-10)
 - Private messages with thread view, friends quick-select, ID search
 - Tickets / support system
 - Sidebar customization (drag-order, toggle pages, hide topbar)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECENTLY FIXED (2026-06-11 BATCH-21)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- home.php Today's Combat: was querying non-existent combat_log; fixed to pvp_log
+- home.php unspent stat links: both Combat Stats panel and levelup notification now
+  link to pvp?tab=stats (where you actually spend them), not training
+- account.php: added missing migrations for signature/theme/accent_color columns
+- admin.php trigger_reset: manual reset now includes skillsoft decay (was only in lazy reset)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 KNOWN DEFERRED / PENDING

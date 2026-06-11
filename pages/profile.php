@@ -21,9 +21,10 @@ $country = strtolower(trim($prof['country'] ?? ''));
 
 $rec = ['win' => 0, 'loss' => 0];
 try {
-  $rq = $pdo->prepare('SELECT outcome, COUNT(*) c FROM combat_log WHERE player_id = ? GROUP BY outcome');
-  $rq->execute([$id]);
-  foreach ($rq as $r) { if (isset($rec[$r['outcome']])) $rec[$r['outcome']] = (int)$r['c']; }
+  $wq = $pdo->prepare('SELECT COUNT(*) FROM pvp_log WHERE winner_id = ?');
+  $wq->execute([$id]); $rec['win'] = (int)$wq->fetchColumn();
+  $lq = $pdo->prepare('SELECT COUNT(*) FROM pvp_log WHERE (attacker_id = ? OR defender_id = ?) AND winner_id != ?');
+  $lq->execute([$id, $id, $id]); $rec['loss'] = (int)$lq->fetchColumn();
 } catch (Throwable $e) {}
 
 $postCount = 0;
@@ -227,9 +228,17 @@ $isStaffViewer = in_array($player['role'] ?? '', ['admin','manager','moderator']
     <a href="index.php?p=journal&id=<?= (int)$prof['id'] ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;background:var(--panel2)">&#128214; Journal</a>
     <?php endif; ?>
     <?php if ($isFriend): ?>
-    <a href="index.php?p=friends&unfriend=<?= $id ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid rgba(255,45,149,.3);color:var(--neon2);border-radius:6px;background:rgba(255,45,149,.04)">&#10005; Remove Friend</a>
+    <form method="post" action="index.php?p=friends" style="display:inline;margin:0">
+      <input type="hidden" name="action" value="remove">
+      <input type="hidden" name="friend_id" value="<?= (int)$id ?>">
+      <button type="submit" style="padding:7px 16px;font-size:12px;border:1px solid rgba(255,45,149,.3);color:var(--neon2);border-radius:6px;background:rgba(255,45,149,.04);cursor:pointer">&#10005; Remove Friend</button>
+    </form>
     <?php else: ?>
-    <a href="index.php?p=friends&add=<?= $id ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;background:var(--panel2)">&#43; Add Friend</a>
+    <form method="post" action="index.php?p=friends" style="display:inline;margin:0">
+      <input type="hidden" name="action" value="add">
+      <input type="hidden" name="friend_id" value="<?= (int)$id ?>">
+      <button type="submit" style="padding:7px 16px;font-size:12px;border:1px solid var(--line);color:var(--muted);border-radius:6px;background:var(--panel2);cursor:pointer">&#43; Add Friend</button>
+    </form>
     <?php endif; ?>
   </div>
 </div>

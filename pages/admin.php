@@ -150,6 +150,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Run daily reset for all players
       $pdo->exec("UPDATE players SET integrity = integrity_max, signal = signal_max,
         cycles = LEAST(CASE WHEN sub_until >= CURDATE() THEN 1500 ELSE 500 END, cycles + 250)");
+      // Skillsoft decay (same as lazy per-player reset)
+      try { $pdo->exec("UPDATE player_skills SET points = CASE
+        WHEN points > 0 AND points < 500  THEN GREATEST(0, points - 1)
+        WHEN points >= 500 AND points < 1000 THEN GREATEST(0, points - 2)
+        ELSE points END"); } catch (Throwable $e) {}
       // Clear per-player daily_reset keys so lazy-eval doesn't skip them
       $pdo->exec("DELETE FROM settings WHERE k LIKE 'daily_reset:%'");
       $msg = "Daily reset triggered. {$rTotal} players affected: "
@@ -321,6 +326,175 @@ if ($sec === 'editplayer' && $canAdmin) {
     </div>
     <?php endif; ?>
 
+    <?php endif; ?>
+  </div>
+  <?php return;
+}
+
+/* ============================ RECORDS HALL ============================ */
+if ($sec === 'records' && $canAdmin) {
+  $validFilters = [
+    'total'     => ['All Players',       '1=1',                                              ''],
+    'online'    => ['Online Now',        "last_seen >= (NOW() - INTERVAL 5 MINUTE)",         '#3bcf63'],
+    'subs'      => ['Subscribers',       "sub_until >= CURDATE()",                           '#e8d44d'],
+    'good'      => ['Good Alignment',    "mortality > 0",                                    '#e8d44d'],
+    'evil'      => ['Evil Alignment',    "mortality < 0",                                    'var(--neon2)'],
+    'neutral'   => ['Neutral Alignment', "mortality = 0",                                    'var(--muted)'],
+    'new_today' => ['Joined Today',      "created_at >= (NOW() - INTERVAL 24 HOUR)",         'var(--accent)'],
+    'new_week'  => ['Joined This Week',  "created_at >= (NOW() - INTERVAL 7 DAY)",           'var(--accent)'],
+  ];
+  $filter  = isset($validFilters[$_GET['filter'] ?? '']) ? $_GET['filter'] : 'total';
+  $page    = max(1, (int)($_GET['page'] ?? 1));
+  $perPage = 50;
+  $offset  = ($page - 1) * $perPage;
+  [$filterLabel, $filterWhere, $filterColor] = $validFilters[$filter];
+
+  $total = 0; $rows = [];
+  try {
+    $total = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE {$filterWhere}")->fetchColumn();
+    $rows  = $pdo->query("SELECT id, username, level, role, mortality, gender, last_seen, created_at, sub_until FROM players WHERE {$filterWhere} ORDER BY id DESC LIMIT {$perPage} OFFSET {$offset}")->fetchAll();
+  } catch (Throwable $e) {}
+
+  $pages  = max(1, (int)ceil($total / $perPage));
+  $qBase  = 'index.php?p=admin&sec=records&filter=' . $filter;
+  ?>
+  <div class="panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      <div>
+        <h2 style="margin:0">&#128196; Records Hall</h2>
+        <p class="muted" style="margin:4px 0 0;font-size:12px">
+          <?= $filterColor ? '<span style="color:'.$filterColor.'">' : '' ?><?= e($filterLabel) ?><?= $filterColor ? '</span>' : '' ?>
+          &mdash; <?= number_format($total) ?> player<?= $total !== 1 ? 's' : '' ?>
+        </p>
+      </div>
+      <?= $back ?>
+    </div>
+    <!-- Filter tabs -->
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">
+      <?php foreach ($validFilters as $fk => [$fl,$fw,$fc]): ?>
+      <a href="index.php?p=admin&sec=records&filter=<?= $fk ?>"
+         style="padding:4px 10px;border-radius:5px;font-size:11px;text-decoration:none;border:1px solid <?= $filter===$fk ? ($fc ?: 'var(--accent)') : 'var(--line)' ?>;color:<?= $filter===$fk ? ($fc ?: 'var(--accent)') : 'var(--muted)' ?>;background:<?= $filter===$fk ? 'rgba(25,240,199,.07)' : 'var(--panel2)' ?>"><?= e($fl) ?></a>
+      <?php endforeach; ?>
+    </div>
+    <!-- Player table -->
+    <?php if (empty($rows)): ?>
+      <p class="muted">No players match this filter.</p>
+    <?php else: ?>
+    <div style="overflow-x:auto">
+      <table>
+        <tr style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">
+          <th>ID</th><th>Username</th><th>Level</th><th>Role</th><th>Alignment</th><th>Last Seen</th><th>Joined</th><th></th>
+        </tr>
+        <?php foreach ($rows as $r):
+          $mort = (int)$r['mortality'];
+          $mortStr = $mort > 0 ? '<span style="color:#e8d44d">&#9728; +' . $mort . '</span>' : ($mort < 0 ? '<span style="color:var(--neon2)">&#9760; ' . $mort . '</span>' : '<span style="color:var(--muted)">—</span>');
+          $lsAgo = '';
+          if ($r['last_seen']) { $diff = time() - strtotime($r['last_seen']); $lsAgo = $diff < 60 ? 'now' : ($diff < 3600 ? round($diff/60).'m' : ($diff < 86400 ? round($diff/3600).'h' : round($diff/86400).'d')); }
+          $isOnline = $r['last_seen'] && (time() - strtotime($r['last_seen'])) < 300;
+          $isSub = !empty($r['sub_until']) && $r['sub_until'] >= date('Y-m-d');
+        ?>
+        <tr style="font-size:12px">
+          <td class="muted"><?= (int)$r['id'] ?></td>
+          <td>
+            <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$r['id'] ?>" style="font-weight:700"><?= e($r['username']) ?></a>
+            <?php if ($isSub): ?><span style="color:#e8d44d;font-size:10px" title="Subscriber">&#9733;</span><?php endif; ?>
+          </td>
+          <td><?= (int)$r['level'] ?></td>
+          <td><?= $r['role'] !== 'member' ? role_tag($r['role']) : '<span style="color:var(--muted);font-size:11px">Member</span>' ?></td>
+          <td><?= $mortStr ?></td>
+          <td style="color:<?= $isOnline ? '#3bcf63' : 'var(--muted)' ?>"><?= $lsAgo ?: '—' ?><?= $isOnline ? ' &#9679;' : '' ?></td>
+          <td class="muted" style="font-size:11px"><?= $r['created_at'] ? e(date('M j, Y', strtotime($r['created_at']))) : '—' ?></td>
+          <td><a href="index.php?p=profile&id=<?= (int)$r['id'] ?>" style="font-size:11px;color:var(--muted)">Profile</a></td>
+        </tr>
+        <?php endforeach; ?>
+      </table>
+    </div>
+    <!-- Pagination -->
+    <?php if ($pages > 1): ?>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:14px;flex-wrap:wrap">
+      <?php if ($page > 1): ?><a href="<?= $qBase ?>&page=<?= $page-1 ?>" style="padding:4px 10px;border:1px solid var(--line);border-radius:5px;font-size:12px;color:var(--muted);text-decoration:none">&laquo; Prev</a><?php endif; ?>
+      <?php for ($pg = max(1,$page-3); $pg <= min($pages,$page+3); $pg++): ?>
+      <a href="<?= $qBase ?>&page=<?= $pg ?>" style="padding:4px 10px;border:1px solid <?= $pg===$page?'var(--accent)':'var(--line)' ?>;border-radius:5px;font-size:12px;color:<?= $pg===$page?'var(--accent)':'var(--muted)' ?>;background:<?= $pg===$page?'rgba(25,240,199,.08)':'var(--panel2)' ?>;text-decoration:none"><?= $pg ?></a>
+      <?php endfor; ?>
+      <?php if ($page < $pages): ?><a href="<?= $qBase ?>&page=<?= $page+1 ?>" style="padding:4px 10px;border:1px solid var(--line);border-radius:5px;font-size:12px;color:var(--muted);text-decoration:none">Next &raquo;</a><?php endif; ?>
+      <span style="font-size:11px;color:var(--muted);margin-left:4px">Page <?= $page ?> of <?= $pages ?></span>
+    </div>
+    <?php endif; ?>
+    <?php endif; ?>
+  </div>
+  <?php return;
+}
+
+/* ============================ COMBAT LOG ============================ */
+if ($sec === 'combat' && $canAdmin) {
+  $filterPid = (int)($_GET['pid'] ?? 0);
+  $page    = max(1, (int)($_GET['page'] ?? 1));
+  $perPage = 50;
+  $offset  = ($page - 1) * $perPage;
+  $filterName = '';
+  if ($filterPid) {
+    try { $fn = $pdo->prepare('SELECT username FROM players WHERE id=?'); $fn->execute([$filterPid]); $filterName = $fn->fetchColumn() ?: ''; } catch (Throwable $e) {}
+  }
+  $whereClause = $filterPid ? 'WHERE l.attacker_id=:pid OR l.defender_id=:pid' : '';
+  $total = 0; $fights = [];
+  try {
+    $cntQ = $pdo->prepare("SELECT COUNT(*) FROM pvp_log l $whereClause");
+    if ($filterPid) $cntQ->bindValue(':pid', $filterPid, PDO::PARAM_INT);
+    $cntQ->execute(); $total = (int)$cntQ->fetchColumn();
+    $fq = $pdo->prepare("SELECT l.id, l.attacker_id, l.defender_id, l.winner_id, l.rounds, l.atk_xp, l.def_xp, l.credits_looted, l.fought_at,
+              a.username AS atk_name, d.username AS def_name, w.username AS winner_name
+            FROM pvp_log l JOIN players a ON a.id=l.attacker_id JOIN players d ON d.id=l.defender_id JOIN players w ON w.id=l.winner_id
+            $whereClause ORDER BY l.fought_at DESC LIMIT $perPage OFFSET $offset");
+    if ($filterPid) $fq->bindValue(':pid', $filterPid, PDO::PARAM_INT);
+    $fq->execute(); $fights = $fq->fetchAll();
+  } catch (Throwable $e) {}
+  $pages = max(1, (int)ceil($total / $perPage));
+  $qBase = 'index.php?p=admin&sec=combat' . ($filterPid ? '&pid='.$filterPid : '');
+  ?>
+  <div class="panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      <div>
+        <h2 style="margin:0">&#9876; Combat Log</h2>
+        <?php if ($filterName): ?><p class="muted" style="margin:4px 0 0;font-size:12px">Filtered: <b><?= e($filterName) ?></b> &mdash; <?= number_format($total) ?> fight<?= $total !== 1 ? 's' : '' ?></p>
+        <?php else: ?><p class="muted" style="margin:4px 0 0;font-size:12px"><?= number_format($total) ?> total fights</p><?php endif; ?>
+      </div>
+      <?= $back ?>
+    </div>
+    <?php if (empty($fights)): ?>
+      <p class="muted">No combat records found.</p>
+    <?php else: ?>
+    <div style="overflow-x:auto">
+      <table>
+        <tr style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">
+          <th>#</th><th>Attacker</th><th>Defender</th><th>Winner</th><th>Rounds</th><th>XP (A/D)</th><th>Looted</th><th>When</th>
+        </tr>
+        <?php foreach ($fights as $f):
+          $ago = time() - strtotime($f['fought_at']);
+          $agoStr = $ago < 60 ? 'just now' : ($ago < 3600 ? round($ago/60).'m ago' : ($ago < 86400 ? round($ago/3600).'h ago' : round($ago/86400).'d ago'));
+        ?>
+        <tr style="font-size:12px">
+          <td class="muted"><?= (int)$f['id'] ?></td>
+          <td><a href="index.php?p=admin&sec=editplayer&u=<?= (int)$f['attacker_id'] ?>"><?= e($f['atk_name']) ?></a></td>
+          <td><a href="index.php?p=admin&sec=editplayer&u=<?= (int)$f['defender_id'] ?>"><?= e($f['def_name']) ?></a></td>
+          <td style="color:var(--accent);font-weight:700"><?= e($f['winner_name']) ?></td>
+          <td class="muted"><?= (int)$f['rounds'] ?></td>
+          <td class="muted" style="font-size:11px"><?= (int)$f['atk_xp'] ?> / <?= (int)$f['def_xp'] ?></td>
+          <td style="color:#e8a33d"><?= $f['credits_looted'] > 0 ? number_format($f['credits_looted']).' cr' : '—' ?></td>
+          <td class="muted" style="font-size:11px"><?= $agoStr ?></td>
+        </tr>
+        <?php endforeach; ?>
+      </table>
+    </div>
+    <?php if ($pages > 1): ?>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:14px;flex-wrap:wrap">
+      <?php if ($page > 1): ?><a href="<?= $qBase ?>&page=<?= $page-1 ?>" style="padding:4px 10px;border:1px solid var(--line);border-radius:5px;font-size:12px;color:var(--muted);text-decoration:none">&laquo; Prev</a><?php endif; ?>
+      <?php for ($pg = max(1,$page-3); $pg <= min($pages,$page+3); $pg++): ?>
+      <a href="<?= $qBase ?>&page=<?= $pg ?>" style="padding:4px 10px;border:1px solid <?= $pg===$page?'var(--accent)':'var(--line)' ?>;border-radius:5px;font-size:12px;color:<?= $pg===$page?'var(--accent)':'var(--muted)' ?>;background:<?= $pg===$page?'rgba(25,240,199,.08)':'var(--panel2)' ?>;text-decoration:none"><?= $pg ?></a>
+      <?php endfor; ?>
+      <?php if ($page < $pages): ?><a href="<?= $qBase ?>&page=<?= $page+1 ?>" style="padding:4px 10px;border:1px solid var(--line);border-radius:5px;font-size:12px;color:var(--muted);text-decoration:none">Next &raquo;</a><?php endif; ?>
+      <span style="font-size:11px;color:var(--muted);margin-left:4px">Page <?= $page ?> of <?= $pages ?></span>
+    </div>
+    <?php endif; ?>
     <?php endif; ?>
   </div>
   <?php return;
@@ -670,7 +844,9 @@ try {
     AVG(level) AS avg_level,
     MAX(level) AS max_level,
     SUM(created_at >= (NOW() - INTERVAL 24 HOUR)) AS new_today,
-    SUM(created_at >= (NOW() - INTERVAL 7 DAY)) AS new_week
+    SUM(created_at >= (NOW() - INTERVAL 7 DAY)) AS new_week,
+    SUM(mortality > 0) AS good_players,
+    SUM(mortality < 0) AS evil_players
   FROM players")->fetch();
   $hubStats = $hs;
 } catch (Throwable $e) {}
@@ -694,37 +870,59 @@ try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='
 
 <?php if ($canAdmin && $hubStats): ?>
 <div class="panel">
-  <h3 style="margin-bottom:12px">&#128202; Server Overview</h3>
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+    <h3 style="margin:0">&#128196; Records Hall</h3>
+    <a href="index.php?p=admin&sec=records&filter=total" style="font-size:11px;color:var(--muted)">View all players &rarr;</a>
+  </div>
   <div class="admin-stats-row">
     <div class="admin-stat-box">
-      <div class="asb-val"><?= number_format($hubStats['total']) ?></div>
+      <a href="index.php?p=admin&sec=records&filter=total" style="text-decoration:none">
+        <div class="asb-val"><?= number_format($hubStats['total']) ?></div>
+      </a>
       <div class="asb-lbl">Total Players</div>
-      <div class="asb-sub">+<?= (int)$hubStats['new_today'] ?> today &middot; +<?= (int)$hubStats['new_week'] ?> this week</div>
+      <div class="asb-sub">
+        <a href="index.php?p=admin&sec=records&filter=new_today" style="color:var(--muted)">+<?= (int)$hubStats['new_today'] ?> today</a>
+        &middot;
+        <a href="index.php?p=admin&sec=records&filter=new_week" style="color:var(--muted)">+<?= (int)$hubStats['new_week'] ?> this week</a>
+      </div>
     </div>
     <div class="admin-stat-box">
-      <div class="asb-val" style="color:#3bcf63"><?= number_format($hubStats['online_now']) ?></div>
+      <a href="index.php?p=admin&sec=records&filter=online" style="text-decoration:none">
+        <div class="asb-val" style="color:#3bcf63"><?= number_format($hubStats['online_now']) ?></div>
+      </a>
       <div class="asb-lbl">Online Now</div>
       <div class="asb-sub">Last 5 minutes</div>
     </div>
     <div class="admin-stat-box">
-      <div class="asb-val" style="color:#e8d44d"><?= number_format($hubStats['subs']) ?></div>
+      <a href="index.php?p=admin&sec=records&filter=subs" style="text-decoration:none">
+        <div class="asb-val" style="color:#e8d44d"><?= number_format($hubStats['subs']) ?></div>
+      </a>
       <div class="asb-lbl">Subscribers</div>
       <div class="asb-sub">Active subscriptions</div>
     </div>
     <div class="admin-stat-box">
       <div class="asb-val"><?= number_format($hubStats['total_pocket'] + $hubStats['total_bank']) ?></div>
-      <div class="asb-lbl">Total Creds</div>
-      <div class="asb-sub">Pocket + bank</div>
-    </div>
-    <div class="admin-stat-box">
-      <div class="asb-val" style="color:var(--neon2)"><?= number_format($hubStats['total_loans']) ?></div>
-      <div class="asb-lbl">Outstanding Loans</div>
-      <div class="asb-sub">Across all players</div>
+      <div class="asb-lbl">Total Credits</div>
+      <div class="asb-sub">Pocket + bank combined</div>
     </div>
     <div class="admin-stat-box">
       <div class="asb-val"><?= round($hubStats['avg_level'] ?? 0, 1) ?></div>
       <div class="asb-lbl">Avg Level</div>
       <div class="asb-sub">Max: <?= (int)$hubStats['max_level'] ?></div>
+    </div>
+    <div class="admin-stat-box" style="border-color:rgba(232,212,77,.3)">
+      <a href="index.php?p=admin&sec=records&filter=good" style="text-decoration:none">
+        <div class="asb-val" style="color:#e8d44d">&#9728; <?= number_format($hubStats['good_players']) ?></div>
+      </a>
+      <div class="asb-lbl">Good Players</div>
+      <div class="asb-sub">Positive mortality</div>
+    </div>
+    <div class="admin-stat-box" style="border-color:rgba(255,45,149,.3)">
+      <a href="index.php?p=admin&sec=records&filter=evil" style="text-decoration:none">
+        <div class="asb-val" style="color:var(--neon2)">&#9760; <?= number_format($hubStats['evil_players']) ?></div>
+      </a>
+      <div class="asb-lbl">Evil Players</div>
+      <div class="asb-sub">Negative mortality</div>
     </div>
     <?php if ($openReports): ?>
     <div class="admin-stat-box" style="border-color:var(--neon2)">
@@ -787,6 +985,11 @@ try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='
   <a class="staffcard" href="index.php?p=admin&sec=maintenance">
     <span class="ic">&#9881;</span><h4>Maintenance</h4>
     <p>Trigger daily reset for all players. Manager-only tools.</p>
+    <span class="req">Admin+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=records&filter=total">
+    <span class="ic">&#128196;</span><h4>Records Hall</h4>
+    <p>Browse the full player registry. Filter by alignment, activity, subscriptions, and more.</p>
     <span class="req">Admin+</span>
   </a>
   <?php endif; ?>

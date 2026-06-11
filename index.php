@@ -211,6 +211,7 @@ try {
     <div class="sidebar-cta">
       <a href="index.php?p=account&sec=premium" class="cta-btn cta-sub">&#9733; Subscribe</a>
       <a href="index.php?p=account&sec=shards" class="cta-btn cta-shards">&#9670; Buy Shards</a>
+      <a href="index.php?p=logout" class="cta-btn" style="margin-top:4px">&#10006; Logout</a>
     </div>
   </aside>
 

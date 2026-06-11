@@ -2,10 +2,13 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
-// Email column migration
+// Column migrations
 try { $pdo->exec("ALTER TABLE players ADD COLUMN email VARCHAR(120) NOT NULL DEFAULT '' AFTER pass_hash"); } catch(Throwable $e){}
 try { $pdo->exec("ALTER TABLE players ADD UNIQUE KEY uq_player_email (email)"); } catch(Throwable $e){}
 try { $pdo->exec("ALTER TABLE players ADD COLUMN gender CHAR(1) NOT NULL DEFAULT '' AFTER email"); } catch(Throwable $e){}
+try { $pdo->exec("ALTER TABLE players ADD COLUMN signature VARCHAR(255) NOT NULL DEFAULT ''"); } catch(Throwable $e){}
+try { $pdo->exec("ALTER TABLE players ADD COLUMN theme VARCHAR(32) NOT NULL DEFAULT 'neon'"); } catch(Throwable $e){}
+try { $pdo->exec("ALTER TABLE players ADD COLUMN accent_color VARCHAR(8) NOT NULL DEFAULT ''"); } catch(Throwable $e){}
 $all_themes    = themes();
 $all_countries = countries();
 

@@ -2,6 +2,74 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-21 ---
+
+SITE-WIDE CONNECTIVITY AUDIT + FIXES
+--------------------------------------
+[home.php]
+- CRITICAL BUG FIX: "Today's Combat" queried non-existent `combat_log` table.
+  Rewrote to use `pvp_log` (attacker_id/defender_id/winner_id/atk_xp/def_xp/credits_looted).
+  Wins, losses, XP earned, and credits looted now correctly reflect actual PvP history.
+- BUG FIX: "Spend" link in Combat Stats panel for unspent points pointed to `training`
+  (the Drive-spending gym). Changed to `pvp?tab=stats` where stat points are actually spent.
+- BUG FIX: Levelup notification in news feed linked to `training`. Changed to `pvp?tab=stats`.
+
+[account.php]
+- BUG FIX: Added missing column migrations for `signature`, `theme`, and `accent_color` on
+  the players table. Without these, saving board signature, theme, and accent preferences
+  silently failed (UPDATE hit a non-existent column, caught by try/catch, no feedback shown).
+
+[admin.php - trigger_reset]
+- BUG FIX: Manual daily reset was missing the skillsoft decay step that the lazy per-player
+  reset runs. Added the same `player_skills` decay logic (points -1 under 500, -2 under 1000)
+  to the trigger_reset handler so both reset paths are consistent.
+
+--- SESSION: 2026-06-11 BATCH-20 ---
+
+FULL SITE CONNECTIVITY AUDIT + FIXES
+--------------------------------------
+[profile.php]
+- CRITICAL BUG FIX: Combat record was reading non-existent `combat_log` table.
+  Rewrote query to read from `pvp_log` (wins = winner_id match, losses = fought but didn't win).
+- CRITICAL BUG FIX: "Add Friend" and "Remove Friend" quick-action links used GET params
+  (?p=friends&add=X / &unfriend=X) that friends.php never handled — buttons did nothing.
+  Replaced both with proper POST forms matching friends.php's expected action/friend_id params.
+
+[trade.php]
+- BUG FIX: Friend quick-select buttons used addslashes() in onclick= attributes, which
+  breaks with apostrophes in usernames. Replaced with data-fill-trade / data-fill-xfer
+  attributes and JS event listeners that also trigger the player confirmation lookup.
+
+[admin.php]
+- Added missing sec=combat handler: paginated combat log viewer (50/page), filterable
+  by player ID via ?pid=X. Used by the "Combat Log" link in profile admin tools.
+  Shows attacker, defender, winner, rounds, XP earned, credits looted, and time ago.
+
+--- SESSION: 2026-06-11 BATCH-19 ---
+
+RECORDS HALL, ONLINE PANEL TABS, GENDER CLEANUP
+-------------------------------------------------
+[admin.php - Records Hall]
+- Renamed "Server Overview" → "Records Hall"
+- Added good/evil alignment counts (SUM mortality>0 / SUM mortality<0) to hub stats
+- All stat counts are now clickable links to the paginated records list
+- Added Good Players (☀ gold) and Evil Players (☠ pink) stat boxes
+- NEW sec=records handler: paginated player list, 50 per page
+  - 8 filter tabs: All / Online Now / Subscribers / Good / Evil / Neutral / Joined Today / Joined This Week
+  - Columns: ID, Username (link to editplayer), Level, Role, Alignment, Last Seen, Joined, Profile link
+  - Online indicator (green dot), subscriber star marker
+  - Page navigation with window of ±3 pages, page counter
+- Added Records Hall card to staffgrid
+
+[index.php - Online panel]
+- Replaced three always-visible online lists with a tab selector: Friends / Syndicate / Staff
+- Active tab persists across navigations via localStorage ('onlineTab')
+- Removed all mortality icons from online player username display
+
+[account.php]
+- Removed "Unset" option from gender radio — Male or Female only
+- Gender defaults to Male if previously unset or unrecognized value
+
 --- SESSION: 2026-06-11 BATCH-18 ---
 
 MAJOR UPDATE: SIGNAL STAT, TRADE CONFIRM, STAFF NOTES, AUCTIONS, NEW PAGES

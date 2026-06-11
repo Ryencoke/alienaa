@@ -313,7 +313,7 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab']
     <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Quick-select a friend:</div>
     <div style="display:flex;flex-wrap:wrap;gap:5px">
       <?php foreach ($tradeFriends as $tf): $tfc = chat_color($tf['role'],$tf['chat_color']); ?>
-      <button type="button" onclick="document.getElementById('tradeToName').value='<?= e(addslashes($tf['username'])) ?>'" style="font-size:11px;padding:3px 10px;color:<?= e($tfc) ?>;border-color:<?= e($tfc) ?>;background:rgba(0,0,0,.2)"><?= e($tf['username']) ?></button>
+      <button type="button" data-fill-trade="<?= e($tf['username']) ?>" style="font-size:11px;padding:3px 10px;color:<?= e($tfc) ?>;border-color:<?= e($tfc) ?>;background:rgba(0,0,0,.2)"><?= e($tf['username']) ?></button>
       <?php endforeach; ?>
     </div>
   </div>
@@ -382,7 +382,7 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab']
     <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Quick-select:</div>
     <div style="display:flex;flex-wrap:wrap;gap:5px">
       <?php foreach ($tradeFriends as $tf): $tfc = chat_color($tf['role'],$tf['chat_color']); ?>
-      <button type="button" onclick="document.getElementById('xferToName').value='<?= e(addslashes($tf['username'])) ?>'" style="font-size:11px;padding:3px 10px;color:<?= e($tfc) ?>;border-color:<?= e($tfc) ?>;background:rgba(0,0,0,.2)"><?= e($tf['username']) ?></button>
+      <button type="button" data-fill-xfer="<?= e($tf['username']) ?>" style="font-size:11px;padding:3px 10px;color:<?= e($tfc) ?>;border-color:<?= e($tfc) ?>;background:rgba(0,0,0,.2)"><?= e($tf['username']) ?></button>
       <?php endforeach; ?>
     </div>
   </div>
@@ -441,6 +441,12 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab']
   }
   ac(document.getElementById('tradeToName'),document.getElementById('tradeAcList'),document.getElementById('tradeConfirm'));
   ac(document.getElementById('xferToName'), document.getElementById('xferAcList'),document.getElementById('xferConfirm'));
+  document.querySelectorAll('[data-fill-trade]').forEach(function(btn){
+    btn.addEventListener('click',function(){ var inp=document.getElementById('tradeToName'); inp.value=btn.dataset.fillTrade; lookupPlayer(inp.value,document.getElementById('tradeConfirm')); });
+  });
+  document.querySelectorAll('[data-fill-xfer]').forEach(function(btn){
+    btn.addEventListener('click',function(){ var inp=document.getElementById('xferToName'); inp.value=btn.dataset.fillXfer; lookupPlayer(inp.value,document.getElementById('xferConfirm')); });
+  });
   // Pre-fill confirm if name already set
   (function(){
     var v=document.getElementById('tradeToName'); if(v&&v.value.trim()) lookupPlayer(v.value.trim(),document.getElementById('tradeConfirm'));
