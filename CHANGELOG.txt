@@ -2,6 +2,36 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-45 ---
+
+LOADING DOCKS (transit.php) + CITY HALL — INTERACTIVE OVERHAUL
+----------------------------------------------------------------
+[transit.php]
+- RAIL YARD HEADER: canvas with an overhead gantry, drifting fog, a hazard-
+  striped platform edge, a working signal stack (red idle / green when a
+  train is due), and a MAGLEV TRAIN that periodically slides through —
+  glowing windows, teal underglow, and a headlight cone — with a low rumble.
+  Health / Drive / Drone chips overlay; persisted mute toggle.
+- CARGO RUN CEREMONY: running a route plays a body-level overlay — a cargo
+  truck travels a track between two posts; clean runs arrive with a chime
+  and "RUN COMPLETE — route, +N cr", ambushes stop the truck mid-route with
+  an expanding red blast ring, alarm tones, and "AMBUSHED — cargo lost,
+  −N HP". The real server outcome drives the animation (fx event pattern).
+- MINE CEREMONY: digs swing a pickaxe with a drill burr, scatter rock
+  debris, and stamp "EXTRACTED — N× item · −X Drive" with a chime.
+- Route cards: per-route colored top edges + icon glow, an ambush RISK BAR
+  (width/color scaled to the percentage), hover states, standard accent Run
+  buttons; dig rows get hover + accent Mine buttons; flash messages now use
+  flash-ok/err classes. Run/mine SQL unchanged.
+
+[cityhall.php]
+- CIVIC SPIRE HEADER: canvas of a stepped Grid Authority tower with lit
+  windows, an antenna beacon, two waving holo-banners, and rising data
+  motes. Live census chips overlay (citizens / online / new this week).
+- Hub cards rebuilt data-driven with per-card colors: colored top edge,
+  icon glow + hover lift, staggered entrance.
+- Records Hall census converted from a bullet list to colored stat tiles.
+
 --- SESSION: 2026-06-11 BATCH-44 ---
 
 FIX: BLACK MARKET LIVE TAB SHOWING "NO ACTIVE AUCTIONS"

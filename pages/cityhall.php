@@ -46,18 +46,27 @@ if ($sec === 'records') {
   $subs = null;
   try { $subs = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE sub_until >= CURDATE()")->fetchColumn(); } catch (Throwable $e) {}
   ?>
-  <div class="panel"><h2>Records Hall</h2>
+  <div class="panel"><h2>&#128202; Records Hall</h2>
     <p class="muted"><a href="index.php?p=cityhall">&laquo; City Hall</a> &middot; Live census of the Sprawl.</p>
-    <ul>
-      <li>The Sprawl is home to <b><?= number_format($total) ?></b> ghosts.</li>
-      <li><b><?= number_format($week) ?></b> jacked in for the first time this week.</li>
-      <li><b><?= number_format($online) ?></b> are online right now.</li>
-      <?php if ($male !== null): ?>
-        <li><b><?= number_format($male) ?></b> are Drifters, <b><?= number_format($female) ?></b> are Netghosts.</li>
-      <?php endif; ?>
-      <?php if ($subs !== null): ?><li><b><?= number_format($subs) ?></b> are subscribed.</li><?php endif; ?>
-    </ul>
-    <p class="muted" style="font-size:11px">Karma alignment and subscriber counts come online with those systems later.</p>
+    <?php
+      $censusTiles = [
+        ['Citizens',      number_format($total),  'var(--accent)', 'ghosts call the Sprawl home'],
+        ['Online Now',    number_format($online), '#3bcf63',       'jacked in this moment'],
+        ['New This Week', number_format($week),   '#e8a33d',       'first jacked in within 7 days'],
+      ];
+      if ($subs !== null)  $censusTiles[] = ['Subscribers', number_format($subs), '#e8d44d', 'active subscriptions'];
+      if ($male !== null)  $censusTiles[] = ['Drifters / Netghosts', number_format($male) . ' / ' . number_format($female), '#a66de8', 'avatar census'];
+    ?>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-top:6px">
+      <?php foreach ($censusTiles as [$ctL, $ctV, $ctC, $ctS]): ?>
+      <div style="position:relative;overflow:hidden;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:13px 14px;text-align:center">
+        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,<?= $ctC ?>,transparent)"></div>
+        <div style="font-family:'Orbitron',sans-serif;font-size:19px;font-weight:700;color:<?= $ctC ?>"><?= $ctV ?></div>
+        <div style="font-size:11px;color:var(--text);font-weight:700;margin-top:3px"><?= $ctL ?></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px"><?= $ctS ?></div>
+      </div>
+      <?php endforeach; ?>
+    </div>
   </div>
   <?php return;
 }
@@ -154,56 +163,135 @@ if ($sec === 'help') {
 }
 
 /* ============================ HUB MENU ============================ */
+// Mini census for the header strip
+$chTotal = $chOnline = $chWeek = 0;
+try {
+  $chr = $pdo->query("SELECT COUNT(*) t,
+    SUM(last_seen >= (NOW() - INTERVAL 5 MINUTE)) o,
+    SUM(created_at >= (NOW() - INTERVAL 7 DAY)) w FROM players")->fetch();
+  if ($chr) { $chTotal = (int)$chr['t']; $chOnline = (int)$chr['o']; $chWeek = (int)$chr['w']; }
+} catch (Throwable $e) {}
 ?>
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,var(--accent),var(--neon2),transparent)"></div>
-  <div style="padding:20px 20px 16px">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
-      <span style="font-size:28px;line-height:1">&#127963;</span>
-      <div>
-        <h2 style="margin:0;font-family:'Orbitron',sans-serif;letter-spacing:2px">CITY HALL</h2>
-        <p class="muted" style="margin:2px 0 0;font-size:12px">The Grid Authority runs the Sprawl on paper. In practice, it runs on bribes and downtime.</p>
-      </div>
+<style>
+#ch-canvas{display:block;width:100%;height:118px;border-radius:9px 9px 0 0}
+#ch-head h2{font-family:'Orbitron',sans-serif;letter-spacing:2px;text-shadow:0 0 14px rgba(25,240,199,.35)}
+.ch-card{position:relative;overflow:hidden;text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:9px;transition:transform .12s,border-color .15s,box-shadow .15s;animation:chIn .3s ease-out backwards}
+@keyframes chIn{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:none}}
+.ch-card:hover{transform:translateY(-2px);border-color:var(--ch-col,var(--accent));box-shadow:0 4px 14px rgba(0,0,0,.3),0 0 12px var(--ch-glow,rgba(25,240,199,.1))}
+.ch-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--ch-col,var(--accent)),transparent)}
+.ch-card .ic{font-size:22px;transition:transform .15s,text-shadow .15s}
+.ch-card:hover .ic{transform:scale(1.12);text-shadow:0 0 12px var(--ch-col,var(--accent))}
+.ch-census{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);background:rgba(6,6,14,.78);border:1px solid var(--line);border-radius:14px;padding:4px 12px;backdrop-filter:blur(3px)}
+.ch-census b{font-family:'Orbitron',sans-serif;color:var(--accent)}
+</style>
+
+<div class="panel" id="ch-head" style="padding:0;overflow:hidden">
+  <div style="position:relative">
+    <canvas id="ch-canvas"></canvas>
+    <div style="position:absolute;left:16px;bottom:12px;pointer-events:none">
+      <h2 style="margin:0">&#127963; CITY HALL</h2>
+      <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">The Grid Authority runs the Sprawl on paper. In practice, it runs on bribes and downtime.</p>
+    </div>
+    <div style="position:absolute;right:14px;bottom:12px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+      <span class="ch-census">&#128101; <b><?= number_format($chTotal) ?></b> citizens</span>
+      <span class="ch-census" style="border-color:rgba(59,207,99,.3)">&#128994; <b style="color:#3bcf63"><?= number_format($chOnline) ?></b> online</span>
+      <span class="ch-census">&#10024; <b><?= number_format($chWeek) ?></b> new / 7d</span>
     </div>
   </div>
 </div>
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
-
-  <a href="index.php?p=cityhall&sec=offices" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--line)'">
-    <span style="font-size:22px">&#128737;</span>
-    <div style="font-weight:700;font-size:13px;color:var(--text)">Presidential Offices</div>
-    <div style="font-size:12px;color:var(--muted)">Meet the staff &mdash; admins, mods, and who runs what.</div>
+  <?php
+  $chCards = [
+    ['index.php?p=cityhall&sec=offices', '&#128737;', 'Presidential Offices', 'Meet the staff — admins, mods, and who runs what.',       '#19f0c7'],
+    ['index.php?p=cityhall&sec=records', '&#128202;', 'Records Hall',         'Live census of the Sprawl — population and activity stats.','#4d9be8'],
+    ['index.php?p=cityhall&sec=cryo',    '&#10052;',  'Cryogenic Storage',    'Freeze your ghost while you\'re away. Subscribers only.',   '#a66de8'],
+    ['index.php?p=updates',              '&#128221;', 'City Planning',        'Game updates, patch notes, and upcoming changes.',          '#e8a33d'],
+    ['index.php?p=cityhall&sec=laws',    '&#9878;',   'Game Laws',            'The rules. If it\'s not written here, it\'s not a rule.',   '#ff2d95'],
+    ['index.php?p=cityhall&sec=help',    '&#128218;', 'Game Help',            'New to the Sprawl? Start here for a full breakdown.',       '#3bcf63'],
+  ];
+  foreach ($chCards as $ci => [$chUrl, $chIc, $chTitle, $chDesc, $chCol]): ?>
+  <a href="<?= $chUrl ?>" class="ch-card" style="--ch-col:<?= $chCol ?>;--ch-glow:<?= $chCol ?>22;animation-delay:<?= $ci * 50 ?>ms">
+    <span class="ic"><?= $chIc ?></span>
+    <div style="font-weight:700;font-size:13px;color:var(--text)"><?= $chTitle ?></div>
+    <div style="font-size:12px;color:var(--muted)"><?= $chDesc ?></div>
   </a>
-
-  <a href="index.php?p=cityhall&sec=records" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--line)'">
-    <span style="font-size:22px">&#128202;</span>
-    <div style="font-weight:700;font-size:13px;color:var(--text)">Records Hall</div>
-    <div style="font-size:12px;color:var(--muted)">Live census of the Sprawl &mdash; population and activity stats.</div>
-  </a>
-
-  <a href="index.php?p=cityhall&sec=cryo" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--line)'">
-    <span style="font-size:22px">&#10052;</span>
-    <div style="font-weight:700;font-size:13px;color:var(--text)">Cryogenic Storage</div>
-    <div style="font-size:12px;color:var(--muted)">Freeze your ghost while you're away. Subscribers only.</div>
-  </a>
-
-  <a href="index.php?p=updates" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--neon2)'" onmouseout="this.style.borderColor='var(--line)'">
-    <span style="font-size:22px">&#128221;</span>
-    <div style="font-weight:700;font-size:13px;color:var(--text)">City Planning</div>
-    <div style="font-size:12px;color:var(--muted)">Game updates, patch notes, and upcoming changes.</div>
-  </a>
-
-  <a href="index.php?p=cityhall&sec=laws" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--neon2)'" onmouseout="this.style.borderColor='var(--line)'">
-    <span style="font-size:22px">&#9878;</span>
-    <div style="font-weight:700;font-size:13px;color:var(--text)">Game Laws</div>
-    <div style="font-size:12px;color:var(--muted)">The rules. If it's not written here, it's not a rule.</div>
-  </a>
-
-  <a href="index.php?p=cityhall&sec=help" style="text-decoration:none;display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:8px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--neon2)'" onmouseout="this.style.borderColor='var(--line)'">
-    <span style="font-size:22px">&#128218;</span>
-    <div style="font-weight:700;font-size:13px;color:var(--text)">Game Help</div>
-    <div style="font-size:12px;color:var(--muted)">New to the Sprawl? Start here for a full breakdown.</div>
-  </a>
-
+  <?php endforeach; ?>
 </div>
+
+<script>
+(function(){
+'use strict';
+/* ── Civic spire header: stepped tower, beacon, holo banners, data motes ── */
+var cc=document.getElementById('ch-canvas');
+if(!cc) return;
+var c=cc.getContext('2d');
+var CW=560, CH=118;
+var dpr=Math.min(2,window.devicePixelRatio||1);
+cc.width=CW*dpr; cc.height=CH*dpr;
+c.scale(dpr,dpr);
+var motes=[];
+for(var i=0;i<18;i++) motes.push({x:Math.random()*CW,y:Math.random()*CH,v:.1+Math.random()*.22,p:Math.random()*9});
+
+function chLoop(t){
+  if(!document.body.contains(cc)) return;
+  requestAnimationFrame(chLoop);
+  c.clearRect(0,0,CW,CH);
+  var bg=c.createLinearGradient(0,0,0,CH);
+  bg.addColorStop(0,'#090a12'); bg.addColorStop(1,'#0d0e1a');
+  c.fillStyle=bg; c.fillRect(0,0,CW,CH);
+
+  // rising data motes
+  for(var mi=0;mi<motes.length;mi++){
+    var M=motes[mi];
+    M.y-=M.v;
+    if(M.y<-4){ M.y=CH+4; M.x=Math.random()*CW; }
+    c.fillStyle='rgba(25,240,199,'+(0.10+0.10*Math.sin(t/700+M.p))+')';
+    c.fillRect(M.x,M.y,1.6,1.6);
+  }
+
+  // stepped civic spire (center-right)
+  var sx=CW-130, base=CH-8;
+  c.fillStyle='#141528'; c.strokeStyle='rgba(255,255,255,.1)';
+  [[64,34],[48,30],[32,26],[18,20]].forEach(function(lvl,i2){
+    var w2=lvl[0], h2=lvl[1];
+    var y2=base; for(var k=0;k<=i2;k++) y2-= [[34],[30],[26],[20]][k][0];
+    c.fillRect(sx-w2/2,y2,w2,[[34],[30],[26],[20]][i2][0]);
+    c.strokeRect(sx-w2/2+.5,y2+.5,w2,[[34],[30],[26],[20]][i2][0]);
+  });
+  // lit windows on the spire
+  for(var wy2=0;wy2<8;wy2++){
+    if(((t/900+wy2*1.7)%5)<2.6){
+      c.fillStyle='rgba(25,240,199,.4)';
+      c.fillRect(sx-18+((wy2*13)%30),CH-22-wy2*11,3.4,3.4);
+    }
+  }
+  // antenna + beacon
+  c.strokeStyle='rgba(255,255,255,.3)';
+  c.beginPath(); c.moveTo(sx,base-110); c.lineTo(sx,base-128); c.stroke();
+  var bp=.5+.5*Math.sin(t/420);
+  c.fillStyle='#ff2d95'; c.shadowColor='#ff2d95'; c.shadowBlur=9*bp;
+  c.beginPath(); c.arc(sx,base-130,2.4+bp,0,Math.PI*2); c.fill();
+  c.shadowBlur=0;
+
+  // holo banners (left of spire) — waving ribbons
+  [['#19f0c7',CW-230],['#e8a33d',CW-196]].forEach(function(bn,bi){
+    c.strokeStyle='rgba(255,255,255,.2)';
+    c.beginPath(); c.moveTo(bn[1],CH-8); c.lineTo(bn[1],34); c.stroke();
+    c.fillStyle=bn[0]; c.globalAlpha=.22+.08*Math.sin(t/600+bi);
+    c.beginPath();
+    c.moveTo(bn[1],36);
+    for(var yy=0;yy<=26;yy+=2){
+      c.lineTo(bn[1]+18+Math.sin(t/300+yy/5+bi*2)*3, 36+yy);
+    }
+    c.lineTo(bn[1],62); c.closePath(); c.fill();
+    c.globalAlpha=1;
+  });
+
+  // ground sheen + steps hint
+  c.fillStyle='rgba(255,255,255,.04)'; c.fillRect(0,CH-8,CW,1.4);
+  c.fillStyle='rgba(25,240,199,.05)'; c.fillRect(0,CH-5,CW,5);
+}
+requestAnimationFrame(chLoop);
+})();
+</script>
