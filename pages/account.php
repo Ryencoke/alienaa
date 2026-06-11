@@ -5,10 +5,11 @@ $msg = '';
 // Email column migration
 try { $pdo->exec("ALTER TABLE players ADD COLUMN email VARCHAR(120) NOT NULL DEFAULT '' AFTER pass_hash"); } catch(Throwable $e){}
 try { $pdo->exec("ALTER TABLE players ADD UNIQUE KEY uq_player_email (email)"); } catch(Throwable $e){}
+try { $pdo->exec("ALTER TABLE players ADD COLUMN gender CHAR(1) NOT NULL DEFAULT '' AFTER email"); } catch(Throwable $e){}
 $all_themes    = themes();
 $all_countries = countries();
 
-$secs = ['profile'=>'Profile','sidebar'=>'Sidebar','schemes'=>'Appearance','chat'=>'Chat','boards'=>'Boards','account'=>'Credentials','goals'=>'Goals','premium'=>'Subscribe','shards'=>'Shards'];
+$secs = ['profile'=>'Profile','sidebar'=>'Sidebar','schemes'=>'Appearance','chat'=>'Chat','boards'=>'Boards','account'=>'Credentials','goals'=>'Goals','journal'=>'Journal','premium'=>'Subscribe','shards'=>'Shards'];
 $sec = $_GET['sec'] ?? 'profile';
 if (!isset($secs[$sec])) $sec = 'profile';
 
@@ -19,8 +20,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'profile') {
       $bio = trim($_POST['bio'] ?? ''); if (mb_strlen($bio) > 200) $bio = mb_substr($bio, 0, 200);
       $country = strtoupper(trim($_POST['country'] ?? '')); if (!isset($all_countries[$country])) $country = '';
-      $pdo->prepare('UPDATE players SET bio = ?, country = ? WHERE id = ?')->execute([$bio, $country, $pid]);
+      $gender = in_array($_POST['gender'] ?? '', ['M','F'], true) ? $_POST['gender'] : '';
+      $pdo->prepare('UPDATE players SET bio = ?, country = ?, gender = ? WHERE id = ?')->execute([$bio, $country, $gender, $pid]);
       $msg = 'Profile saved.'; $player = current_player();
+    }
+    elseif ($action === 'journal') {
+      $jtext = trim($_POST['journal_text'] ?? '');
+      if (mb_strlen($jtext) > 1000) $jtext = mb_substr($jtext, 0, 1000);
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['journal:'.$pid, $jtext]);
+      $msg = 'Journal saved.';
     }
     elseif ($action === 'theme') {
       $theme = $_POST['theme'] ?? 'neon'; if (!isset($all_themes[$theme])) $theme = 'neon';
@@ -182,6 +190,21 @@ $curAccent = $player['accent_color'] ?? '';
         <?php endforeach; ?>
       </select>
       <span class="muted" style="font-size:11px;text-transform:none;letter-spacing:0">Your flag shows on your Hideout and profile.</span>
+    </div>
+    <div class="field">
+      <span>Gender</span>
+      <div style="display:flex;gap:12px">
+        <?php $curGender = $player['gender'] ?? ''; ?>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0">
+          <input type="radio" name="gender" value="M" <?= $curGender==='M'?'checked':'' ?> style="width:auto;accent-color:#5fa8e8"> <span style="color:#5fa8e8">&#9794; Male</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0">
+          <input type="radio" name="gender" value="F" <?= $curGender==='F'?'checked':'' ?> style="width:auto;accent-color:#ff75b5"> <span style="color:#ff75b5">&#9792; Female</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0">
+          <input type="radio" name="gender" value=""  <?= $curGender===''?'checked':'' ?> style="width:auto"> <span class="muted">Unset</span>
+        </label>
+      </div>
     </div>
     <div class="field">
       <span>Bio / Tagline <span class="muted" style="text-transform:none;letter-spacing:0">(200 max)</span></span>
@@ -709,6 +732,32 @@ $curAccent = $player['accent_color'] ?? '';
       if(tw) tw.style.display=isCustom?'none':'';
       if(ll) ll.childNodes[0].nodeValue=isCustom?'Goal description':'Custom label ';
     });
+  })();
+  </script>
+
+<?php elseif ($sec === 'journal'):
+  $journalText = '';
+  try { $jq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $jq->execute(['journal:'.$pid]); $journalText=(string)($jq->fetchColumn()?: ''); } catch(Throwable $e){}
+  $journalLen = mb_strlen($journalText);
+?>
+  <h3 style="margin-bottom:4px">&#128214; My Journal</h3>
+  <p class="muted" style="font-size:12px;margin-bottom:14px">Your personal journal is visible to other players on your profile. BBCode is supported: <code>[b]bold[/b]</code>, <code>[i]italic[/i]</code>, <code>[u]underline[/u]</code>, <code>[s]strikethrough[/s]</code>. 1,000 character limit.</p>
+  <form method="post">
+    <input type="hidden" name="action" value="journal">
+    <div class="field">
+      <span>Journal Entry <span class="muted" id="journal-counter" style="text-transform:none;letter-spacing:0;font-weight:400">(<?= $journalLen ?> / 1000)</span></span>
+      <textarea name="journal_text" id="journal-textarea" maxlength="1000" style="min-height:180px"><?= e($journalText) ?></textarea>
+    </div>
+    <button type="submit">Save Journal</button>
+    <?php if ($journalText !== ''): ?>
+    <a href="index.php?p=journal&id=<?= $pid ?>" style="margin-left:12px;font-size:12px;color:var(--muted)">Preview &rarr;</a>
+    <?php endif; ?>
+  </form>
+  <script>
+  (function(){
+    var ta=document.getElementById('journal-textarea'), ctr=document.getElementById('journal-counter');
+    if(!ta||!ctr) return;
+    ta.addEventListener('input',function(){ ctr.textContent='('+ta.value.length+' / 1000)'; });
   })();
   </script>
 

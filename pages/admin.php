@@ -6,7 +6,7 @@ $role = $player['role'] ?? 'member';
 $canMod   = in_array($role, ['chatmod','moderator','admin','manager'], true);
 $canAdmin = in_array($role, ['admin','manager'], true);
 
-if (!$canMod) { echo '<div class="panel"><h2>Staff Admin</h2><p class="muted">Staff access only.</p></div>'; return; }
+if (!$canMod) { echo '<script>if(history.length>1){history.back();}else{window.location.href="index.php?p=home";}</script>'; return; }
 
 $sec    = $_GET['sec'] ?? '';
 $editId = (int)($_GET['u'] ?? 0);
@@ -444,11 +444,99 @@ if ($sec === 'iplog') {
   $qBase = 'index.php?p=admin&sec=iplog'.($filterIp?'&ip='.urlencode($filterIp):'').($filterPlayer?'&player='.urlencode($filterPlayer):'').($filterAction?'&act='.urlencode($filterAction):'');
 
   $actionColors = ['login'=>'#3bcf63','fail'=>'#ff2d95','register'=>'#19f0c7','logout'=>'#8a8fa8'];
+  $ipView = $_GET['view'] ?? 'log';
   ?>
   <div class="panel">
     <h2>&#127758; IP &amp; Access Log</h2>
     <?= $back ?><?= $flash ?>
 
+    <!-- View tabs -->
+    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+      <?php foreach (['log'=>'&#128196; Log','shared'=>'&#128101; Shared IPs','suspicious'=>'&#9888; Suspicious Activity'] as $vk=>$vl): ?>
+      <a href="index.php?p=admin&sec=iplog&view=<?= $vk ?>" style="padding:6px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $ipView===$vk?'var(--accent)':'var(--line)' ?>;color:<?= $ipView===$vk?'var(--accent)':'var(--muted)' ?>;background:<?= $ipView===$vk?'rgba(25,240,199,.08)':'var(--panel2)' ?>"><?= $vl ?></a>
+      <?php endforeach; ?>
+    </div>
+
+    <?php if ($ipView === 'shared'): ?>
+    <!-- Shared IPs: multiple accounts on same IP -->
+    <?php
+      $sharedRows = [];
+      try {
+        $sq = $pdo->query("SELECT l.ip, GROUP_CONCAT(DISTINCT p.username ORDER BY p.username SEPARATOR ', ') AS accounts, COUNT(DISTINCT l.player_id) AS account_count, MAX(l.created_at) AS last_seen FROM ip_log l JOIN players p ON p.id=l.player_id WHERE l.action='login' GROUP BY l.ip HAVING account_count > 1 ORDER BY account_count DESC, last_seen DESC LIMIT 100");
+        $sharedRows = $sq->fetchAll();
+      } catch (Throwable $e) {}
+    ?>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px">IPs where more than one account has logged in — potential multi-accounting.</p>
+    <?php if (empty($sharedRows)): ?>
+    <p class="muted" style="text-align:center;padding:20px 0">No shared IP logins found.</p>
+    <?php else: ?>
+    <div style="overflow-x:auto">
+    <table>
+      <tr><th>IP Address</th><th>Accounts</th><th># Accts</th><th>Last Login</th></tr>
+      <?php foreach ($sharedRows as $sr): ?>
+      <tr>
+        <td><a href="index.php?p=admin&sec=iplog&ip=<?= urlencode($sr['ip']) ?>" style="font-family:monospace;font-size:12px;color:var(--neon2)"><?= e($sr['ip']) ?></a></td>
+        <td style="font-size:12px;max-width:320px"><?= e($sr['accounts']) ?></td>
+        <td style="font-weight:700;color:<?= (int)$sr['account_count']>=3?'#e23b3b':'#e8a33d' ?>"><?= (int)$sr['account_count'] ?></td>
+        <td class="muted" style="font-size:11px;white-space:nowrap"><?= e($sr['last_seen']) ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </table>
+    </div>
+    <?php endif; ?>
+
+    <?php elseif ($ipView === 'suspicious'): ?>
+    <!-- Suspicious Activity: brute force + high login rate -->
+    <?php
+      $bruteRows = [];
+      try {
+        $bq = $pdo->query("SELECT ip, COUNT(*) AS fail_count, MIN(created_at) AS first_attempt, MAX(created_at) AS last_attempt FROM ip_log WHERE action='fail' AND created_at >= NOW() - INTERVAL 24 HOUR GROUP BY ip HAVING fail_count >= 3 ORDER BY fail_count DESC LIMIT 50");
+        $bruteRows = $bq->fetchAll();
+      } catch (Throwable $e) {}
+      $highVolRows = [];
+      try {
+        $hvq = $pdo->query("SELECT ip, COUNT(*) AS login_count, COUNT(DISTINCT player_id) AS unique_players, MIN(created_at) AS first_seen, MAX(created_at) AS last_seen FROM ip_log WHERE action='login' AND created_at >= NOW() - INTERVAL 1 HOUR GROUP BY ip HAVING login_count >= 5 ORDER BY login_count DESC LIMIT 30");
+        $highVolRows = $hvq->fetchAll();
+      } catch (Throwable $e) {}
+    ?>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px">
+      <div>
+        <h3 style="font-size:13px;color:var(--neon2)">&#128165; Failed Login Bursts (last 24h, ≥3 fails)</h3>
+        <?php if (empty($bruteRows)): ?><p class="muted" style="font-size:12px">No bursts detected.</p>
+        <?php else: ?>
+        <table style="font-size:12px;width:100%">
+          <tr><th>IP</th><th>Fails</th><th>First</th><th>Last</th></tr>
+          <?php foreach ($bruteRows as $br): ?>
+          <tr>
+            <td><a href="index.php?p=admin&sec=iplog&ip=<?= urlencode($br['ip']) ?>" style="font-family:monospace;color:var(--neon2)"><?= e($br['ip']) ?></a></td>
+            <td style="font-weight:700;color:#e23b3b"><?= (int)$br['fail_count'] ?></td>
+            <td class="muted" style="font-size:10px"><?= e(date('M j g:ia',strtotime($br['first_attempt']))) ?></td>
+            <td class="muted" style="font-size:10px"><?= e(date('M j g:ia',strtotime($br['last_attempt']))) ?></td>
+          </tr>
+          <?php endforeach; ?>
+        </table>
+        <?php endif; ?>
+      </div>
+      <div>
+        <h3 style="font-size:13px;color:#e8a33d">&#9889; High Login Volume (last 1h, ≥5 logins)</h3>
+        <?php if (empty($highVolRows)): ?><p class="muted" style="font-size:12px">No high-volume IPs right now.</p>
+        <?php else: ?>
+        <table style="font-size:12px;width:100%">
+          <tr><th>IP</th><th>Logins</th><th>Players</th><th>Last</th></tr>
+          <?php foreach ($highVolRows as $hv): ?>
+          <tr>
+            <td><a href="index.php?p=admin&sec=iplog&ip=<?= urlencode($hv['ip']) ?>" style="font-family:monospace;color:#e8a33d"><?= e($hv['ip']) ?></a></td>
+            <td style="font-weight:700"><?= (int)$hv['login_count'] ?></td>
+            <td><?= (int)$hv['unique_players'] ?></td>
+            <td class="muted" style="font-size:10px"><?= e(date('g:ia',strtotime($hv['last_seen']))) ?></td>
+          </tr>
+          <?php endforeach; ?>
+        </table>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <?php else: /* 'log' view */ ?>
     <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end">
       <input type="hidden" name="p" value="admin">
       <input type="hidden" name="sec" value="iplog">
@@ -503,6 +591,7 @@ if ($sec === 'iplog') {
     <?php else: ?>
     <p class="muted" style="text-align:center;padding:24px 0">No log entries yet. Entries appear after players log in.</p>
     <?php endif; ?>
+    <?php endif; /* end log view */ ?>
   </div>
   <?php return;
 }

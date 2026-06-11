@@ -62,7 +62,6 @@ if ($synRoomKey) $roomIcons[$synRoomKey] = '&#9760;';
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
     <div>
       <h2 style="margin:0;font-size:16px"><?= $roomIcons[$room] ?? '&#128172;' ?> <?= e($roomLabel) ?></h2>
-      <p class="muted" style="margin:2px 0 0;font-size:12px"><?= $onlineCount ?> runner<?= $onlineCount !== 1 ? 's' : '' ?> online</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)">
       <span style="width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;box-shadow:0 0 6px rgba(25,240,199,.7)"></span>Live
@@ -146,12 +145,14 @@ if ($synRoomKey) $roomIcons[$synRoomKey] = '&#9760;';
       roomKey=document.getElementById('chat-room-key').value;
   if(!room||!form) return;
 
-  // Hide the quickchat sidebar widget — we're in full chat now
+  // Replace quickchat sidebar with Active Now list while in chat
   var qcp=document.getElementById('quickchat-panel');
-  if(qcp) qcp.style.display='none';
-  // Restore on nav away
+  var qcpOrig=qcp?qcp.innerHTML:null;
+  if(qcp){
+    qcp.innerHTML='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">&#128172; Active Now</div><div id="sidebar-active-now"><div style="font-size:11px;color:var(--muted);font-style:italic">Loading...</div></div>';
+  }
   document.addEventListener('sprawl:swapped', function restore(){
-    if(qcp) qcp.style.display='';
+    if(qcp&&qcpOrig) qcp.innerHTML=qcpOrig;
     document.removeEventListener('sprawl:swapped', restore);
   });
 
@@ -170,13 +171,16 @@ if ($synRoomKey) $roomIcons[$synRoomKey] = '&#9760;';
   }
 
   function renderActive(active){
-    var box=document.getElementById('active-chatters'); if(!box) return;
-    if(!active||!active.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted);font-style:italic">No one active yet</div>'; return; }
-    box.innerHTML='';
-    active.forEach(function(a){
-      var d=document.createElement('div'); d.style.cssText='font-size:12px;margin-bottom:4px';
-      d.innerHTML='<span style="display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin-right:4px;vertical-align:middle;box-shadow:0 0 4px rgba(25,240,199,.7)"></span><a href="index.php?p=profile&id='+a.id+'" style="color:'+(a.color||'#c9d1e0')+'">'+(a.name||'')+'</a>';
-      box.appendChild(d);
+    var ids=['active-chatters','sidebar-active-now'];
+    ids.forEach(function(id){
+      var box=document.getElementById(id); if(!box) return;
+      if(!active||!active.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted);font-style:italic">No one active yet</div>'; return; }
+      box.innerHTML='';
+      active.forEach(function(a){
+        var d=document.createElement('div'); d.style.cssText='font-size:12px;margin-bottom:4px';
+        d.innerHTML='<span style="display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin-right:4px;vertical-align:middle;box-shadow:0 0 4px rgba(25,240,199,.7)"></span><a href="index.php?p=profile&id='+a.id+'" style="color:'+(a.color||'#c9d1e0')+'">'+(a.name||'')+'</a>';
+        box.appendChild(d);
+      });
     });
   }
 

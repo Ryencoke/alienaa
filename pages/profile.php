@@ -63,10 +63,16 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
   <div class="prof-hero">
     <div class="prof-avatar"><?= mb_strtoupper(mb_substr($prof['username'],0,1)) ?></div>
     <div class="prof-main">
+      <?php $profMortality = (int)($prof['mortality'] ?? 0); ?>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div class="prof-username" style="color:<?= e($col) ?>"><?= e($prof['username']) ?></div>
         <?php echo flag_img($country); ?>
+        <?= gender_icon($prof['gender'] ?? '') ?>
         <?php if ($isOnline && !$isBanned): ?><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3bcf63;box-shadow:0 0 6px #3bcf63" title="Online"></span><?php endif; ?>
+        <?= mortality_icon($profMortality) ?>
+        <?php if ($profMortality !== 0): ?>
+        <span style="font-size:11px;color:<?= $profMortality > 0 ? '#e8d44d' : '#ff2d95' ?>;font-weight:700"><?= ($profMortality > 0 ? '+' : '') . $profMortality ?></span>
+        <?php endif; ?>
       </div>
 
       <div class="prof-meta">
@@ -123,6 +129,12 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
       <div class="val" style="color:var(--muted);font-size:16px">#<?= (int)$prof['id'] ?></div>
       <div class="lbl">Player ID</div>
     </div>
+    <?php if ($profMortality !== 0): ?>
+    <div class="prof-stat">
+      <div class="val" style="color:<?= $profMortality > 0 ? '#e8d44d' : '#ff2d95' ?>"><?= mortality_icon($profMortality) ?><?= ($profMortality > 0 ? '+' : '') . $profMortality ?></div>
+      <div class="lbl"><?= $profMortality > 0 ? 'Good' : 'Evil' ?> Alignment</div>
+    </div>
+    <?php endif; ?>
   </div>
   <?php if ($lsStr !== '' || !empty($prof['birthday'])): ?>
   <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)">
@@ -204,6 +216,16 @@ $isStaffViewer = in_array($player['role'] ?? '', ['admin','manager','moderator']
   <div style="display:flex;flex-wrap:wrap;gap:8px">
     <a href="index.php?p=messages&u=<?= $id ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid var(--accent);color:var(--accent);border-radius:6px;background:rgba(25,240,199,.05)">&#9993; Send Message</a>
     <a href="index.php?p=trade&with=<?= $id ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid #e8a33d;color:#e8a33d;border-radius:6px;background:rgba(232,163,61,.05)">&#128260; Secure Trade &amp; Transfer</a>
+    <?php if (!$isBanned): ?>
+    <a href="index.php?p=pvp&target=<?= urlencode($prof['username']) ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid var(--neon2);color:var(--neon2);border-radius:6px;background:rgba(255,45,149,.04)">&#9876; Attack</a>
+    <?php endif; ?>
+    <?php
+      $hasJournal = false;
+      try { $hjq = $pdo->prepare('SELECT 1 FROM settings WHERE k=? AND v!=?'); $hjq->execute(['journal:'.$prof['id'],  '']); $hasJournal = (bool)$hjq->fetchColumn(); } catch(Throwable $e){}
+    ?>
+    <?php if ($hasJournal): ?>
+    <a href="index.php?p=journal&id=<?= (int)$prof['id'] ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;background:var(--panel2)">&#128214; Journal</a>
+    <?php endif; ?>
     <?php if ($isFriend): ?>
     <a href="index.php?p=friends&unfriend=<?= $id ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid rgba(255,45,149,.3);color:var(--neon2);border-radius:6px;background:rgba(255,45,149,.04)">&#10005; Remove Friend</a>
     <?php else: ?>

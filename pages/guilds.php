@@ -413,7 +413,7 @@ if ($mySyn && syn_can($myRank, 'manage_members')) {
 </div>
 
 <!-- Tabs -->
-<div style="display:flex;gap:6px;flex-wrap:wrap">
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
   <?php
   $membersLabel = '&#128101; Members' . ($pendingApps ? ' <span style="background:var(--neon2);color:#000;border-radius:10px;padding:1px 6px;font-size:9px;font-weight:700">'.$pendingApps.'</span>' : '');
   $tabDefs = $mySyn
@@ -475,29 +475,31 @@ if ($tab === 'home' && $mySyn):
 <div class="panel"><p style="margin:0;font-size:13px;color:var(--muted)"><?= e($mySyn['description']) ?></p></div>
 <?php endif; ?>
 
-<!-- Finance actions -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
-  <div class="panel" style="margin-bottom:0">
-    <h3 style="margin-top:0;font-size:13px">&#128178; Donate to Bank</h3>
-    <form method="post">
-      <input type="hidden" name="action" value="donate">
-      <div class="field">
-        <span>Amount <span class="muted" style="font-size:11px">Pocket: <?= number_format((int)$player['creds_pocket']) ?> cr</span></span>
-        <div class="num-wrap"><input type="number" name="amount" id="donAmt" min="1" max="<?= (int)$player['creds_pocket'] ?>" placeholder="0"><button type="button" class="fill-max" onclick="document.getElementById('donAmt').value=<?= (int)$player['creds_pocket'] ?>">Max</button></div>
-      </div>
-      <button type="submit" style="margin-top:8px;font-size:12px" <?= (int)$player['creds_pocket']<1?'disabled':'' ?>>Donate</button>
-    </form>
+<!-- Treasury -->
+<div class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    <h3 style="margin:0;font-size:13px">&#128178; Treasury</h3>
+    <span style="font-size:12px;color:#3bcf63;font-weight:700"><?= number_format((int)$mySyn['bank']) ?> cr</span>
   </div>
-  <?php if (syn_can($myRank,'manage_bank')): ?>
-  <div class="panel" style="margin-bottom:0">
-    <h3 style="margin-top:0;font-size:13px">&#128178; Withdraw from Bank</h3>
-    <form method="post">
+  <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Donate pocket credits to the guild fund. Donations earn XP for the Syndicate.</p>
+  <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+    <input type="hidden" name="action" value="donate">
+    <div class="field" style="flex:1;min-width:160px;margin:0">
+      <span>Amount <span class="muted" style="font-size:11px">Pocket: <?= number_format((int)$player['creds_pocket']) ?> cr</span></span>
+      <div class="num-wrap"><input type="number" name="amount" id="donAmt" min="1" max="<?= (int)$player['creds_pocket'] ?>" placeholder="0"><button type="button" class="fill-max" onclick="document.getElementById('donAmt').value=<?= (int)$player['creds_pocket'] ?>">Max</button></div>
+    </div>
+    <button type="submit" style="font-size:12px" <?= (int)$player['creds_pocket']<1?'disabled':'' ?>>Donate</button>
+  </form>
+  <?php if (syn_can($myRank,'manage_bank') && (int)$mySyn['bank'] > 0): ?>
+  <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Vault Keeper controls — withdraw from treasury:</div>
+    <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
       <input type="hidden" name="action" value="bank_withdraw">
-      <div class="field">
-        <span>Amount <span class="muted" style="font-size:11px">Bank: <?= number_format((int)$mySyn['bank']) ?> cr</span></span>
+      <div class="field" style="flex:1;min-width:160px;margin:0">
+        <span>Withdraw <span class="muted" style="font-size:11px">Bank: <?= number_format((int)$mySyn['bank']) ?> cr</span></span>
         <div class="num-wrap"><input type="number" name="amount" id="wdAmt" min="1" max="<?= (int)$mySyn['bank'] ?>" placeholder="0"><button type="button" class="fill-max" onclick="document.getElementById('wdAmt').value=<?= (int)$mySyn['bank'] ?>">Max</button></div>
       </div>
-      <button type="submit" style="margin-top:8px;font-size:12px" <?= (int)$mySyn['bank']<1?'disabled':'' ?>>Withdraw</button>
+      <button type="submit" style="font-size:12px;background:rgba(255,45,149,.06);border-color:rgba(255,45,149,.25);color:var(--neon2)">Withdraw</button>
     </form>
   </div>
   <?php endif; ?>
@@ -687,8 +689,9 @@ elseif ($tab === 'chat' && $mySyn):
   var room=document.getElementById('syn-chatroom'),
       form=document.getElementById('syn-chatform'),
       inp=document.getElementById('syn-chatinput'),
-      rk=document.getElementById('syn-chat-room').value;
-  if(!room||!form) return;
+      rkEl=document.getElementById('syn-chat-room');
+  if(!room||!form||!rkEl) return;
+  var rk=rkEl.value;
   function render(msgs){
     if(!msgs||!msgs.length) return;
     room.innerHTML='';
@@ -758,19 +761,21 @@ elseif ($tab === 'members' && $mySyn):
     </div>
     <em style="font-size:11px;font-weight:700;color:<?= $rc ?>;font-style:italic"><?= e($rl) ?></em>
     <?php if ($canManage && (int)$m['player_id'] !== $pid && $m['rank'] !== 'leader'): ?>
-    <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
-      <input type="hidden" name="action" value="setrole">
-      <input type="hidden" name="target_id" value="<?= (int)$m['player_id'] ?>">
-      <select name="new_rank" style="font-size:11px;padding:2px 6px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px">
-        <?php foreach (array_diff($SYN_RANKS,['leader']) as $rk): ?><option value="<?= $rk ?>" <?= $m['rank']===$rk?'selected':'' ?>><?= $SYN_RANK_LABELS[$rk]??ucfirst($rk) ?></option><?php endforeach; ?>
-      </select>
-      <button type="submit" style="font-size:10px;padding:3px 8px">Set</button>
-    </form>
-    <form method="post" style="margin:0">
-      <input type="hidden" name="action" value="kick">
-      <input type="hidden" name="target_id" value="<?= (int)$m['player_id'] ?>">
-      <button type="submit" style="font-size:10px;padding:3px 8px;background:rgba(226,59,59,.1);border-color:rgba(226,59,59,.3);color:#e23b3b" onclick="return confirm('Kick <?= e($m['username']) ?>?')">Kick</button>
-    </form>
+    <div style="display:flex;gap:4px;align-items:center;flex:none;flex-shrink:0">
+      <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
+        <input type="hidden" name="action" value="setrole">
+        <input type="hidden" name="target_id" value="<?= (int)$m['player_id'] ?>">
+        <select name="new_rank" style="font-size:11px;padding:3px 6px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px;height:28px">
+          <?php foreach (array_diff($SYN_RANKS,['leader']) as $rk): ?><option value="<?= $rk ?>" <?= $m['rank']===$rk?'selected':'' ?>><?= $SYN_RANK_LABELS[$rk]??ucfirst($rk) ?></option><?php endforeach; ?>
+        </select>
+        <button type="submit" style="font-size:11px;padding:4px 10px;height:28px;line-height:1">Set</button>
+      </form>
+      <form method="post" style="margin:0">
+        <input type="hidden" name="action" value="kick">
+        <input type="hidden" name="target_id" value="<?= (int)$m['player_id'] ?>">
+        <button type="submit" style="font-size:11px;padding:4px 10px;height:28px;line-height:1;background:rgba(226,59,59,.1);border-color:rgba(226,59,59,.3);color:#e23b3b" onclick="return confirm('Kick <?= e($m['username']) ?>?')">Kick</button>
+      </form>
+    </div>
     <?php endif; ?>
   </div>
   <?php endforeach; ?>
@@ -922,7 +927,7 @@ elseif ($tab === 'stockpile' && $mySyn):
 <?php // ══ LOG ════════════════════════════════════════════
 elseif ($tab === 'log' && $mySyn && (syn_can($myRank,'view_log') || $isAdmin)):
   $logs = [];
-  try { $lq = $pdo->prepare('SELECT sl.*,a.username AS actor_name,pp.username AS subject_name FROM syndicate_log sl LEFT JOIN players a ON a.id=sl.actor_id LEFT JOIN players pp ON pp.id=sl.player_id WHERE sl.syndicate_id=? ORDER BY sl.id DESC LIMIT 100'); $lq->execute([$mySyn['syndicate_id']]); $logs = $lq->fetchAll(); } catch (Throwable $e) {}
+  try { $lq = $pdo->prepare('SELECT sl.*,a.username AS actor_name,a.role AS actor_role,pp.username AS subject_name FROM syndicate_log sl LEFT JOIN players a ON a.id=sl.actor_id LEFT JOIN players pp ON pp.id=sl.player_id WHERE sl.syndicate_id=? ORDER BY sl.id DESC LIMIT 100'); $lq->execute([$mySyn['syndicate_id']]); $logs = $lq->fetchAll(); } catch (Throwable $e) {}
 ?>
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">Last <?= count($logs) ?> events</div>
@@ -935,7 +940,7 @@ elseif ($tab === 'log' && $mySyn && (syn_can($myRank,'view_log') || $isAdmin)):
   <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.04)">
     <span style="font-size:14px;flex:none;color:var(--accent)"><?= $licon ?></span>
     <div style="flex:1;min-width:0;font-size:12px">
-      <?php if ($le['actor_name']): ?><a href="index.php?p=profile&id=<?= (int)$le['actor_id'] ?>" style="color:var(--accent);font-weight:700"><?= e($le['actor_name']) ?></a> <?php endif; ?>
+      <?php if ($le['actor_name']): $actorCol = chat_color($le['actor_role'] ?? '', ''); ?><a href="index.php?p=profile&id=<?= (int)$le['actor_id'] ?>" style="color:<?= e($actorCol) ?>;font-weight:700"><?= e($le['actor_name']) ?></a> <?php endif; ?>
       <?= e($le['detail'] ?: $le['action']) ?>
     </div>
     <span style="font-size:10px;color:var(--muted);flex:none;white-space:nowrap"><?= e(date('M j g:ia',strtotime($le['created_at']))) ?></span>

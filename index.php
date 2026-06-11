@@ -189,10 +189,21 @@ try {
         if ($sbBars === null || in_array('cycles', $sbBars, true))    bar('Drive', $player['cycles'], $player['cycles_max'], 'cycles');
       ?>
     </div>
+    <?php
+      $__unreadCount = 0;
+      try { $__uq=db()->prepare('SELECT COUNT(*) FROM messages WHERE to_id=? AND is_read=0'); $__uq->execute([$player['id']]); $__unreadCount+=(int)$__uq->fetchColumn(); } catch(Throwable $e){}
+      try { $__uq=db()->prepare('SELECT COUNT(*) FROM player_notifications WHERE player_id=? AND is_read=0'); $__uq->execute([$player['id']]); $__unreadCount+=(int)$__uq->fetchColumn(); } catch(Throwable $e){}
+    ?>
     <ul class="menu" id="sidemenu">
       <?php $nl = nav_links(); foreach (player_sidebar($player) as $k):
-        $isActive = (strpos($nl[$k][1], 'p='.$p) !== false); ?>
-        <li data-navkey="<?= e($k) ?>"<?= $isActive ? ' class="active"' : '' ?>><a href="<?= $nl[$k][1] ?>"><?= e($nl[$k][0]) ?></a></li>
+        $isActive = (strpos($nl[$k][1], 'p='.$p) !== false);
+        $hasNotif = ($k === 'home' && $__unreadCount > 0);
+      ?>
+        <li data-navkey="<?= e($k) ?>"<?= $isActive ? ' class="active"' : '' ?>>
+          <a href="<?= $nl[$k][1] ?>"<?= $hasNotif ? ' style="font-weight:700"' : '' ?>>
+            <?= e($nl[$k][0]) ?><?php if ($hasNotif): ?> <span style="background:var(--neon2);color:#0a0a12;border-radius:10px;font-size:10px;padding:1px 6px;font-weight:700;vertical-align:middle;margin-left:3px"><?= $__unreadCount ?></span><?php endif; ?>
+          </a>
+        </li>
       <?php endforeach; ?>
       <?php if ($isStaff): ?><li data-navkey="admin"<?= $p==='admin'?' class="active"':'' ?>><a href="index.php?p=admin">Admin</a></li><?php endif; ?>
     </ul>
@@ -322,37 +333,72 @@ try {
     })();
     </script>
     <div class="panel">
-      <h3>Online <a href="index.php?p=friends" style="font-size:11px;float:right;font-weight:normal">[friends]</a></h3>
+      <h3 style="margin-bottom:10px">Online</h3>
       <?php
-        // Show online friends first; fall back to all online if no friends table yet
+        // Friends online
+        $onlineFriends = [];
         try {
-          $onlineQ = db()->prepare("SELECT p.id, p.username, p.role, p.chat_color
-                                    FROM friends f JOIN players p ON p.id = f.friend_id
-                                    WHERE f.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
-                                    ORDER BY p.username LIMIT 50");
-          $onlineQ->execute([$player['id']]);
-          $online = $onlineQ->fetchAll();
-          if (empty($online)) {
-            // No online friends — show a soft hint rather than all players
-            $online = [];
-          }
-        } catch (Throwable $e) {
-          $online = db()->query("SELECT id, username, role, chat_color FROM players
-                                 WHERE last_seen >= (NOW() - INTERVAL 5 MINUTE)
-                                 ORDER BY username LIMIT 50")->fetchAll();
-        }
+          $oq1 = db()->prepare("SELECT p.id, p.username, p.role, p.chat_color, COALESCE(p.mortality,0) AS mortality
+            FROM friends f JOIN players p ON p.id = f.friend_id
+            WHERE f.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
+            ORDER BY p.username LIMIT 30");
+          $oq1->execute([$player['id']]); $onlineFriends = $oq1->fetchAll();
+        } catch (Throwable $e) {}
+        // Syndicate members online
+        $onlineSyndicate = [];
+        try {
+          $oq2 = db()->prepare("SELECT p.id, p.username, p.role, p.chat_color, COALESCE(p.mortality,0) AS mortality
+            FROM syndicate_members sm1
+            JOIN syndicate_members sm2 ON sm2.syndicate_id=sm1.syndicate_id AND sm2.player_id != ?
+            JOIN players p ON p.id = sm2.player_id
+            WHERE sm1.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
+            ORDER BY p.username LIMIT 30");
+          $oq2->execute([$player['id'], $player['id']]); $onlineSyndicate = $oq2->fetchAll();
+        } catch (Throwable $e) {}
+        // Staff online
+        $onlineStaff = [];
+        try {
+          $oq3 = db()->query("SELECT id, username, role, chat_color, COALESCE(mortality,0) AS mortality FROM players
+            WHERE role IN ('manager','admin','moderator','chatmod') AND last_seen >= (NOW() - INTERVAL 5 MINUTE)
+            ORDER BY username LIMIT 20");
+          $onlineStaff = $oq3->fetchAll();
+        } catch (Throwable $e) {}
       ?>
-      <div id="jackedin">
-        <?php if (empty($online)): ?>
-          <p class="muted" style="font-size:11px">No friends online. <a href="index.php?p=friends">Add friends</a> to see them here.</p>
-        <?php else: foreach ($online as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
-          <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a></div>
+
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px">Friends</div>
+      <div id="jackedin-friends">
+        <?php if (empty($onlineFriends)): ?>
+          <p class="muted" style="font-size:11px;margin:3px 0 6px">None online.</p>
+        <?php else: foreach ($onlineFriends as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
+          <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a><?= mortality_icon((int)$o['mortality']) ?></div>
         <?php endforeach; endif; ?>
       </div>
-      <p class="muted" style="font-size:10px;margin-top:6px"><span id="jackedin-count"><?= count($online) ?></span> friends online</p>
+      <p style="font-size:10px;margin:3px 0 10px"><a href="index.php?p=friends" style="color:var(--muted)">[View all friends]</a></p>
+
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px">Syndicate</div>
+      <div id="jackedin-syndicate">
+        <?php if (empty($onlineSyndicate)): ?>
+          <p class="muted" style="font-size:11px;margin:3px 0 10px">None online.</p>
+        <?php else: foreach ($onlineSyndicate as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
+          <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a><?= mortality_icon((int)$o['mortality']) ?></div>
+        <?php endforeach; endif; ?>
+      </div>
+      <?php if (!empty($onlineSyndicate)): ?><div style="margin-bottom:10px"></div><?php endif; ?>
+
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px">Staff</div>
+      <div id="jackedin-staff">
+        <?php if (empty($onlineStaff)): ?>
+          <p class="muted" style="font-size:11px;margin:3px 0">None online.</p>
+        <?php else: foreach ($onlineStaff as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
+          <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>;font-weight:bold"><?= e($o['username']) ?></a><?= mortality_icon((int)$o['mortality']) ?></div>
+        <?php endforeach; endif; ?>
+      </div>
     </div>
   </aside>
 
+  <script>
+  var _myPid = <?= (int)($player['id'] ?? 0) ?>;
+  </script>
   <script>
   (function(){
     function fmt(n){ return Number(n).toLocaleString('en-US'); }
@@ -363,23 +409,49 @@ try {
       if(f) f.style.width=pct+'%';
       if(em) em.textContent=fmt(val)+' / '+fmt(max);
     }
-    function renderOnline(list){
-      var box=document.getElementById('jackedin'); if(!box) return;
-      box.innerHTML='';
-      list.forEach(function(o){
-        var d=document.createElement('div'); d.className='online-player';
-        var dot=document.createElement('span'); dot.className='online-dot';
-        var a=document.createElement('a'); a.href='index.php?p=profile&id='+o.id;
-        a.textContent=o.name; a.style.color=o.color; a.style.fontWeight='bold';
-        d.appendChild(dot); d.appendChild(a); box.appendChild(d);
+    function renderOnline(data){
+      var sections=[
+        ['jackedin-friends',  data.friends   || []],
+        ['jackedin-syndicate',data.syndicate || []],
+        ['jackedin-staff',    data.staff     || []]
+      ];
+      sections.forEach(function(sec){
+        var box=document.getElementById(sec[0]); if(!box) return;
+        var list=sec[1];
+        box.innerHTML='';
+        if(!list.length){
+          var p=document.createElement('p');
+          p.style.cssText='font-size:11px;color:var(--muted);margin:3px 0 6px';
+          p.textContent='None online.'; box.appendChild(p); return;
+        }
+        list.forEach(function(o){
+          var d=document.createElement('div'); d.className='online-player';
+          var dot=document.createElement('span'); dot.className='online-dot';
+          var a=document.createElement('a'); a.href='index.php?p=profile&id='+o.id;
+          a.textContent=o.name; a.style.color=o.color; a.style.fontWeight='bold';
+          d.appendChild(dot); d.appendChild(a);
+          if(o.mortality){
+            var mi=document.createElement('span');
+            mi.style.cssText='font-size:11px;margin-left:3px;color:'+(o.mortality>0?'#e8d44d':'#ff2d95');
+            mi.title=(o.mortality>0?'Good +':'Evil ')+Math.abs(o.mortality);
+            mi.innerHTML=o.mortality>0?'&#9728;':'&#9760;';
+            d.appendChild(mi);
+          }
+          box.appendChild(d);
+        });
       });
-      var c=document.getElementById('jackedin-count'); if(c) c.textContent=list.length;
     }
     function refresh(){
       fetch('state_api.php',{credentials:'same-origin'})
-        .then(function(r){return r.json();})
+        .then(function(r){
+          if(r.status===401){ window.location.replace('index.php?p=login'); return null; }
+          return r.json();
+        })
         .then(function(d){
-          if(!d||!d.ok) return; var s=d.s;
+          if(!d||!d.ok) return;
+          // Cross-tab account switch detection: different pid means another account logged in
+          if(d.pid && _myPid && d.pid !== _myPid){ window.location.reload(); return; }
+          var s=d.s;
           setText('st-level', s.level); setText('st-pocket', fmt(s.pocket));
           setText('st-bank', fmt(s.bank)); setText('st-shards', fmt(s.shards));
           setMeter('integrity', s.integrity, s.integrity_max);
@@ -390,6 +462,34 @@ try {
         }).catch(function(){});
     }
     window.refreshState = refresh; refresh(); setInterval(refresh, 3000);
+  })();
+  </script>
+
+  <script>
+  /* ── Client-side idle auto-logout ── */
+  (function(){
+    var WARN_MS  = <?= (SESSION_TIMEOUT - 300) * 1000 ?>; // warn 5 min before timeout
+    var LIMIT_MS = <?= SESSION_TIMEOUT * 1000 ?>;
+    var lastAct  = Date.now();
+    var warned   = false;
+    var warnTimer, logoutTimer;
+    function resetTimers(){
+      lastAct = Date.now(); warned = false;
+      clearTimeout(warnTimer); clearTimeout(logoutTimer);
+      warnTimer   = setTimeout(warnUser,   WARN_MS);
+      logoutTimer = setTimeout(forceLogout, LIMIT_MS);
+    }
+    function warnUser(){
+      warned = true;
+      if(window.showToast) showToast('You will be logged out in 5 minutes due to inactivity.','warn');
+    }
+    function forceLogout(){
+      window.location.replace('index.php?p=logout');
+    }
+    ['mousemove','keydown','touchstart','click','scroll'].forEach(function(ev){
+      document.addEventListener(ev, function(){ if(warned || (Date.now()-lastAct > 60000)) resetTimers(); }, {passive:true});
+    });
+    resetTimers();
   })();
   </script>
 

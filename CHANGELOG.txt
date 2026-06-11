@@ -2,6 +2,85 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-10 BATCH-16 ---
+
+GENDER / JOURNAL / NOTIFICATIONS / PVP FIX
+--------------------------------------------
+- [players DB] Added gender CHAR(1) column via ALTER TABLE (auto-creates on first load)
+- [lib.php] Added gender_icon() helper: ♂ blue (&#9794;) for M, ♀ pink (&#9792;) for F, '' if unset
+- [register.php] Added gender radio buttons (Male / Female) to signup form; saves to DB
+- [account.php/profile] Added gender radio field to profile settings (editable); profile save now includes gender
+- [account.php] Added 'Journal' tab section with 1000-char textarea, BBCode hint, live counter, preview link
+- [home.php] Gender icon shown beside username in hero section
+- [profile.php] Gender icon shown beside username in profile header
+- [journal.php NEW] Public journal view page: renders player journal with BBCode, shows edit/back links
+- [profile.php Quick Actions] Added "Journal" link button (only shown when target player has written a journal)
+- [index.php sidebar] Unread count badge on Hideout nav item when player has unread messages or notifications; link is bolded
+- [pvp.php] Spend stat forms now use action="index.php?p=pvp&tab=stats" — stays on stats tab after spending
+- [pvp.php arena] Added banner when player has unspent combat stat points with direct link to stats tab
+
+--- SESSION: 2026-06-10 BATCH-15 ---
+
+MORTALITY SYSTEM + ONLINE PLAYERS REDESIGN
+-------------------------------------------
+- [players DB] Added mortality INT column (ALTER TABLE, auto-creates on first pvp.php load)
+- [lib.php] Added mortality_icon() helper: ☀ (gold) for good, ☠ (pink) for evil, '' for neutral
+- [pvp.php] After each fight, winner's alignment shifts based on loser's alignment score
+  - Beating a good player (+) → winner gains evil points (negative shift)
+  - Beating an evil player (-) → winner gains good points (positive shift)
+  - Beating a neutral player → -2 (slight evil for aggression)
+  - Clamped ±2–8 per fight, total score clamped ±200
+- [pvp.php] Battle result reward display now shows alignment change (☀/☠ icon + delta)
+- [home.php] Mortality icon + score shown inline beside username in hero section
+- [profile.php] Mortality icon + score shown beside username in profile header
+- [profile.php] Alignment stat added to stats grid when non-zero
+- [state_api.php] Online response restructured: {friends:[], syndicate:[], staff:[]} with mortality per player
+- [index.php sidebar] Online panel now shows three labeled sections: Friends / Syndicate / Staff
+  - Friends section has "View all friends" link underneath
+  - Each player name shows mortality icon (☀/☠) when alignment is non-zero
+- [index.php JS] renderOnline() updated to handle three-section object from state_api.php
+
+--- SESSION: 2026-06-10 BATCH-14 ---
+
+SESSION SECURITY / MULTI-ACCOUNT FIX
+--------------------------------------
+- [config.php] Session cookie hardened: httponly, SameSite=Strict, 30-min gc_maxlifetime, custom session name (s9sid)
+- [config.php] Server-side inactivity timeout: if last_activity > 30 min, session pid is cleared and timed_out flag set
+- [login.php] session_regenerate_id(true) on successful login to prevent session fixation attacks
+- [login.php] Sets $_SESSION['last_activity'] on login; clears timed_out flag
+- [login.php] Shows "Session expired" message when redirected after inactivity timeout
+- [logout.php] Added session_unset() before session_destroy() for clean teardown; redirects to login page
+- [state_api.php] Now includes 'pid' in JSON response for cross-tab account detection
+- [index.php] Outputs _myPid JS variable with logged-in player's ID
+- [index.php] refreshState(): 401 response redirects to login; pid mismatch triggers full page reload to prevent cross-account data bleed
+- [index.php] Added client-side idle timer: warns at 25 min of inactivity, force-logs out at 30 min
+
+--- SESSION: 2026-06-10 BATCH-13 ---
+
+DAEMON / CHAT / GUILDS / PROFILE / ADMIN
+-----------------------------------------
+- [daemon.php / style.css] Darkened card background (#1c2340) so white suit text is now readable on dark theme; hidden card style updated too
+- [chat.php] Removed "X runners online" count from chat page header
+- [chat.php] Right sidebar now shows "Active Now" list while on chat.php instead of hiding; restores Public Channel on nav away
+- [guilds.php home] Removed separate "Donate to Bank" and "Withdraw from Bank" panels; replaced with unified "Treasury" section (donate always visible; withdraw only shows for Vault Keeper+)
+- [guilds.php chat] Fixed JS null-check crash that prevented send button from working
+- [guilds.php members] Controls (rank select + Kick) wrapped in no-wrap flex container for consistent alignment
+- [guilds.php log] SQL updated to fetch actor role; actor names now colored by staff role (admin=red, mod=yellow, etc.)
+- [profile.php] Added "Attack" quick action button linking to pvp page with target pre-filled; hidden for banned players
+- [admin.php] Non-staff redirect: users who manually navigate to admin.php are sent back instead of seeing "Staff access only"
+- [admin.php&sec=iplog] Added "Shared IPs" tab: shows all IPs where multiple accounts have logged in
+- [admin.php&sec=iplog] Added "Suspicious Activity" tab: failed login bursts (≥3 in 24h) and high login volume (≥5 logins in 1h) per IP
+
+--- SESSION: 2026-06-10 BATCH-12 ---
+
+BANK / TRANSFER IMPROVEMENTS
+-----------------------------
+- [ledger.php transfer] Removed maxlength="32" from recipient input field
+- [ledger.php transfer] Recipient field now accepts player ID (numeric) in addition to username
+- [ledger.php transfer] When a numeric ID is typed, autocomplete auto-fills the username and shows a confirmation hint ("Sending to: <name>")
+- [ledger.php transfer] POST handler resolves numeric ID to player row; success message uses resolved username
+- [ledger.php transfer] tx_log note now stores resolved username instead of raw input
+
 --- SESSION: 2026-06-10 BATCH-11 ---
 
 ACCOUNT SETTINGS OVERHAUL

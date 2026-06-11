@@ -457,9 +457,10 @@ code{color:var(--neon2);font-size:12px}
 .bj-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
 .bj-hand{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;min-height:56px}
 .bj-card{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
-  width:44px;height:58px;background:#f0f4ff;color:#1a1a2e;border-radius:6px;
-  font-weight:bold;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.5);line-height:1.1;flex:none}
-.bj-hidden{background:#2a2a4a;color:#555;font-size:12px;border:1px dashed #444}
+  width:44px;height:58px;background:#1c2340;color:#dde4ff;border-radius:6px;
+  font-weight:bold;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.07);
+  border:1px solid rgba(100,120,200,.25);line-height:1.1;flex:none}
+.bj-hidden{background:#0e1428;border:1px dashed rgba(25,240,199,.18);color:#2c3d62;font-size:12px}
 .bj-divider{border-top:1px dashed var(--line);margin:10px 0}
 
 /* ============================================================ Casino history */

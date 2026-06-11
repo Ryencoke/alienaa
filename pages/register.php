@@ -4,18 +4,20 @@ $pdo=db();
 // One-time schema migration — silently ignored if column already exists
 try { $pdo->exec("ALTER TABLE players ADD COLUMN email VARCHAR(120) NOT NULL DEFAULT '' AFTER pass_hash"); } catch(Throwable $e){}
 try { $pdo->exec("ALTER TABLE players ADD UNIQUE KEY uq_player_email (email)"); } catch(Throwable $e){}
+try { $pdo->exec("ALTER TABLE players ADD COLUMN gender CHAR(1) NOT NULL DEFAULT '' AFTER email"); } catch(Throwable $e){}
 
 if ($_SERVER['REQUEST_METHOD']==='POST') {
   $u=trim($_POST['username']??'');
   $em=strtolower(trim($_POST['email']??''));
   $pw=$_POST['password']??'';
+  $gd=in_array($_POST['gender']??'',['M','F'],true)?$_POST['gender']:'';
   if (!preg_match('/^[A-Za-z0-9_]{3,32}$/',$u)) $err='Handle must be 3-32 characters: letters, numbers, or underscore only.';
   elseif (!filter_var($em,FILTER_VALIDATE_EMAIL)) $err='Enter a valid email address.';
   elseif (strlen($pw)<8) $err='Passkey must be at least 8 characters.';
   else {
     try {
-      $pdo->prepare('INSERT INTO players (username,email,pass_hash) VALUES (?,?,?)')
-          ->execute([$u,$em,password_hash($pw,PASSWORD_DEFAULT)]);
+      $pdo->prepare('INSERT INTO players (username,email,gender,pass_hash) VALUES (?,?,?,?)')
+          ->execute([$u,$em,$gd,password_hash($pw,PASSWORD_DEFAULT)]);
       $newId = (int)$pdo->lastInsertId();
       $ip = $_SERVER['REMOTE_ADDR'] ?? ''; $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
       try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$newId,$ip,$ua,'register']); } catch(Throwable $e){}
@@ -48,6 +50,17 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
       <div class="field">
         <span>Passkey <span class="muted" style="text-transform:none;letter-spacing:0">(8+ characters)</span></span>
         <input type="password" name="password" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <span>Gender</span>
+        <div style="display:flex;gap:12px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0">
+            <input type="radio" name="gender" value="M" style="width:auto;accent-color:#5fa8e8"> <span style="color:#5fa8e8">&#9794; Male</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0">
+            <input type="radio" name="gender" value="F" style="width:auto;accent-color:#ff75b5"> <span style="color:#ff75b5">&#9792; Female</span>
+          </label>
+        </div>
       </div>
       <button type="submit" class="btn btn-primary btn-block">Create Ghost</button>
     </form>

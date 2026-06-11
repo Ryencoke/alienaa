@@ -34,30 +34,38 @@ try {
   }
 } catch (Throwable $e) {}
 
-$online = [];
+$online = ['friends'=>[], 'syndicate'=>[], 'staff'=>[]];
+// Friends online
 try {
-  $oq = $pdo->prepare("SELECT p.id, p.username, p.role, p.chat_color
+  $oq1 = $pdo->prepare("SELECT p.id, p.username, p.role, p.chat_color, COALESCE(p.mortality,0) AS mortality
     FROM friends f JOIN players p ON p.id = f.friend_id
     WHERE f.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
-    ORDER BY p.username LIMIT 50");
-  $oq->execute([$p['id']]);
-  foreach ($oq as $o) $online[] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],$o['chat_color'])];
-} catch (Throwable $e) {
-  foreach ($pdo->query("SELECT id, username, role, chat_color FROM players WHERE last_seen >= (NOW() - INTERVAL 5 MINUTE) ORDER BY username LIMIT 50") as $o)
-    $online[] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],$o['chat_color'])];
-}
-
-// Player ID 1 always appears online
-if (!in_array(1, array_column($online, 'id'), true)) {
-  try {
-    $p1q = $pdo->prepare('SELECT id,username,role,chat_color FROM players WHERE id=1');
-    $p1q->execute(); $p1row = $p1q->fetch();
-    if ($p1row) array_unshift($online, ['id'=>1,'name'=>$p1row['username'],'color'=>chat_color($p1row['role'],$p1row['chat_color'])]);
-  } catch (Throwable $e) {}
-}
+    ORDER BY p.username LIMIT 30");
+  $oq1->execute([$p['id']]);
+  foreach ($oq1 as $o) $online['friends'][] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],$o['chat_color']),'mortality'=>(int)$o['mortality']];
+} catch (Throwable $e) {}
+// Syndicate members online
+try {
+  $oq2 = $pdo->prepare("SELECT p.id, p.username, p.role, p.chat_color, COALESCE(p.mortality,0) AS mortality
+    FROM syndicate_members sm1
+    JOIN syndicate_members sm2 ON sm2.syndicate_id=sm1.syndicate_id AND sm2.player_id != ?
+    JOIN players p ON p.id = sm2.player_id
+    WHERE sm1.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
+    ORDER BY p.username LIMIT 30");
+  $oq2->execute([$p['id'], $p['id']]);
+  foreach ($oq2 as $o) $online['syndicate'][] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],$o['chat_color']),'mortality'=>(int)$o['mortality']];
+} catch (Throwable $e) {}
+// Staff online
+try {
+  $oq3 = $pdo->query("SELECT id, username, role, chat_color, COALESCE(mortality,0) AS mortality FROM players
+    WHERE role IN ('manager','admin','moderator','chatmod') AND last_seen >= (NOW() - INTERVAL 5 MINUTE)
+    ORDER BY username LIMIT 20");
+  foreach ($oq3 as $o) $online['staff'][] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],$o['chat_color']),'mortality'=>(int)$o['mortality']];
+} catch (Throwable $e) {}
 
 echo json_encode([
-  'ok' => true,
+  'ok'  => true,
+  'pid' => (int)$p['id'],
   's'  => [
     'level'  => (int)$p['level'],
     'pocket' => (int)$p['creds_pocket'], 'bank' => (int)$p['creds_bank'], 'shards' => (int)$p['shards'],

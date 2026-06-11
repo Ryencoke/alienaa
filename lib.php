@@ -51,6 +51,21 @@ function country_flag($code) {
   return mb_chr(127397 + ord($code[0]), 'UTF-8') . mb_chr(127397 + ord($code[1]), 'UTF-8');
 }
 
+// Gender icon: ♂ blue for male, ♀ pink for female, '' for unset.
+function gender_icon($gender) {
+  if ($gender === 'M') return '<span title="Male"   style="color:#5fa8e8;font-size:12px;margin:0 2px;vertical-align:middle">&#9794;</span>';
+  if ($gender === 'F') return '<span title="Female" style="color:#ff75b5;font-size:12px;margin:0 2px;vertical-align:middle">&#9792;</span>';
+  return '';
+}
+
+// Mortality alignment icon: ☀ for good, ☠ for evil, '' for neutral.
+function mortality_icon($score) {
+  $score = (int)$score;
+  if ($score > 0) return '<span title="Good alignment +'.$score.'" style="font-size:12px;color:#e8d44d;margin:0 2px;vertical-align:middle">&#9728;</span>';
+  if ($score < 0) return '<span title="Evil alignment '.$score.'" style="font-size:12px;color:#ff2d95;margin:0 2px;vertical-align:middle">&#9760;</span>';
+  return '';
+}
+
 // Flag <img> tag using flagcdn.com (20×15 px). Returns '' if no valid code.
 function flag_img($code) {
   $code = strtolower(trim((string)$code));

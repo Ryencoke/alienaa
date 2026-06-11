@@ -113,10 +113,16 @@ usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0))
     <div class="hh-wrap">
       <div class="hh-av"><?= mb_strtoupper(mb_substr($player['username'],0,1)) ?></div>
       <div class="hh-info">
+        <?php $myMortality = (int)($player['mortality'] ?? 0); ?>
         <div class="hh-name" style="color:<?= e($col) ?>">
           <?= e($player['username']) ?>
           <?= flag_img($player['country']??'') ?>
+          <?= gender_icon($player['gender'] ?? '') ?>
           <?php if ($isSub): ?><span title="Subscriber" style="color:#e8d44d;font-size:15px">&#9733;</span><?php endif; ?>
+          <?= mortality_icon($myMortality) ?>
+          <?php if ($myMortality !== 0): ?>
+          <span style="font-size:11px;color:<?= $myMortality > 0 ? '#e8d44d' : '#ff2d95' ?>;font-weight:700"><?= ($myMortality > 0 ? '+' : '') . $myMortality ?></span>
+          <?php endif; ?>
           <?php if ($role!=='member'): ?><?= role_tag($role,'font-size:10px;font-family:\'Orbitron\',sans-serif;border:1px solid rgba(255,255,255,.15);border-radius:4px;padding:2px 8px') ?><?php endif; ?>
         </div>
         <div class="hh-badges">

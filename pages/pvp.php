@@ -55,6 +55,7 @@ try {
 } catch (Throwable $e) {}
 try { $pdo->exec("ALTER TABLE pvp_log ADD COLUMN log_data TEXT NULL"); } catch (Throwable $e) {}
 try { $pdo->exec("ALTER TABLE pvp_log ADD COLUMN credits_looted INT NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
+try { $pdo->exec("ALTER TABLE players ADD COLUMN mortality INT NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
 
 // Load / auto-init my stats
 try {
@@ -230,6 +231,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $logId = (int)$pdo->lastInsertId();
 
       grant_xp($pid, $atkXp);
+
+      // Mortality alignment: beating a good player gains evil, beating an evil player gains good
+      $winnerId2 = $won ? $pid : (int)$defPlayer['id'];
+      $loserMortality = $won ? (int)($defPlayer['mortality'] ?? 0) : (int)($player['mortality'] ?? 0);
+      if ($loserMortality > 0) {
+        $mortalityDelta = -(int)max(2, min(8, (int)round($loserMortality / 10)));
+      } elseif ($loserMortality < 0) {
+        $mortalityDelta = (int)max(2, min(8, (int)round(-$loserMortality / 10)));
+      } else {
+        $mortalityDelta = -2; // fighting a neutral player = slight evil shift
+      }
+      try { $pdo->prepare('UPDATE players SET mortality = GREATEST(-200, LEAST(200, mortality + ?)) WHERE id=?')->execute([$mortalityDelta, $winnerId2]); } catch (Throwable $ex) {}
+
       $player = current_player();
 
       // Notify defender
@@ -251,6 +265,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'atk_s'          => $atkStats,      'def_s'     => $defStats2,
         'int_lost'       => $atkIntLoss,    'def_int_lost' => $defIntLoss,
         'credits_looted' => $creditsLooted, 'log_id'    => $logId,
+        'mortality_delta'=> $mortalityDelta ?? 0,
       ]);
     }
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
@@ -374,6 +389,14 @@ if (($tab === 'log') && isset($_GET['detail'])) {
       <div style="font-size:10px;color:var(--muted)">Credits <?= $r['won'] ? 'Looted' : 'Lost' ?></div>
     </div>
     <?php endif; ?>
+    <?php $md = (int)($r['mortality_delta'] ?? 0); if ($md !== 0): ?>
+    <div style="text-align:center">
+      <div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:<?= $md > 0 ? '#e8d44d' : '#ff2d95' ?>">
+        <?= $md > 0 ? '&#9728; +' : '&#9760; ' ?><?= $md ?>
+      </div>
+      <div style="font-size:10px;color:var(--muted)"><?= $md > 0 ? 'Good' : 'Evil' ?> Alignment</div>
+    </div>
+    <?php endif; ?>
   </div>
   <?php if (!empty($r['log_id'])): ?>
   <div style="text-align:center;margin-top:10px"><a href="index.php?p=pvp&tab=log&detail=<?= (int)$r['log_id'] ?>" style="font-size:11px;color:var(--muted);text-decoration:underline">&#128203; View in combat log</a></div>
@@ -383,6 +406,12 @@ if (($tab === 'log') && isset($_GET['detail'])) {
 
 <!-- ── ARENA ── -->
 <?php if ($tab === 'arena' && !$battleResult): ?>
+<?php if ((int)$myStats['unspent'] > 0): ?>
+<div style="background:rgba(232,212,77,.06);border:1px solid rgba(232,212,77,.3);border-radius:6px;padding:10px 14px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+  <span>&#11088; You have <b style="color:#e8d44d"><?= (int)$myStats['unspent'] ?></b> unspent combat stat <?= $myStats['unspent']!=1?'points':'point' ?>.</span>
+  <a href="index.php?p=pvp&tab=stats" style="font-size:12px;color:#e8d44d;font-weight:700">Spend now &rarr;</a>
+</div>
+<?php endif; ?>
 <div class="panel">
   <h3 style="margin-top:0">Challenge a Ghost</h3>
   <p class="muted" style="font-size:13px;margin-bottom:12px">Combat draws from your STR, SPD, END, gear, and active stim buffs. Your stats remain hidden from others unless they use a <b>Spy Protocol</b> item. Each fight costs Health — rest to recover.</p>
@@ -486,7 +515,7 @@ if (!empty($arenaLatest) && !$battleResult): ?>
       <div style="width:<?= min(100, (int)round($val/25*100)) ?>%;height:100%;background:<?= $color ?>;border-radius:3px"></div>
     </div>
     <?php if ((int)$myStats['unspent'] > 0): ?>
-    <form method="post" style="margin:0">
+    <form method="post" action="index.php?p=pvp&tab=stats" style="margin:0">
       <input type="hidden" name="action" value="spend_stat">
       <input type="hidden" name="stat" value="<?= $key ?>">
       <button type="submit" style="font-size:12px;padding:5px 14px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.25);color:var(--accent)">+ Spend</button>

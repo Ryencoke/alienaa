@@ -60,10 +60,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $to  = trim($_POST['to'] ?? '');
       $amt = (int)($_POST['amount'] ?? 0);
       if ($amt <= 0)   throw new RuntimeException('Enter an amount above zero.');
-      if ($to === '')  throw new RuntimeException('Enter a handle to send to.');
-      $t = $pdo->prepare('SELECT id FROM players WHERE username = ?'); $t->execute([$to]);
-      $toId = $t->fetchColumn();
-      if (!$toId)                       throw new RuntimeException('No ghost by that handle.');
+      if ($to === '')  throw new RuntimeException('Enter a handle or ID to send to.');
+      if (ctype_digit($to)) {
+        $t = $pdo->prepare('SELECT id, username FROM players WHERE id = ?'); $t->execute([(int)$to]);
+      } else {
+        $t = $pdo->prepare('SELECT id, username FROM players WHERE username = ?'); $t->execute([$to]);
+      }
+      $toRow = $t->fetch();
+      $toId   = $toRow ? $toRow['id']       : null;
+      $toName = $toRow ? $toRow['username']  : $to;
+      if (!$toId)                       throw new RuntimeException('No ghost by that handle or ID.');
       if ((int)$toId === (int)$pid)     throw new RuntimeException("You can't transfer to yourself.");
 
       $pdo->beginTransaction();
@@ -73,8 +79,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$amt, $toId]);
       $pdo->commit();
       try { $pdo->prepare('INSERT INTO tx_log (from_id, to_id, kind, amount, note) VALUES (?,?,?,?,?)')
-                ->execute([$pid, $toId, 'transfer', $amt, $to]); } catch (Throwable $e) {}
-      $msg = 'Sent ' . number_format($amt) . ' creds to ' . $to . '.';
+                ->execute([$pid, $toId, 'transfer', $amt, $toName]); } catch (Throwable $e) {}
+      $msg = 'Sent ' . number_format($amt) . ' creds to ' . e($toName) . '.';
     }
 
     elseif ($action === 'borrow') {
@@ -228,10 +234,11 @@ $avail = max(0, $loanCap - $loan);
     <form method="post">
       <input type="hidden" name="action" value="transfer">
       <div class="field">
-        <span>To (handle)</span>
+        <span>To (handle or ID)</span>
         <div class="xfer-to-wrap">
-          <input type="text" name="to" id="xferTo" maxlength="32" autocomplete="off">
+          <input type="text" name="to" id="xferTo" autocomplete="off" data-no-counter>
           <div class="ac-list" id="xferAcList" style="display:none"></div>
+          <div id="xfer-id-hint" style="font-size:11px;color:var(--accent);margin-top:3px;display:none"></div>
         </div>
       </div>
       <div class="field">
@@ -245,20 +252,23 @@ $avail = max(0, $loanCap - $loan);
     </form>
     <script>
     (function(){
-      var inp=document.getElementById('xferTo'),list=document.getElementById('xferAcList');
+      var inp=document.getElementById('xferTo'),list=document.getElementById('xferAcList'),hint=document.getElementById('xfer-id-hint');
       if(!inp||!list) return;
       var cur=-1,items=[];
-      function show(names){items=names;cur=-1;
-        if(!names.length){list.style.display='none';return;}
+      function setHint(name){if(hint){hint.textContent=name?'&#10003; Sending to: '+name:'';hint.style.display=name?'block':'none';}}
+      function show(names,fromId){items=names;cur=-1;
+        if(!names.length){list.style.display='none';if(fromId)setHint('');return;}
+        if(fromId&&names.length===1){inp.value=names[0];setHint(names[0]);list.style.display='none';return;}
         list.innerHTML='';names.forEach(function(n,i){var d=document.createElement('div');d.className='ac-item';d.textContent=n;
-          d.addEventListener('mousedown',function(e){e.preventDefault();inp.value=n;list.style.display='none';});list.appendChild(d);});
+          d.addEventListener('mousedown',function(e){e.preventDefault();inp.value=n;setHint(n);list.style.display='none';});list.appendChild(d);});
         list.style.display='block';}
-      inp.addEventListener('input',function(){var q=inp.value.trim();if(q.length<1){list.style.display='none';return;}
-        fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'}).then(function(r){return r.json();}).then(show).catch(function(){});});
+      inp.addEventListener('input',function(){var q=inp.value.trim();setHint('');if(q.length<1){list.style.display='none';return;}
+        var isId=/^\d+$/.test(q);
+        fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(r){show(r,isId);}).catch(function(){});});
       inp.addEventListener('keydown',function(e){if(!items.length) return;var rows=list.querySelectorAll('.ac-item');
         if(e.key==='ArrowDown'){e.preventDefault();cur=Math.min(cur+1,rows.length-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}
         else if(e.key==='ArrowUp'){e.preventDefault();cur=Math.max(cur-1,-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}
-        else if(e.key==='Enter'&&cur>=0){e.preventDefault();inp.value=items[cur];list.style.display='none';}
+        else if(e.key==='Enter'&&cur>=0){e.preventDefault();inp.value=items[cur];setHint(items[cur]);list.style.display='none';}
         else if(e.key==='Escape'){list.style.display='none';}});
       document.addEventListener('click',function(e){if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none';});
     })();
