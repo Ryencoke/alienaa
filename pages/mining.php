@@ -67,7 +67,7 @@ function mine_gen(int $d,array $tables,array $depths):array {
   $fl=[];for($y=0;$y<$h;$y++)for($x=0;$x<$w;$x++)if($g[$y][$x]===1)$fl[]=[$x,$y];
   $ex=$sp;$md=0;foreach($fl as $c){$dd=abs($c[0]-$sp[0])+abs($c[1]-$sp[1]);if($dd>$md){$md=$dd;$ex=$c;}}
   $g[$sp[1]][$sp[0]]=4;$g[$ex[1]][$ex[0]]=3;
-  $ore=[];$cands=array_values(array_filter($fl,fn($c)=>!($c[0]===$sp[0]&&$c[1]===$sp[1])&&!($c[0]===$ex[0]&&$c[1]===$ex[1])));
+  $ore=[];$cands=array_values(array_filter($fl,function($c)use($sp,$ex){return!($c[0]===$sp[0]&&$c[1]===$sp[1])&&!($c[0]===$ex[0]&&$c[1]===$ex[1]);}));
   shuffle($cands);$n=(int)(count($fl)*$cfg['ore_pct']);
   foreach(array_slice($cands,0,$n) as $c){$t=mine_pick($tables[$d]);$ore["{$c[0]},{$c[1]}"]=$t;$g[$c[1]][$c[0]]=2;}
   $rev=[];for($y=0;$y<$h;$y++)for($x=0;$x<$w;$x++)$rev[$y][$x]=false;
@@ -172,7 +172,7 @@ try {
 } catch(Throwable $e){}
 $initialState = $run ? json_encode(mine_to_client($run, $MINE_ORES)) : 'null';
 $oreDefsJson  = json_encode($MINE_ORES);
-$depthsJson   = json_encode(array_map(fn($d)=>['name'=>$d['name'],'col'=>$d['col']],$MINE_DEPTHS));
+$depthsJson   = json_encode(array_map(function($d){return['name'=>$d['name'],'col'=>$d['col']];},$MINE_DEPTHS));
 ?>
 <style>
 #mine-wrap{max-width:520px;margin:0 auto}
