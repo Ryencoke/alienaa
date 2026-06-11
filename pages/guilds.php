@@ -380,7 +380,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   } catch (Throwable $ex) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    $msg = $ex->getMessage();
+    $msg = $ex->getMessage(); $msgErr = true;
   }
 }
 
@@ -396,29 +396,58 @@ if ($mySyn && syn_can($myRank, 'manage_members')) {
 }
 ?>
 
+<?php
+// Member count for the HQ header
+$synMemberCount = 0;
+if ($mySyn) {
+  try { $mcq = $pdo->prepare('SELECT COUNT(*) FROM syndicate_members WHERE syndicate_id=?'); $mcq->execute([$mySyn['syndicate_id']]); $synMemberCount = (int)$mcq->fetchColumn(); } catch (Throwable $e) {}
+}
+?>
+<style>
+#syn-canvas{display:block;width:100%;height:108px;border-radius:9px 9px 0 0}
+#syn-head h2{text-shadow:0 0 14px rgba(255,45,149,.4)}
+.syn-pill{padding:7px 14px;border-radius:20px;font-size:12px;text-decoration:none;border:1px solid var(--line);background:var(--panel2);color:var(--muted);transition:border-color .15s,color .15s}
+.syn-pill.on{border-color:var(--neon2);background:rgba(255,45,149,.1);color:var(--neon2);box-shadow:0 0 10px rgba(255,45,149,.14)}
+.syn-stat{position:relative;overflow:hidden;text-align:center;margin-bottom:0;transition:transform .12s,border-color .15s,box-shadow .15s}
+.syn-stat:hover{transform:translateY(-2px);border-color:var(--ss-col,var(--accent));box-shadow:0 4px 12px rgba(0,0,0,.3)}
+.syn-stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--ss-col,var(--accent)),transparent)}
+.syn-feedrow{transition:background .12s}
+.syn-feedrow:hover{background:rgba(255,255,255,.025)}
+.syn-rankchip{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;padding:2px 10px;border-radius:10px;border:1px solid currentColor;background:rgba(0,0,0,.35)}
+</style>
+
 <?php if ($msg): ?>
-<div style="background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.25);border-radius:6px;padding:10px 14px;font-size:13px"><?= e($msg) ?></div>
+<div class="flash <?= ($msgErr ?? false) ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>
 <?php endif; ?>
 
 <!-- Header -->
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,var(--neon2),var(--accent),transparent)"></div>
-  <div style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-    <div>
-      <h2 style="margin:0 0 2px">&#9760; Syndicates</h2>
-      <p class="muted" style="margin:0;font-size:12px">Factions of the Sprawl. Strength through collective.</p>
+<div class="panel" id="syn-head" style="padding:0;overflow:hidden">
+  <div style="position:relative">
+    <canvas id="syn-canvas"
+      data-tag="<?= $mySyn ? e($mySyn['tag']) : '' ?>"
+      data-name="<?= $mySyn ? e($mySyn['name']) : '' ?>"></canvas>
+    <div style="position:absolute;left:16px;bottom:12px;pointer-events:none">
+      <h2 style="margin:0">&#9760; Syndicates</h2>
+      <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">Factions of the Sprawl. Strength through collective.</p>
     </div>
     <?php if ($mySyn): ?>
-    <div style="text-align:right">
-      <div style="font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:var(--neon2)">[<?= e($mySyn['tag']) ?>] <?= e($mySyn['name']) ?></div>
-      <div style="font-size:11px;color:<?= e($SYN_RANK_COLORS[$myRank]??'var(--muted)') ?>"><?= e($SYN_RANK_LABELS[$myRank] ?? ucfirst($myRank)) ?></div>
+    <div style="position:absolute;right:14px;bottom:12px;text-align:right">
+      <div style="font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:var(--neon2);text-shadow:0 0 10px rgba(255,45,149,.5)">[<?= e($mySyn['tag']) ?>] <?= e($mySyn['name']) ?></div>
+      <div style="margin-top:4px">
+        <span class="syn-rankchip" style="color:<?= e($SYN_RANK_COLORS[$myRank]??'var(--muted)') ?>"><?= e($SYN_RANK_LABELS[$myRank] ?? ucfirst($myRank)) ?></span>
+        <span style="font-size:10px;color:var(--muted);margin-left:8px"><?= $synMemberCount ?> member<?= $synMemberCount!==1?'s':'' ?></span>
+      </div>
+    </div>
+    <?php else: ?>
+    <div style="position:absolute;right:14px;bottom:12px;text-align:right;font-size:11px;color:var(--muted)">
+      Unaffiliated &mdash; <span style="color:var(--neon2)">find your faction</span>
     </div>
     <?php endif; ?>
   </div>
 </div>
 
 <!-- Tabs -->
-<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
   <?php
   $membersLabel = '&#128101; Members' . ($pendingApps ? ' <span style="background:var(--neon2);color:#000;border-radius:10px;padding:1px 6px;font-size:9px;font-weight:700">'.$pendingApps.'</span>' : '');
   $tabDefs = $mySyn
@@ -428,7 +457,7 @@ if ($mySyn && syn_can($myRank, 'manage_members')) {
     $show = isset($tabDefs[$tk]);
     if ($tk==='log' && !syn_can($myRank,'view_log') && !$isAdmin) continue;
   ?>
-  <a href="index.php?p=guilds&tab=<?= $tk ?>" style="padding:7px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $tab===$tk?'var(--neon2)':'var(--line)' ?>;background:<?= $tab===$tk?'rgba(255,45,149,.1)':'var(--panel2)' ?>;color:<?= $tab===$tk?'var(--neon2)':'var(--muted)' ?>"><?= $tl ?></a>
+  <a href="index.php?p=guilds&tab=<?= $tk ?>" class="syn-pill <?= $tab===$tk ? 'on' : '' ?>"><?= $tl ?></a>
   <?php endforeach; ?>
 </div>
 
@@ -442,8 +471,8 @@ if ($tab === 'home' && $mySyn):
 
 <!-- Stats row -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px">
-  <?php foreach ([['Level',(int)$mySyn['level'],'var(--accent)'],['XP',number_format((int)$mySyn['xp']),'#e8a33d'],['Bank',number_format((int)$mySyn['bank']).' cr','#3bcf63']] as [$sl,$sv,$sc]): ?>
-  <div class="panel" style="text-align:center;margin-bottom:0">
+  <?php foreach ([['Level',(int)$mySyn['level'],'var(--accent)'],['XP',number_format((int)$mySyn['xp']),'#e8a33d'],['Bank',number_format((int)$mySyn['bank']).' cr','#3bcf63'],['Members',$synMemberCount,'var(--neon2)']] as [$sl,$sv,$sc]): ?>
+  <div class="panel syn-stat" style="--ss-col:<?= $sc ?>">
     <div style="font-family:'Orbitron',sans-serif;font-size:20px;font-weight:700;color:<?= $sc ?>"><?= $sv ?></div>
     <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:3px"><?= $sl ?></div>
   </div>
@@ -485,7 +514,7 @@ if ($tab === 'home' && $mySyn):
 <div class="panel">
   <h3 style="margin-top:0;font-size:13px">&#128196; Recent Activity</h3>
   <?php foreach ($recentLog as $le): ?>
-  <div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);color:var(--muted)">
+  <div class="syn-feedrow" style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);color:var(--muted)">
     <?php if (!empty($le['actor_id'])): ?><a href="index.php?p=profile&id=<?= (int)$le['actor_id'] ?>" style="color:var(--accent);font-weight:700"><?= e($le['username'] ?? '?') ?></a><?php else: ?><span style="color:var(--accent)">System</span><?php endif; ?> — <?= e($le['detail'] ?? $le['action']) ?>
     <span style="float:right;font-size:10px"><?= e(date('M j g:ia',strtotime($le['created_at']))) ?></span>
   </div>
@@ -1143,3 +1172,96 @@ elseif ($tab === 'create'): ?>
   <?php endif; ?>
 </div>
 <?php endif; ?>
+
+<script>
+(function(){
+'use strict';
+/* ── Faction HQ header: wall, stencil tag, smoke, hazard stripe ── */
+var gc=document.getElementById('syn-canvas');
+if(!gc) return;
+var c=gc.getContext('2d');
+var GW=560, GH=108;
+var dpr=Math.min(2,window.devicePixelRatio||1);
+gc.width=GW*dpr; gc.height=GH*dpr;
+c.scale(dpr,dpr);
+var TAG=gc.dataset.tag||'';
+var NAME=gc.dataset.name||'';
+var member=TAG!=='';
+// rivet positions (deterministic)
+var rivets=[];
+(function(){ var s=5; function r(){ s=(s*16807)%2147483647; return s/2147483647; }
+  for(var i=0;i<3;i++) for(var j=0;j<13;j++) rivets.push({x:22+j*42+r()*4,y:16+i*32+r()*4});
+})();
+var smoke=[];
+var buzzUntil=0;
+
+function gLoop(t){
+  if(!document.body.contains(gc)) return;
+  requestAnimationFrame(gLoop);
+  c.clearRect(0,0,GW,GH);
+  // metal wall
+  var bg=c.createLinearGradient(0,0,0,GH);
+  bg.addColorStop(0,'#0c0a10'); bg.addColorStop(1,'#110d16');
+  c.fillStyle=bg; c.fillRect(0,0,GW,GH);
+  // wall panel seams + rivets
+  c.strokeStyle='rgba(255,255,255,.045)';
+  for(var sx=140;sx<GW;sx+=140){ c.beginPath(); c.moveTo(sx,0); c.lineTo(sx,GH-14); c.stroke(); }
+  c.fillStyle='rgba(255,255,255,.07)';
+  for(var ri=0;ri<rivets.length;ri++){ c.beginPath(); c.arc(rivets[ri].x,rivets[ri].y,1.2,0,Math.PI*2); c.fill(); }
+
+  // stencil tag emblem (center-right) with neon flicker
+  var on=t>buzzUntil;
+  if(on&&Math.random()<.009) buzzUntil=t+90+Math.random()*320;
+  var fl=on?(.8+.2*Math.sin(t/400)):.22;
+  c.save();
+  c.translate(GW-150,46); c.rotate(-.06);
+  c.shadowColor='#ff2d95'; c.shadowBlur=16*fl;
+  c.fillStyle='rgba(255,45,149,'+fl+')';
+  c.font='900 34px Orbitron, monospace'; c.textAlign='center'; c.textBaseline='middle';
+  c.fillText(member?('['+TAG+']'):'☠',0,0);
+  if(member){
+    c.shadowBlur=8*fl;
+    c.font='700 9px monospace';
+    c.fillStyle='rgba(255,45,149,'+(fl*.8)+')';
+    c.fillText(NAME.toUpperCase().slice(0,28),0,26);
+  } else {
+    c.shadowBlur=8*fl;
+    c.font='700 10px monospace';
+    c.fillText('FIND YOUR FACTION',0,28);
+  }
+  c.restore();
+  c.shadowBlur=0;
+
+  // drifting smoke
+  if(Math.random()<.05) smoke.push({x:30+Math.random()*220,y:GH-16,r:6+Math.random()*10,a:.10,vx:(Math.random()-.5)*.12});
+  for(var si=smoke.length-1;si>=0;si--){
+    var S=smoke[si];
+    S.y-=.18; S.x+=S.vx; S.r+=.05; S.a-=.0008;
+    if(S.a<=0){ smoke.splice(si,1); continue; }
+    var sg=c.createRadialGradient(S.x,S.y,1,S.x,S.y,S.r);
+    sg.addColorStop(0,'rgba(170,160,190,'+S.a+')'); sg.addColorStop(1,'rgba(170,160,190,0)');
+    c.fillStyle=sg;
+    c.beginPath(); c.arc(S.x,S.y,S.r,0,Math.PI*2); c.fill();
+  }
+
+  // sweeping search light
+  var lx=((t/30)%(GW+260))-130;
+  var lg=c.createLinearGradient(lx-70,0,lx+70,0);
+  lg.addColorStop(0,'rgba(25,240,199,0)'); lg.addColorStop(.5,'rgba(25,240,199,.035)'); lg.addColorStop(1,'rgba(25,240,199,0)');
+  c.fillStyle=lg; c.fillRect(0,0,GW,GH-14);
+
+  // hazard stripe footer
+  c.save();
+  c.beginPath(); c.rect(0,GH-14,GW,14); c.clip();
+  c.fillStyle='#0a090d'; c.fillRect(0,GH-14,GW,14);
+  for(var hx=-20;hx<GW+20;hx+=24){
+    c.fillStyle='rgba(232,163,61,.22)';
+    c.beginPath();
+    c.moveTo(hx,GH); c.lineTo(hx+12,GH-14); c.lineTo(hx+22,GH-14); c.lineTo(hx+10,GH);
+    c.closePath(); c.fill();
+  }
+  c.restore();
+}
+requestAnimationFrame(gLoop);
+})();
+</script>

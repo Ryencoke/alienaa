@@ -2,6 +2,26 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-43B ---
+
+SYNDICATES (guilds.php) — HQ FACELIFT
+---------------------------------------
+[guilds.php]
+- FACTION HQ HEADER: canvas of a riveted metal wall with panel seams,
+  drifting smoke, a sweeping searchlight, and an amber hazard-stripe
+  footer. Members see their syndicate's [TAG] as a big flickering neon
+  stencil with the syndicate name beneath; unaffiliated players see a
+  ☠ "FIND YOUR FACTION" stencil instead. Rank chip + live member count
+  overlay on the right.
+- Tabs converted to the standard pill style (magenta, with the pending-
+  applications badge preserved).
+- Overview stat cards (Level / XP / Bank + new Members card) get colored
+  top edges and hover lift; recent-activity rows get hover highlight.
+- Flash messages now use flash-ok / flash-err classes (errors previously
+  rendered in the success style).
+- All syndicate logic untouched — the only added query is the read-only
+  member count for the header.
+
 --- SESSION: 2026-06-11 BATCH-43 ---
 
 GAME UPDATES (updates.php) — EDITORIAL POLISH
