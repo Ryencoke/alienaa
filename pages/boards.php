@@ -229,11 +229,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   } catch (Throwable $ex) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    $msg = $ex->getMessage();
+    $msg = $ex->getMessage(); $msgErr = true;
   }
 }
 
-$flash = $msg ? '<div class="flash flash-ok">' . e($msg) . '</div>' : '';
+$flash = $msg ? '<div class="flash ' . (($msgErr ?? false) ? 'flash-err' : 'flash-ok') . '">' . e($msg) . '</div>' : '';
+
+/* shared polish for all three views */
+?>
+<style>
+.post{transition:border-color .15s,background .12s;animation:bdIn .25s ease-out backwards}
+@keyframes bdIn{0%{opacity:0;transform:translateY(5px)}100%{opacity:1;transform:none}}
+.post:hover{border-color:rgba(25,240,199,.2)}
+<?php for ($bdI = 1; $bdI <= 12; $bdI++) echo ".post:nth-of-type({$bdI}){animation-delay:" . ($bdI * 35) . "ms}\n"; ?>
+.topic-row,.board-row{transition:background .12s}
+.topic-row:hover,.board-row:hover{background:rgba(25,240,199,.03)}
+.vote{transition:transform .08s,color .12s}
+.vote:hover{color:var(--accent)}
+.vote:active{transform:scale(1.3)}
+.bd-submit{background:rgba(25,240,199,.08)!important;border-color:rgba(25,240,199,.35)!important;color:var(--accent)!important}
+</style>
+<?php
 
 /* ============================ TOPIC VIEW ============================ */
 if ($tid) {
@@ -331,7 +347,7 @@ if ($tid) {
         <textarea name="body" maxlength="<?= BODY_MAX ?>" style="min-height:110px"></textarea>
         <span class="muted" style="font-size:11px;text-transform:none;letter-spacing:0">Formatting: <code>[b]bold[/b] [i]italics[/i] [u]underline[/u]</code></span>
       </div>
-      <button type="submit">Transmit</button>
+      <button type="submit" class="bd-submit">Transmit</button>
     </form>
   </div>
   <?php
@@ -413,7 +429,7 @@ if ($bid) {
         <span>Body</span>
         <textarea name="body" maxlength="<?= BODY_MAX ?>" style="min-height:130px"></textarea>
       </div>
-      <button type="submit">Post Topic</button>
+      <button type="submit" class="bd-submit">Post Topic</button>
     </form>
   </div>
   <?php
@@ -443,11 +459,10 @@ try {
   } catch (Throwable $e2) {}
 }
 ?>
-<div class="panel">
-  <h2>Message Boards</h2>
-  <p class="muted">The Sprawl talks. Some of it's even true.</p>
-  <?= $flash ?>
-</div>
+<?= scene_header('bd-canvas', '&#128203;', 'Message Boards',
+      "The Sprawl talks. Some of it's even true.", 'ink', '#4d9be8') ?>
+<?= scene_header_js() ?>
+<?= $flash ?>
 
 <?php foreach ($cats as $c): ?>
 <div class="panel">

@@ -2,6 +2,29 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-49 ---
+
+MESSAGE BOARDS (boards.php) + PUBLIC CHAT (chat.php) — POLISH
+---------------------------------------------------------------
+[chat.php]
+- ROOM-AWARE HEADER: scene-engine pulse header colored per room (Public
+  teal, Trading gold, Help blue, Syndicate magenta) with a blinking LIVE
+  badge; room tabs converted to pills tinted in each room's color.
+- MENTION HIGHLIGHTS: messages containing your handle get a gold left-edge
+  tint — in both the server-rendered history and the live JS feed.
+- New messages arriving via the 4s poll fade in (only genuinely new lines
+  animate, not the whole repaint); chat lines highlight on hover.
+- Live "N left" character countdown appears under 60 remaining chars (red
+  under 20); Send button standardized to accent.
+
+[boards.php]
+- Index masthead: ink-themed scene header in board blue.
+- Posts fade in with a subtle stagger and lift their border on hover;
+  topic/board rows highlight on hover; vote arrows get hover color +
+  press-pop. Transmit / Post Topic buttons standardized to accent.
+- Error messages now render as flash-err (previously success style).
+- All posting/voting/moderation SQL untouched.
+
 --- SESSION: 2026-06-11 BATCH-48 ---
 
 THE SPRAWL MAP (city.php) + CUSTOMER SERVICE (tickets.php)

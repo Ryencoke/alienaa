@@ -63,22 +63,35 @@ $roomIcons = ['public'=>'&#128172;','trading'=>'&#128178;','help'=>'&#10067;'];
 if ($synRoomKey) $roomIcons[$synRoomKey] = '&#9760;';
 ?>
 
-<div class="panel" style="margin-bottom:10px">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-    <div>
-      <h2 style="margin:0;font-size:16px"><?= $roomIcons[$room] ?? '&#128172;' ?> <?= e($roomLabel) ?></h2>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)">
-      <span style="width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;box-shadow:0 0 6px rgba(25,240,199,.7)"></span>Live
-    </div>
-  </div>
-</div>
+<?php
+$roomAccents = ['public'=>'#19f0c7','trading'=>'#e8d44d','help'=>'#4d9be8'];
+if ($synRoomKey) $roomAccents[$synRoomKey] = '#ff2d95';
+$roomAccent = $roomAccents[$room] ?? '#19f0c7';
+?>
+<style>
+.cht-pill{padding:6px 14px;border-radius:20px;font-size:12px;text-decoration:none;border:1px solid var(--line);background:var(--panel2);color:var(--muted);transition:border-color .15s,color .15s}
+.cht-pill.on{border-color:var(--cht-col,var(--accent));background:var(--cht-bg,rgba(25,240,199,.1));color:var(--cht-col,var(--accent))}
+.chatline-full{transition:background .12s;border-radius:4px}
+.chatline-full:hover{background:rgba(255,255,255,.025)}
+.chat-mention{background:rgba(232,212,77,.07);box-shadow:inset 2px 0 0 #e8d44d}
+.chat-new{animation:chtIn .25s ease-out}
+@keyframes chtIn{0%{opacity:0;transform:translateY(4px)}100%{opacity:1;transform:none}}
+@keyframes chtDot{0%,100%{opacity:1}50%{opacity:.35}}
+.cht-livedot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#3bcf63;box-shadow:0 0 8px #3bcf63;animation:chtDot 1.4s ease-in-out infinite;vertical-align:middle}
+#cht-count{font-size:10px;color:var(--muted);min-width:46px;text-align:right;flex:none}
+#cht-count.low{color:var(--neon2);font-weight:700}
+</style>
+
+<?= scene_header('cht-canvas', $roomIcons[$room] ?? '&#128172;', e($roomLabel),
+      'Live channel — transmissions visible to everyone tuned in.', 'pulse', $roomAccent,
+      '<span style="font-size:11px;color:var(--muted)"><span class="cht-livedot"></span> <b style="font-family:\'Orbitron\',sans-serif;color:#3bcf63;letter-spacing:.08em">LIVE</b></span>') ?>
+<?= scene_header_js() ?>
 
 <!-- Room tabs -->
-<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-  <?php foreach ($rooms as $rk => $rl): ?>
-  <a href="index.php?p=chat&room=<?= e($rk) ?>"
-     style="padding:6px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $room===$rk?'var(--accent)':'var(--line)' ?>;background:<?= $room===$rk?'rgba(25,240,199,.1)':'var(--panel2)' ?>;color:<?= $room===$rk?'var(--accent)':'var(--muted)' ?>">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+  <?php foreach ($rooms as $rk => $rl): $rAcc = $roomAccents[$rk] ?? '#19f0c7'; ?>
+  <a href="index.php?p=chat&room=<?= e($rk) ?>" class="cht-pill <?= $room===$rk ? 'on' : '' ?>"
+     style="--cht-col:<?= $rAcc ?>;--cht-bg:<?= $rAcc ?>1a">
     <?= $roomIcons[$rk] ?? '&#128172;' ?> <?= e($rl) ?>
   </a>
   <?php endforeach; ?>
@@ -94,7 +107,8 @@ if ($synRoomKey) $roomIcons[$synRoomKey] = '&#9760;';
         $col     = chat_color($r['role'], '');
         $textCol = chat_color($r['role'], $r['chat_color']);
       ?>
-        <div class="chatline-full">
+        <?php $isMention = $r['uid'] != $pid && stripos($r['body'], $player['username']) !== false; ?>
+        <div class="chatline-full<?= $isMention ? ' chat-mention' : '' ?>">
           <span class="chattime-full"><?= e(date('H:i', strtotime($r['created_at']))) ?></span>
           <div class="chatline-body">
             <a href="index.php?p=profile&id=<?= (int)$r['uid'] ?>" style="color:<?= e($col) ?>;font-weight:700"><?= e($r['username']) ?></a><span style="color:var(--muted)">:</span>
@@ -113,7 +127,8 @@ if ($synRoomKey) $roomIcons[$synRoomKey] = '&#9760;';
         <input type="hidden" name="action" value="say">
         <input type="hidden" id="chat-room-key" value="<?= e($room) ?>">
         <input type="text" id="chatinput-full" name="body" maxlength="240" autocomplete="off" placeholder="Transmit..." style="flex:1">
-        <button type="submit" style="flex:none;padding:8px 16px">Send</button>
+        <span id="cht-count"></span>
+        <button type="submit" style="flex:none;padding:8px 16px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">Send</button>
       </form>
       <div style="font-size:11px;color:var(--muted);margin-top:6px">
         BBCode: <code>[b]bold[/b]</code> <code>[i]italics[/i]</code> &middot; Set text color in <a href="index.php?p=account&sec=chat">Account</a>.
@@ -161,11 +176,17 @@ if ($synRoomKey) $roomIcons[$synRoomKey] = '&#9760;';
     document.removeEventListener('sprawl:swapped', restore);
   });
 
+  var MYNAME=<?= json_encode($player['username']) ?>;
+  var prevCount=-1;
   function render(msgs){
     if(!msgs||!msgs.length) return;
+    var fresh=prevCount>=0?Math.max(0,msgs.length-prevCount):0;
+    prevCount=msgs.length;
     room.innerHTML='';
-    msgs.forEach(function(m){
+    msgs.forEach(function(m,mi){
       var line=document.createElement('div'); line.className='chatline-full';
+      if(m.username!==MYNAME&&(m.html||'').toLowerCase().indexOf(MYNAME.toLowerCase())!==-1) line.classList.add('chat-mention');
+      if(fresh>0&&mi>=msgs.length-fresh) line.classList.add('chat-new');
       var t=document.createElement('span'); t.className='chattime-full'; t.textContent=m.time;
       var body=document.createElement('div'); body.className='chatline-body';
       var who=document.createElement('a'); who.href='index.php?p=profile&id='+m.id;
@@ -178,6 +199,16 @@ if ($synRoomKey) $roomIcons[$synRoomKey] = '&#9760;';
       room.appendChild(line);
     });
     room.scrollTop=room.scrollHeight;
+  }
+
+  // remaining-characters hint (shows under 60 left)
+  var cnt=document.getElementById('cht-count');
+  if(cnt&&inp){
+    inp.addEventListener('input',function(){
+      var left=240-inp.value.length;
+      cnt.textContent=left<=60?left+' left':'';
+      cnt.classList.toggle('low',left<=20);
+    });
   }
 
   function renderActive(active){
