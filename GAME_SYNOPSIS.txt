@@ -84,6 +84,10 @@ stockex.php       → Stock Exchange; prices driven by game activity
 bonds.php         → Credit Bonds
 apartments.php    → Apartment ownership, market, decoration system
 generalstore.php  → The Supply Node (item shop)
+vats.php          → Hydrofarms grow bay: interactive canvas vats; plant/harvest HERBS
+                    (vat_herbs:{pid} JSON) that brew into potions at synth.php
+synth.php         → Synthesis Den: gather compounds (Drive cost), brew potions/stims
+                    from compounds + Hydrofarm herbs, use stims (heals/buffs)
 exchange.php      → The Exchange
 accord.php        → Commerce Accord: trader registration; reduces bank fees
 cityhall.php      → City Hall hub

@@ -2,6 +2,51 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-31 ---
+
+HYDROFARMS (vats.php) — INTERACTIVE GROW BAY + HERB ECONOMY
+-------------------------------------------------------------
+[vats.php — full rewrite]
+- DESIGN CHANGE: harvests now yield HERBS (per-crop: Nutriblast Algae, Kelp Frond,
+  Fungal Cap, Bio-Culture Pod) instead of raw Drive. Herbs are stored in
+  settings vat_herbs:{pid} and are brewed into potions at the Synthesis Den —
+  the Drive loop still exists via Drive-restoring potions.
+- INTERACTIVE CANVAS GROW BAY (mining-style): 7 vat slots rendered as animated
+  glass capsules — wave-animated liquid tinted per crop, rising bubbles, and
+  procedurally drawn plants that visibly grow through stages (seed pellet →
+  full growth). 4 distinct plant styles: swaying algae strands, kelp fronds
+  with blades, capped mushrooms, drifting glowing culture orbs.
+- Ready vats pulse with a colored halo + sparkles and show "READY — CLICK TO
+  PICK"; growing vats show a live countdown + progress bar; locked slots show
+  the Hydro level required; empty vats show a breathing "+".
+- INTERACTION: pick a strain from the Seed Stock cards (selection ring, greyed
+  when unaffordable), then click an empty vat to seed it (AJAX, no reload).
+  Click a ready vat to harvest: particle burst, floating "+N Herb" text,
+  hydro-bonus floater, satchel chip pop. Hover highlights vats.
+- Herb Satchel panel with live counts; 30s background state refresh keeps
+  long-running timers in sync (server clock offset handled).
+- WebAudio synth SFX (seed, harvest chime, error thud) with persisted mute.
+- Server: AJAX endpoints (state/plant/harvest); harvest stays row-locked
+  (FOR UPDATE) + atomic; plant re-checks plot count server-side.
+
+SYNTHESIS DEN (synth.php) — HERB POTIONS + BREW FX + POLISH
+-------------------------------------------------------------
+[synth.php]
+- NEW: 4 herb potions using Hydrofarm herbs — Verdant Tonic (40 HP, lv0),
+  Kelp Elixir (25 Signal, lv1), Fungal Draught (60 Drive, lv2), Bio-Catalyst
+  Draught (60 HP + 30 Drive, lv3; new 'bio' effect). Existing compound stims
+  unchanged.
+- Brew validation/deduction handles herb ingredients (reads/writes
+  vat_herbs:{pid}); recipe chips show herb icons + owned counts; Herb Stock
+  strip at the top of the Brew tab links back to the Hydrofarms.
+- BREW ANIMATION: clicking Brew plays a flask overlay on document.body
+  (survives the AJAX page swap) — liquid fills in the potion's color with
+  rising bubbles, then the potion icon pops in with its name. Using a stim
+  plays a colored radial screen pulse.
+- Visual polish: potion-colored card top-edges/titles/buttons, brewable-card
+  glow, hover lift, pill-style tabs, full-signal hotspot bars now pulse,
+  rarity glow on stim icons.
+
 --- SESSION: 2026-06-11 BATCH-30 ---
 
 MINING.PHP — VISUAL POLISH PASS 2

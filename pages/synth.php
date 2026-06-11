@@ -39,6 +39,21 @@ $STIMS = [
   ['id'=>'black_resolve','name'=>'Blacksite Protocol',  'icon'=>'&#127918;','desc'=>'Heavy stim — restores 100 Drive',                   'effect'=>'cycles',     'amount'=>100, 'recipe'=>[['id'=>'q_catalyst','q'=>1],['id'=>'thermostrand','q'=>2],['id'=>'toxicore','q'=>1]],'skill'=>4],
   ['id'=>'berserker2', 'name'=>'Berserker Rush',        'icon'=>'&#128481;','desc'=>'+8 ATK, −3 DEF for next fight (30 min)',             'effect'=>'atk_temp',   'amount'=>8,   'recipe'=>[['id'=>'thermostrand','q'=>3],['id'=>'q_catalyst','q'=>1]],      'skill'=>5],
   ['id'=>'iron_wall',  'name'=>'Iron Wall',             'icon'=>'&#127968;','desc'=>'+8 DEF for next fight (30 min)',                     'effect'=>'def_temp',   'amount'=>8,   'recipe'=>[['id'=>'abyss_poly','q'=>2],['id'=>'ferrocrystal','q'=>2],['id'=>'phantom_sub','q'=>1]],'skill'=>5],
+  // Herb potions — ingredients grown at the Hydrofarms (vats.php)
+  ['id'=>'verdant_tonic','name'=>'Verdant Tonic',       'icon'=>'&#129716;','desc'=>'Algae infusion — restores 40 Health',                'effect'=>'integrity',  'amount'=>40,  'recipe'=>[['herb'=>'nutriblast','q'=>6],['id'=>'hemosyn','q'=>1]],          'skill'=>0],
+  ['id'=>'kelp_elixir', 'name'=>'Kelp Elixir',          'icon'=>'&#129380;','desc'=>'Frond distillate — restores 25 Signal',              'effect'=>'signal',     'amount'=>25,  'recipe'=>[['herb'=>'synth_kelp','q'=>5],['id'=>'nanoweave','q'=>1]],        'skill'=>1],
+  ['id'=>'fungal_brew', 'name'=>'Fungal Draught',       'icon'=>'&#127862;','desc'=>'Mycelium ferment — restores 60 Drive',               'effect'=>'cycles',     'amount'=>60,  'recipe'=>[['herb'=>'hydro_fungi','q'=>5],['id'=>'lumiphyte','q'=>1]],       'skill'=>2],
+  ['id'=>'bio_catalyst','name'=>'Bio-Catalyst Draught', 'icon'=>'&#129514;','desc'=>'Living culture — restores 60 Health + 30 Drive',     'effect'=>'bio',        'amount'=>60,  'recipe'=>[['herb'=>'bio_culture','q'=>4],['id'=>'ferrocrystal','q'=>1]],    'skill'=>3],
+];
+// Potion liquid colors (used by the brew animation)
+$STIM_COLORS = ['integrity'=>'#3bcf63','signal'=>'#ff2d95','cycles'=>'#e8a33d','crisis'=>'#e8d44d','atk_temp'=>'#ff6b35','def_temp'=>'#4d9be8','bio'=>'#a66de8'];
+
+// ── Herbs (grown at the Hydrofarms grow bay — vats.php) ───────────────────
+$HERBS = [
+  'nutriblast'  => ['name'=>'Nutriblast Algae', 'icon'=>'&#127807;', 'col'=>'#3bcf63'],
+  'synth_kelp'  => ['name'=>'Kelp Frond',       'icon'=>'&#127804;', 'col'=>'#19f0c7'],
+  'hydro_fungi' => ['name'=>'Fungal Cap',       'icon'=>'&#127812;', 'col'=>'#e8a33d'],
+  'bio_culture' => ['name'=>'Bio-Culture Pod',  'icon'=>'&#129514;', 'col'=>'#a66de8'],
 ];
 
 $RARITY_COLORS = ['common'=>'var(--muted)','uncommon'=>'var(--accent)','rare'=>'var(--neon2)','legendary'=>'#e8d44d'];
@@ -67,6 +82,13 @@ $myStims = [];
 try {
   $sq->execute(["synth_stim:{$pid}"]); $sv2 = $sq->fetchColumn();
   if ($sv2) $myStims = json_decode($sv2, true) ?: [];
+} catch (Throwable $e) {}
+
+// Load herbs (grown at the Hydrofarms)
+$myHerbs = [];
+try {
+  $sq->execute(["vat_herbs:{$pid}"]); $hv = $sq->fetchColumn();
+  if ($hv) $myHerbs = json_decode($hv, true) ?: [];
 } catch (Throwable $e) {}
 
 // ── Handle actions ────────────────────────────────────────────────────────
@@ -107,11 +129,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$stim) throw new RuntimeException('Invalid stim.');
       if ($biochem < $stim['skill']) throw new RuntimeException('Requires Pharmacology Lv.' . $stim['skill'] . '.');
       foreach ($stim['recipe'] as $r) {
-        if (($myComps[$r['id']] ?? 0) < $r['q']) throw new RuntimeException('Missing compounds for this formula.');
+        if (isset($r['herb'])) {
+          if (($myHerbs[$r['herb']] ?? 0) < $r['q']) throw new RuntimeException('Missing herbs — grow more at the Hydrofarms.');
+        } elseif (($myComps[$r['id']] ?? 0) < $r['q']) {
+          throw new RuntimeException('Missing compounds for this formula.');
+        }
       }
-      foreach ($stim['recipe'] as $r) { $myComps[$r['id']] -= $r['q']; }
+      $usedHerbs = false;
+      foreach ($stim['recipe'] as $r) {
+        if (isset($r['herb'])) { $myHerbs[$r['herb']] -= $r['q']; $usedHerbs = true; }
+        else $myComps[$r['id']] -= $r['q'];
+      }
       $myStims[$stimId] = ($myStims[$stimId] ?? 0) + 1;
       $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["synth_comp:{$pid}", json_encode($myComps)]);
+      if ($usedHerbs) $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["vat_herbs:{$pid}", json_encode($myHerbs)]);
       $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["synth_stim:{$pid}", json_encode($myStims)]);
       $msg = 'Synthesized 1x ' . $stim['name'] . '!';
       $tab = 'brew';
@@ -134,6 +165,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare('UPDATE players SET cycles = LEAST(cycles_max, cycles + ?) WHERE id = ?')->execute([$amt, $pid]);
       } elseif ($effect === 'crisis') {
         $pdo->prepare('UPDATE players SET integrity = LEAST(integrity_max, integrity + ?), `signal` = LEAST(signal_max, `signal` + 50) WHERE id = ?')->execute([$amt, $pid]);
+      } elseif ($effect === 'bio') {
+        $pdo->prepare('UPDATE players SET integrity = LEAST(integrity_max, integrity + ?), cycles = LEAST(cycles_max, cycles + 30) WHERE id = ?')->execute([$amt, $pid]);
       } elseif ($effect === 'atk_temp') {
         $expiry = time() + 1800;
         $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["buff:atk:{$pid}", "{$amt}|{$expiry}"]);
@@ -160,14 +193,27 @@ $signals = [];
 foreach ($COMPOUNDS as $c) { $signals[$c['id']] = random_int(0, 3); }
 ?>
 
+<style>
+.syn-card{position:relative;overflow:hidden;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:12px;transition:transform .12s,border-color .15s,box-shadow .15s}
+.syn-card:hover:not(.locked){transform:translateY(-2px)}
+.syn-card.brewable{border-color:rgba(25,240,199,.35);box-shadow:0 0 14px rgba(25,240,199,.07)}
+.syn-card.locked{opacity:.5}
+.syn-tab{padding:7px 14px;border-radius:20px;font-size:12px;text-decoration:none;border:1px solid var(--line);background:var(--panel2);color:var(--muted);transition:border-color .15s,color .15s}
+.syn-tab.on{border-color:var(--accent);background:rgba(25,240,199,.1);color:var(--accent);box-shadow:0 0 10px rgba(25,240,199,.12)}
+.recipe-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:2px 7px;border-radius:10px;border:1px solid}
+.syn-head h2{text-shadow:0 0 14px rgba(25,240,199,.25)}
+@keyframes synSigPulse{0%,100%{opacity:1}50%{opacity:.55}}
+.sig-hot{animation:synSigPulse 1.2s ease-in-out infinite}
+</style>
+
 <!-- Header -->
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,#3bcf63,var(--accent),transparent)"></div>
+<div class="panel syn-head" style="padding:0;overflow:hidden">
+  <div style="height:3px;background:linear-gradient(90deg,#3bcf63,var(--accent),var(--neon2),transparent)"></div>
   <div style="padding:14px 20px">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
       <div>
         <h2 style="margin:0 0 2px">&#9879; The Synthesis Den</h2>
-        <p class="muted" style="margin:0;font-size:12px">Acquire compounds, synthesize stims, stay alive longer.</p>
+        <p class="muted" style="margin:0;font-size:12px">Acquire compounds, brew herbs from the <a href="index.php?p=vats" style="color:#3bcf63">Hydrofarms</a> into potions, stay alive longer.</p>
       </div>
       <div style="display:flex;gap:12px;font-size:12px">
         <span>Drive: <b style="color:#e8a33d"><?= number_format($cycles) ?></b></span>
@@ -178,9 +224,9 @@ foreach ($COMPOUNDS as $c) { $signals[$c['id']] = random_int(0, 3); }
 </div>
 
 <!-- Tabs -->
-<div style="display:flex;gap:8px">
-  <?php $tabs = ['gather'=>'&#127807; Acquire ('.number_format($totalComps).')','brew'=>'&#9879; Synthesize','stims'=>'&#128138; My Stims ('.$totalStims.')']; foreach ($tabs as $tid=>$tl): ?>
-  <a href="index.php?p=synth&tab=<?= $tid ?>" style="padding:7px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $tab===$tid ? 'var(--accent)' : 'var(--line)' ?>;background:<?= $tab===$tid ? 'rgba(25,240,199,.1)' : 'var(--panel2)' ?>;color:<?= $tab===$tid ? 'var(--accent)' : 'var(--muted)' ?>"><?= $tl ?></a>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+  <?php $tabs = ['gather'=>'&#127807; Acquire ('.number_format($totalComps).')','brew'=>'&#9879; Brew Potions','stims'=>'&#128138; My Stims ('.$totalStims.')']; foreach ($tabs as $tid=>$tl): ?>
+  <a href="index.php?p=synth&tab=<?= $tid ?>" class="syn-tab <?= $tab===$tid ? 'on' : '' ?>"><?= $tl ?></a>
   <?php endforeach; ?>
 </div>
 
@@ -219,7 +265,7 @@ foreach ($COMPOUNDS as $c) { $signals[$c['id']] = random_int(0, 3); }
           <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= e($c['desc']) ?></div>
         </div>
         <div style="text-align:right;flex:none">
-          <div style="font-size:13px;letter-spacing:1px"><?= $sigBars ?></div>
+          <div style="font-size:13px;letter-spacing:1px" <?= $sig>=3 ? 'class="sig-hot"' : '' ?>><?= $sigBars ?></div>
           <div style="font-size:10px;color:var(--muted)">signal</div>
           <div style="font-size:11px;color:var(--accent);font-weight:700;margin-top:2px">x<?= $owned ?></div>
         </div>
@@ -243,38 +289,66 @@ foreach ($COMPOUNDS as $c) { $signals[$c['id']] = random_int(0, 3); }
 
 <!-- ===================== BREW ===================== -->
 <?php elseif ($tab === 'brew'): ?>
+
+<!-- Herb stock from the Hydrofarms -->
+<div class="panel" style="padding:11px 14px">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);flex:none">&#129716; Herb Stock</span>
+    <?php $anyHerb=false; foreach ($HERBS as $hk=>$hd): $hq3=(int)($myHerbs[$hk]??0); if($hq3<=0) continue; $anyHerb=true; ?>
+    <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;border:1px solid <?= $hd['col'] ?>40;border-radius:14px;padding:2px 9px;color:<?= $hd['col'] ?>">
+      <?= $hd['icon'] ?> <span style="color:var(--text)"><?= e($hd['name']) ?></span> <b style="font-family:'Orbitron',sans-serif;font-size:10px">×<?= $hq3 ?></b>
+    </span>
+    <?php endforeach; if(!$anyHerb): ?>
+    <span class="muted" style="font-size:11px">None — grow some at the <a href="index.php?p=vats" style="color:#3bcf63">Hydrofarms</a>.</span>
+    <?php endif; ?>
+  </div>
+</div>
+
 <div class="panel">
-  <p class="muted" style="font-size:12px;margin-top:0;margin-bottom:12px">Combine compounds into stims. Each formula requires a minimum Pharmacology level.</p>
+  <p class="muted" style="font-size:12px;margin-top:0;margin-bottom:12px">Combine compounds and Hydrofarm herbs into potions. Each formula requires a minimum Streetchem level.</p>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px">
     <?php foreach ($STIMS as $s):
       $locked  = $biochem < $s['skill'];
-      $canMake = !$locked && array_reduce($s['recipe'], fn($ok,$r) => $ok && ($myComps[$r['id']] ?? 0) >= $r['q'], true);
+      $canMake = !$locked;
+      foreach ($s['recipe'] as $r) {
+        $have = isset($r['herb']) ? (int)($myHerbs[$r['herb']] ?? 0) : (int)($myComps[$r['id']] ?? 0);
+        if ($have < $r['q']) { $canMake = false; break; }
+      }
+      $scol = $STIM_COLORS[$s['effect']] ?? 'var(--accent)';
     ?>
-    <div style="background:var(--panel2);border:1px solid <?= $canMake ? 'rgba(25,240,199,.3)' : 'var(--line)' ?>;border-radius:8px;padding:12px;<?= $locked ? 'opacity:.5' : '' ?>">
+    <div class="syn-card <?= $canMake ? 'brewable' : '' ?> <?= $locked ? 'locked' : '' ?>">
+      <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,<?= $scol ?>,transparent)"></div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-size:20px"><?= $s['icon'] ?></span>
+        <span style="font-size:20px;text-shadow:0 0 8px <?= $scol ?>66"><?= $s['icon'] ?></span>
         <div>
-          <div style="font-weight:700;font-size:13px;color:var(--accent)"><?= e($s['name']) ?></div>
+          <div style="font-weight:700;font-size:13px;color:<?= $scol ?>"><?= e($s['name']) ?></div>
           <?php if ($locked): ?><div style="font-size:10px;color:var(--neon2)">&#128274; Streetchem Lv.<?= $s['skill'] ?></div><?php endif; ?>
         </div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px"><?= e($s['desc']) ?></div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
         <?php foreach ($s['recipe'] as $r):
-          $comp = null; foreach ($COMPOUNDS as $cc) { if ($cc['id']===$r['id']) { $comp=$cc; break; } }
-          $have = $myComps[$r['id']] ?? 0;
-          $ok   = $have >= $r['q'];
+          if (isset($r['herb'])) {
+            $hd2 = $HERBS[$r['herb']] ?? ['name'=>$r['herb'],'icon'=>'&#127807;','col'=>'#3bcf63'];
+            $have = (int)($myHerbs[$r['herb']] ?? 0);
+            $ing  = $hd2['icon'].' '.$hd2['name'];
+          } else {
+            $comp = null; foreach ($COMPOUNDS as $cc) { if ($cc['id']===$r['id']) { $comp=$cc; break; } }
+            $have = (int)($myComps[$r['id']] ?? 0);
+            $ing  = ($comp['icon'] ?? '').' '.($comp['name'] ?? $r['id']);
+          }
+          $ok = $have >= $r['q'];
         ?>
-        <span style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid <?= $ok ? 'rgba(25,240,199,.3)' : 'rgba(255,45,149,.3)' ?>;color:<?= $ok ? 'var(--accent)' : 'var(--neon2)' ?>">
-          <?= $r['q'] ?>x <?= e($comp['name'] ?? $r['id']) ?> (<?= $have ?>)
+        <span class="recipe-chip" style="border-color:<?= $ok ? 'rgba(25,240,199,.3)' : 'rgba(255,45,149,.3)' ?>;color:<?= $ok ? 'var(--accent)' : 'var(--neon2)' ?>">
+          <?= $r['q'] ?>× <?= $ing ?> <span style="opacity:.7">(<?= $have ?>)</span>
         </span>
         <?php endforeach; ?>
       </div>
-      <form method="post" style="margin:0">
+      <form method="post" style="margin:0" <?= $canMake ? 'data-brewfx="1" data-brew-col="'.e($scol).'" data-brew-icon="'.$s['icon'].'" data-brew-name="'.e($s['name']).'"' : '' ?>>
         <input type="hidden" name="action" value="brew">
         <input type="hidden" name="stim_id" value="<?= e($s['id']) ?>">
-        <button type="submit" <?= (!$canMake || $locked) ? 'disabled' : '' ?> style="width:100%;font-size:12px;<?= !$canMake ? 'opacity:.4' : '' ?>">
-          <?= $locked ? '&#128274; Locked' : ($canMake ? '&#9879; Synthesize' : 'Missing Compounds') ?>
+        <button type="submit" <?= (!$canMake || $locked) ? 'disabled' : '' ?> style="width:100%;font-size:12px;<?= !$canMake ? 'opacity:.4' : 'border-color:'.$scol.'66;color:'.$scol ?>">
+          <?= $locked ? '&#128274; Locked' : ($canMake ? '&#9879; Brew' : 'Missing Ingredients') ?>
         </button>
       </form>
     </div>
@@ -298,16 +372,17 @@ foreach ($COMPOUNDS as $c) { $signals[$c['id']] = random_int(0, 3); }
         $qty = $myStims[$s['id']] ?? 0;
         if ($qty <= 0) continue;
       ?>
-      <div style="background:var(--panel2);border:1px solid rgba(25,240,199,.2);border-radius:8px;padding:12px;display:flex;align-items:center;gap:10px">
-        <span style="font-size:24px"><?= $s['icon'] ?></span>
+      <?php $scol2 = $STIM_COLORS[$s['effect']] ?? 'var(--accent)'; ?>
+      <div class="syn-card" style="display:flex;align-items:center;gap:10px;border-color:<?= $scol2 ?>33">
+        <span style="font-size:24px;text-shadow:0 0 10px <?= $scol2 ?>66"><?= $s['icon'] ?></span>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:13px;color:var(--accent)"><?= e($s['name']) ?> <span style="color:var(--muted);font-weight:400">x<?= $qty ?></span></div>
+          <div style="font-weight:700;font-size:13px;color:<?= $scol2 ?>"><?= e($s['name']) ?> <span style="color:var(--muted);font-weight:400">x<?= $qty ?></span></div>
           <div style="font-size:11px;color:var(--muted)"><?= e($s['desc']) ?></div>
         </div>
-        <form method="post" style="margin:0;flex:none">
+        <form method="post" style="margin:0;flex:none" data-usefx="1" data-brew-col="<?= e($scol2) ?>" data-brew-icon="<?= $s['icon'] ?>">
           <input type="hidden" name="action" value="use">
           <input type="hidden" name="stim_id" value="<?= e($s['id']) ?>">
-          <button type="submit" style="font-size:11px;padding:6px 12px">Use</button>
+          <button type="submit" style="font-size:11px;padding:6px 12px;border-color:<?= $scol2 ?>66;color:<?= $scol2 ?>">Use</button>
         </form>
       </div>
       <?php endforeach; ?>
@@ -321,3 +396,74 @@ foreach ($COMPOUNDS as $c) { $signals[$c['id']] = random_int(0, 3); }
 </div>
 <?php endif; ?>
 <?php endif; ?>
+
+<script>
+/* Brew/drink FX — overlay lives on document.body so it survives the AJAX page swap. */
+(function(){
+  if(window._synthFxBound) return;
+  window._synthFxBound=true;
+
+  var css=document.createElement('style');
+  css.textContent=
+    '#brewfx{position:fixed;inset:0;z-index:10001;display:flex;align-items:center;justify-content:center;'
+    +'background:rgba(3,3,10,.55);backdrop-filter:blur(2px);opacity:0;transition:opacity .2s;pointer-events:none}'
+    +'#brewfx.show{opacity:1}'
+    +'.bfx-flask{position:relative;width:90px;height:120px}'
+    +'.bfx-glass{position:absolute;left:15px;top:0;width:60px;height:110px;border:2px solid rgba(255,255,255,.35);'
+    +'border-radius:10px 10px 28px 28px;overflow:hidden;background:rgba(10,14,24,.6);box-shadow:0 0 24px var(--bfx-col)}'
+    +'.bfx-liquid{position:absolute;left:0;right:0;bottom:0;height:0;background:linear-gradient(180deg,var(--bfx-col-a),var(--bfx-col));'
+    +'animation:bfxFill 1s ease-out forwards}'
+    +'@keyframes bfxFill{to{height:72%}}'
+    +'.bfx-bub{position:absolute;bottom:6px;width:5px;height:5px;border-radius:50%;border:1px solid rgba(255,255,255,.7);'
+    +'animation:bfxBub 1s ease-in infinite}'
+    +'@keyframes bfxBub{0%{transform:translateY(0);opacity:0}25%{opacity:.9}100%{transform:translateY(-70px);opacity:0}}'
+    +'.bfx-icon{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%) scale(0);font-size:30px;'
+    +'text-shadow:0 0 16px var(--bfx-col);animation:bfxPop .45s .95s cubic-bezier(.2,1.6,.4,1) forwards}'
+    +'@keyframes bfxPop{to{transform:translate(-50%,-50%) scale(1)}}'
+    +'.bfx-name{position:absolute;left:50%;top:118%;transform:translateX(-50%);white-space:nowrap;font-size:12px;'
+    +'font-weight:700;color:var(--bfx-col);text-shadow:0 0 10px var(--bfx-col);opacity:0;animation:bfxName .3s 1s forwards}'
+    +'@keyframes bfxName{to{opacity:1}}'
+    +'#usefx{position:fixed;inset:0;z-index:10001;pointer-events:none;opacity:0;'
+    +'background:radial-gradient(circle at 50% 55%,var(--bfx-col-a),transparent 60%)}'
+    +'@keyframes usePulse{0%{opacity:0}25%{opacity:.85}100%{opacity:0}}';
+  document.head.appendChild(css);
+
+  function hexA(hex,a){
+    if(hex.charAt(0)!=='#') return hex;
+    var n=parseInt(hex.slice(1),16);
+    return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';
+  }
+
+  function brewOverlay(col,icon,name){
+    var old=document.getElementById('brewfx'); if(old) old.remove();
+    var o=document.createElement('div'); o.id='brewfx';
+    o.style.setProperty('--bfx-col',col);
+    o.style.setProperty('--bfx-col-a',hexA(col,.45));
+    var bubs='';
+    for(var i=0;i<6;i++) bubs+='<span class="bfx-bub" style="left:'+(12+Math.random()*36)+'px;animation-delay:'+(Math.random()*0.9)+'s"></span>';
+    o.innerHTML='<div class="bfx-flask"><div class="bfx-glass"><div class="bfx-liquid"></div>'+bubs+'</div>'
+      +'<div class="bfx-icon">'+icon+'</div>'
+      +(name?'<div class="bfx-name">'+name+'</div>':'')+'</div>';
+    document.body.appendChild(o);
+    requestAnimationFrame(function(){o.classList.add('show');});
+    setTimeout(function(){o.classList.remove('show');setTimeout(function(){o.remove();},250);},1700);
+  }
+
+  function usePulse(col){
+    var old=document.getElementById('usefx'); if(old) old.remove();
+    var o=document.createElement('div'); o.id='usefx';
+    o.style.setProperty('--bfx-col',col);
+    o.style.setProperty('--bfx-col-a',hexA(col,.35));
+    o.style.animation='usePulse .9s ease-out forwards';
+    document.body.appendChild(o);
+    setTimeout(function(){o.remove();},1000);
+  }
+
+  document.addEventListener('submit',function(ev){
+    var f=ev.target;
+    if(!f||!f.getAttribute) return;
+    if(f.getAttribute('data-brewfx')) brewOverlay(f.getAttribute('data-brew-col')||'#19f0c7',f.getAttribute('data-brew-icon')||'&#9879;',f.getAttribute('data-brew-name')||'');
+    else if(f.getAttribute('data-usefx')) usePulse(f.getAttribute('data-brew-col')||'#19f0c7');
+  },true);
+})();
+</script>
