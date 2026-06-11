@@ -2,6 +2,38 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-36 ---
+
+THE BLACK MARKET (auction.php) — INTERACTIVE OVERHAUL
+-------------------------------------------------------
+[auction.php]
+- BACK-ALLEY HEADER: canvas scene — diagonal rain streaking past wall slats,
+  drifting fog banks, a swaying cage lamp casting a light cone onto an
+  auctioneer's podium silhouette, and a flickering magenta 黑市 / AUCTION
+  neon sign. Pulsing red "N LIVE" badge + pocket balance overlay.
+- CLOSING SOON STRIP: the soonest-ending auction gets a dedicated bar under
+  the header with item, top bid, and a live Orbitron countdown.
+- URGENCY STATES: timers flip red and pulse under 5 minutes; ending-soon rows
+  get a magenta edge bar; auctions with 5+ bids get a 🔥 HOT badge; your
+  leading bids show a green ✓ LEADING badge; row hover highlight.
+- QUICK-BID CHIPS: min / +5% / +10% buttons under each bid box fill the bid
+  input instantly (computed from the current top bid, floored at min bid).
+- MY LISTINGS: live countdown timers, and the 5-minute free-cancel window now
+  shows a draining green grace bar with a live mm:ss readout.
+- CREATE TAB: preview panel now also shows estimated net proceeds at the
+  starting bid (after the 1% auctioneer fee); the dead "no inventory"
+  free-text path (server rejects it since BATCH-28) replaced with a proper
+  empty-stash notice linking to the Sump/Foundry; item qty (×N) now shown on
+  browse + my-listings rows.
+- GAVEL CEREMONY: bids slam a body-level gavel onto the block with a crack +
+  shockwave ring — magenta "BID PLACED — item, amount"; posting a listing
+  stamps amber "ON THE BLOCK"; cancelling stamps slate "WITHDRAWN". WebAudio
+  SFX with persisted mute toggle; overlay survives the AJAX swap.
+- Pill-style tabs (magenta theme); error messages now render as flash-err.
+- Server logic untouched (verified zero query/transaction lines changed) —
+  all BATCH-28 hardening (row-locked bids, guarded cancel, item return)
+  carries through.
+
 --- SESSION: 2026-06-11 BATCH-35 ---
 
 THE EXCHANGE (exchange.php) — INTERACTIVE OVERHAUL
