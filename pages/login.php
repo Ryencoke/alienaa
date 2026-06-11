@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     $_SESSION['last_activity']=time();
     unset($_SESSION['timed_out']);
     try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id'],$ip,$ua,'login']); } catch(Throwable $e){}
-    header('Location: index.php?p=home'); exit;
+    header('Location: index.php?p=welcome'); exit;
   }
   try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id']??null,$ip,$ua,'fail']); } catch(Throwable $e){}
   $err='Bad credentials. The Grid does not know you.';

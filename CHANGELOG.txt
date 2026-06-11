@@ -2,6 +2,49 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-26 ---
+
+BUG FIXES — VIDEO POKER, HOME LAYOUT, LOGIN REDIRECT
+-----------------------------------------------------
+[daemon.php]
+- BUG FIX: Video Poker hold/unhold toggle was broken. Root cause: checkbox inside a
+  <label> caused the browser to double-toggle the checkbox (once via JS, once via label
+  activation), leaving cards stuck unheld after first click. Fix: removed label/checkbox
+  entirely; hold state now tracked via data-held="1/0" on the card div. Form submit
+  handler dynamically injects hidden hold[] inputs from held cards before POST.
+
+[home.php]
+- BUG FIX: Today's Combat grid used repeat(auto-fill,minmax(80px,1fr)) with 5 items,
+  causing blank space at the end on wide containers. Fixed to repeat(5,1fr) — always
+  exactly 5 equal columns.
+
+[login.php]
+- CHANGE: After logging in, players are now redirected to welcome.php instead of
+  home.php so the welcome screen is the first page they see on each login.
+
+--- SESSION: 2026-06-11 BATCH-25 ---
+
+BUG FIXES — ALLOCATION POINTS (FINAL) + HOME LAYOUT
+----------------------------------------------------
+[pvp.php]
+- BUG FIX (second attempt): Allocation points were STILL resetting to 0 because the
+  sync code ran before the POST handler — if settings['attr_points:{pid}'] was missing
+  or stale, it would zero player_stats.unspent before spend could execute.
+- ROOT CAUSE FIX: Removed sync code entirely. player_stats.unspent is now the sole
+  source of truth. grant_xp() now writes directly to player_stats.unspent via
+  INSERT...ON DUPLICATE KEY UPDATE (incrementing by 5 per level gained). No more sync.
+- One-time migration added: on pvp.php load, if player_stats.unspent == 0, checks legacy
+  settings['attr_points:{pid}']. If > 0, copies to player_stats.unspent and zeros
+  settings. Handles existing players who had points stored in old location.
+- Removed settings decrement from spend_stat (signal_max and regular stats). No longer
+  needed since settings is not the source of truth.
+
+[home.php]
+- LAYOUT: Moved notifications panel to AFTER hero/XP section, just above stats grid
+  (was: notifications → hero → grid; now: hero → notifications → grid).
+- BUG FIX: $attrPoints now reads from player_stats.unspent (via $cStats already loaded)
+  instead of settings['attr_points:{pid}']. Consistent with pvp.php fix.
+
 --- SESSION: 2026-06-11 BATCH-24 ---
 
 BUG FIXES — ALLOCATION POINTS + SIGNAL RESERVED WORD

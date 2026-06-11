@@ -103,11 +103,48 @@ try {
   $nq->execute([$pid]); $newsFeed = $nq->fetchAll();
 } catch(Throwable $e) {}
 
-// ── Dynamic: unspent attr points (auto-clears when spent, no dismiss) ──
-$attrPoints = 0;
-try { $aq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]); $attrPoints = (int)($aq->fetchColumn() ?: 0); } catch (Throwable $e) {}
+// ── Dynamic: unspent attr points — read from player_stats.unspent ──
+$attrPoints = (int)($cStats['unspent'] ?? 0);
 if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','text'=>"You have <b>{$attrPoints} unspent attribute point".($attrPoints!==1?'s':'')."</b> from leveling up! <a href='index.php?p=pvp&tab=stats'>Spend Stats &rarr;</a>",'ts'=>date('Y-m-d H:i:s')]);
 ?>
+
+<!-- ══ HERO ══════════════════════════════════════════════════ -->
+<div class="panel" style="padding:0;overflow:hidden">
+  <div style="height:3px;background:linear-gradient(90deg,var(--accent),var(--neon2),transparent)"></div>
+  <div style="padding:18px 20px">
+    <div class="hh-wrap">
+      <div class="hh-av"><?= mb_strtoupper(mb_substr($player['username'],0,1)) ?></div>
+      <div class="hh-info">
+        <?php $myMortality = (int)($player['mortality'] ?? 0); ?>
+        <div class="hh-name" style="color:<?= e($col) ?>">
+          <?= e($player['username']) ?>
+          <?= flag_img($player['country']??'') ?>
+          <?= gender_icon($player['gender'] ?? '') ?>
+          <?php if ($isSub): ?><span title="Subscriber" style="color:#e8d44d;font-size:15px">&#9733;</span><?php endif; ?>
+          <?= mortality_icon($myMortality) ?>
+          <?php if ($myMortality !== 0): ?>
+          <span style="font-size:11px;color:<?= $myMortality > 0 ? '#e8d44d' : '#ff2d95' ?>;font-weight:700"><?= ($myMortality > 0 ? '+' : '') . $myMortality ?></span>
+          <?php endif; ?>
+          <?php if ($role!=='member'): ?><?= role_tag($role,'font-size:10px;font-family:\'Orbitron\',sans-serif;border:1px solid rgba(255,255,255,.15);border-radius:4px;padding:2px 8px') ?><?php endif; ?>
+        </div>
+        <div class="hh-badges">
+          <span class="hh-badge">Lv <?= (int)$player['level'] ?></span>
+          <span class="muted" style="font-size:11px">Ghost #<?= $pid ?></span>
+          <?php if (!empty($player['created_at'])): ?><span class="muted" style="font-size:11px">&#128197; <?= e(date('M Y',strtotime($player['created_at']))) ?></span><?php endif; ?>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:3px">
+            <span>XP &mdash; Level <?= (int)$player['level'] ?> &rarr; <?= (int)$player['level']+1 ?></span>
+            <span><?= number_format((int)$player['xp']) ?> / <?= number_format((int)$player['xp_next']) ?> <span style="color:var(--accent)">(<?= $xpPct ?>%)</span></span>
+          </div>
+          <div style="height:7px;background:#080812;border-radius:5px;overflow:hidden">
+            <div style="width:<?= $xpPct ?>%;height:100%;background:linear-gradient(90deg,var(--accent),var(--neon2));border-radius:5px;transition:width .4s"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ══ NOTIFICATIONS ════════════════════════════════════════ -->
 <div class="panel" id="home-news" style="border:1px solid rgba(25,240,199,.2);background:rgba(25,240,199,.03)">
@@ -146,44 +183,6 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
     <?php endif; ?>
   </div>
   <?php endforeach; endif; ?>
-</div>
-
-<!-- ══ HERO ══════════════════════════════════════════════════ -->
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,var(--accent),var(--neon2),transparent)"></div>
-  <div style="padding:18px 20px">
-    <div class="hh-wrap">
-      <div class="hh-av"><?= mb_strtoupper(mb_substr($player['username'],0,1)) ?></div>
-      <div class="hh-info">
-        <?php $myMortality = (int)($player['mortality'] ?? 0); ?>
-        <div class="hh-name" style="color:<?= e($col) ?>">
-          <?= e($player['username']) ?>
-          <?= flag_img($player['country']??'') ?>
-          <?= gender_icon($player['gender'] ?? '') ?>
-          <?php if ($isSub): ?><span title="Subscriber" style="color:#e8d44d;font-size:15px">&#9733;</span><?php endif; ?>
-          <?= mortality_icon($myMortality) ?>
-          <?php if ($myMortality !== 0): ?>
-          <span style="font-size:11px;color:<?= $myMortality > 0 ? '#e8d44d' : '#ff2d95' ?>;font-weight:700"><?= ($myMortality > 0 ? '+' : '') . $myMortality ?></span>
-          <?php endif; ?>
-          <?php if ($role!=='member'): ?><?= role_tag($role,'font-size:10px;font-family:\'Orbitron\',sans-serif;border:1px solid rgba(255,255,255,.15);border-radius:4px;padding:2px 8px') ?><?php endif; ?>
-        </div>
-        <div class="hh-badges">
-          <span class="hh-badge">Lv <?= (int)$player['level'] ?></span>
-          <span class="muted" style="font-size:11px">Ghost #<?= $pid ?></span>
-          <?php if (!empty($player['created_at'])): ?><span class="muted" style="font-size:11px">&#128197; <?= e(date('M Y',strtotime($player['created_at']))) ?></span><?php endif; ?>
-        </div>
-        <div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:3px">
-            <span>XP &mdash; Level <?= (int)$player['level'] ?> &rarr; <?= (int)$player['level']+1 ?></span>
-            <span><?= number_format((int)$player['xp']) ?> / <?= number_format((int)$player['xp_next']) ?> <span style="color:var(--accent)">(<?= $xpPct ?>%)</span></span>
-          </div>
-          <div style="height:7px;background:#080812;border-radius:5px;overflow:hidden">
-            <div style="width:<?= $xpPct ?>%;height:100%;background:linear-gradient(90deg,var(--accent),var(--neon2));border-radius:5px;transition:width .4s"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <!-- ══ STATS GRID ══════════════════════════════════════════════ -->
@@ -313,7 +312,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
 <div class="panel">
   <h3 style="margin-top:0;margin-bottom:10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128202; Today's Combat</h3>
   <?php if ($todayWins+$todayLoss > 0): ?>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;margin-bottom:12px">
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px">
     <?php foreach ([
       ['Fights', $todayWins+$todayLoss,'var(--text)'],
       ['Wins',   $todayWins,           'var(--accent)'],

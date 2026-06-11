@@ -353,6 +353,7 @@ try {
     </script>
     <div class="panel" style="padding-bottom:0">
       <h3 style="margin:0 0 8px">Online</h3>
+      <div style="height:120px;overflow-y:auto;overflow-x:hidden">
 
       <?php
         $onlineFriends = $onlineSyndicate = $onlineStaff = [];
@@ -369,9 +370,10 @@ try {
           $onlineStaff = $oq3->fetchAll();
         } catch (Throwable $e) {}
 
+      <?php
         foreach (['friends'=>$onlineFriends,'syndicate'=>$onlineSyndicate,'staff'=>$onlineStaff] as $tid=>$olist):
       ?>
-      <div id="jackedin-<?= $tid ?>" style="display:none;min-height:32px">
+      <div id="jackedin-<?= $tid ?>" style="display:none">
         <?php if (empty($olist)): ?>
           <p class="muted" style="font-size:11px;margin:3px 0">None online.</p>
         <?php else: foreach ($olist as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
@@ -380,6 +382,7 @@ try {
         <?php if ($tid === 'friends'): ?><p style="font-size:10px;margin:6px 0 0"><a href="index.php?p=friends" style="color:var(--muted)">View all friends &rarr;</a></p><?php endif; ?>
       </div>
       <?php endforeach; ?>
+      </div><!-- end fixed-height tab content -->
 
       <div id="online-tabs" style="display:flex;margin:10px -14px 0;border-top:1px solid var(--line)">
         <?php $__otabs = ['friends'=>'Friends','syndicate'=>'Syndicate','staff'=>'Staff']; $__otlast = array_key_last($__otabs);

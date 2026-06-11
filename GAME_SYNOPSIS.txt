@@ -59,7 +59,7 @@ syndicate board access if leader, apartment market, cosmetics.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 KEY PAGES (pages/*.php)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-home.php          → Hideout / dashboard; notifications at top
+home.php          → Hideout / dashboard; hero/XP bar, then notifications, then stats grid
 profile.php       → Public player profile; badges, combat record, quick actions
 account.php       → Settings: password, bio, sidebar customization, font, country
 messages.php      → Private messages; inbox + conversation thread; ID or handle search
@@ -97,7 +97,7 @@ players           → main accounts (id, username, email, pass_hash, role, level
                     creds_bank, shards, integrity, integrity_max, xp, xp_next, signal,
                     signal_max, cycles, cycles_max, loan, sub_until, bio, sidebar,
                     chat_color, last_seen, created_at, birthday, country, font)
-player_stats      → PvP stats (pid, str_pts, spd_pts, end_pts, unspent)
+player_stats      → PvP stats (pid, str_pts, spd_pts, end_pts, unspent); unspent is sole source of truth for attr points
 player_items      → inventory (player_id, item_id, qty) PK(player_id, item_id)
 items             → item definitions (id, name, code, category, atk, def, slot, ...)
 messages          → private messages (id, from_id, to_id, body, is_read, created_at)

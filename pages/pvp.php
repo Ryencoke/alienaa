@@ -28,9 +28,8 @@ if (!function_exists('grant_xp')) {
     $pdo->prepare('UPDATE players SET level = ?, xp = ?, xp_next = ? WHERE id = ?')->execute([$level, $xp, $next, $pid]);
     if ($gained > 0) {
       try {
-        $aq = $pdo->prepare('SELECT COALESCE(v,0) FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]);
-        $cur = (int)($aq->fetchColumn() ?: 0);
-        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["attr_points:{$pid}", $cur + $gained * 5]);
+        $pdo->prepare('INSERT INTO player_stats (pid, unspent) VALUES (?,?) ON DUPLICATE KEY UPDATE unspent = unspent + ?')
+            ->execute([$pid, $gained * 5, $gained * 5]);
       } catch(Throwable $e) {}
     }
   }
@@ -66,16 +65,18 @@ try {
   }
 } catch (Throwable $e) { $myStats = ['pid'=>$pid,'str_pts'=>5,'spd_pts'=>5,'end_pts'=>5,'unspent'=>0]; }
 
-// Sync unspent from settings — settings['attr_points:{pid}'] is the canonical unspent counter
-// (grant_xp increments it; spend_stat decrements both here and in settings)
-try {
-  $aq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]);
-  $settingsUnspent = (int)($aq->fetchColumn() ?: 0);
-  if ($settingsUnspent !== (int)$myStats['unspent']) {
-    $pdo->prepare('UPDATE player_stats SET unspent=? WHERE pid=?')->execute([$settingsUnspent, $pid]);
-    $myStats['unspent'] = $settingsUnspent;
-  }
-} catch (Throwable $e) {}
+// One-time migration: copy legacy settings attr_points to player_stats.unspent if needed
+if ((int)$myStats['unspent'] === 0) {
+  try {
+    $aq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]);
+    $legacyPts = (int)($aq->fetchColumn() ?: 0);
+    if ($legacyPts > 0) {
+      $pdo->prepare('UPDATE player_stats SET unspent=? WHERE pid=?')->execute([$legacyPts, $pid]);
+      $pdo->prepare('UPDATE settings SET v=0 WHERE k=?')->execute(["attr_points:{$pid}"]);
+      $myStats['unspent'] = $legacyPts;
+    }
+  } catch(Throwable $e) {}
+}
 
 // ── Combat calculations ───────────────────────────────────────────────────
 function pvp_calc_stats($p, $stats, $pdo) {
@@ -172,14 +173,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ((int)$player['signal_max'] >= 50) throw new RuntimeException('Signal is already at maximum capacity (50).');
         $pdo->prepare('UPDATE players SET signal_max = LEAST(50, signal_max + 1) WHERE id=?')->execute([$pid]);
         $pdo->prepare('UPDATE player_stats SET unspent = unspent - 1 WHERE pid=?')->execute([$pid]);
-        $pdo->prepare('UPDATE settings SET v = GREATEST(0, CAST(v AS SIGNED) - 1) WHERE k=?')->execute(["attr_points:{$pid}"]);
         $qs->execute([$pid]); $myStats = $qs->fetch(); $player = current_player();
         $msg = 'Signal bandwidth upgraded!';
       } else {
         if (!in_array($stat, ['str_pts','spd_pts','end_pts'], true)) throw new RuntimeException('Invalid stat.');
         if ((int)$myStats['unspent'] < 1) throw new RuntimeException('No unspent stat points.');
         $pdo->prepare("UPDATE player_stats SET {$stat} = {$stat} + 1, unspent = unspent - 1 WHERE pid=?")->execute([$pid]);
-        $pdo->prepare('UPDATE settings SET v = GREATEST(0, CAST(v AS SIGNED) - 1) WHERE k=?')->execute(["attr_points:{$pid}"]);
         $qs->execute([$pid]); $myStats = $qs->fetch();
         $msg = 'Stat point spent!';
       }

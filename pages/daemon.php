@@ -527,13 +527,10 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
         <input type="hidden" name="_tab" value="vp">
         <div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;margin-bottom:12px">
           <?php foreach ($vp['hand'] as $i => $c): ?>
-          <label style="cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px">
-            <input type="checkbox" name="hold[]" value="<?= $i ?>" checked style="display:none" class="vp-hold-chk">
-            <div class="vp-card-wrap" data-idx="<?= $i ?>" style="position:relative">
-              <?= vp_render_card($c, false, true) ?>
-              <div class="vp-hold-label" style="font-size:9px;font-family:'Orbitron',sans-serif;color:var(--accent);text-align:center;margin-top:2px">HOLD</div>
-            </div>
-          </label>
+          <div class="vp-card-wrap" data-idx="<?= $i ?>" data-held="1" style="cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px">
+            <?= vp_render_card($c, false, true) ?>
+            <div class="vp-hold-label" style="font-size:9px;font-family:'Orbitron',sans-serif;color:var(--accent);text-align:center;margin-top:2px">HOLD</div>
+          </div>
           <?php endforeach; ?>
         </div>
         <button type="submit" class="btn btn-primary daemon-go-btn">&#9830; Draw</button>
@@ -681,16 +678,23 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
 
   /* Video Poker hold toggle */
   document.querySelectorAll('.vp-card-wrap').forEach(function(wrap){
-    wrap.addEventListener('click', function(e){
-      e.stopPropagation();
-      var lbl = wrap.closest('label');
-      if (!lbl) return;
-      var chk = lbl.querySelector('.vp-hold-chk');
+    wrap.addEventListener('click', function(){
+      var held = wrap.dataset.held === '1';
+      held = !held;
+      wrap.dataset.held = held ? '1' : '0';
       var holdLbl = wrap.querySelector('.vp-hold-label');
-      if (!chk) return;
-      chk.checked = !chk.checked;
-      wrap.querySelector('.bj-card').style.boxShadow = chk.checked ? '0 0 0 2px var(--accent)' : 'none';
-      if (holdLbl) { holdLbl.textContent = chk.checked ? 'HOLD' : ''; holdLbl.style.color = chk.checked ? 'var(--accent)' : 'transparent'; }
+      var card = wrap.querySelector('.bj-card');
+      if (card) card.style.boxShadow = held ? '0 0 0 2px var(--accent)' : 'none';
+      if (holdLbl) { holdLbl.textContent = held ? 'HOLD' : ''; holdLbl.style.color = held ? 'var(--accent)' : 'transparent'; }
+    });
+  });
+  var vpForm = document.getElementById('vp-hold-form');
+  if (vpForm) vpForm.addEventListener('submit', function(){
+    vpForm.querySelectorAll('input[name="hold[]"]').forEach(function(i){ i.remove(); });
+    document.querySelectorAll('.vp-card-wrap[data-held="1"]').forEach(function(wrap){
+      var inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = 'hold[]'; inp.value = wrap.dataset.idx;
+      vpForm.appendChild(inp);
     });
   });
 
