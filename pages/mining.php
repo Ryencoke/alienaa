@@ -208,7 +208,13 @@ $depthsJson   = json_encode(array_map(function($d){return['name'=>$d['name'],'co
 .ore-chip{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600}
 #mine-msg{min-height:22px;font-size:12px;text-align:center;transition:opacity .3s}
 @keyframes oreChipPop{0%{transform:scale(.6);opacity:0}70%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
-.ore-chip.pop{animation:oreChipPop .28s ease-out}
+.ore-chip.pop{animation:oreChipPop .28s ease-out backwards}
+#mine-scan{position:absolute;inset:0;border-radius:10px;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.02) 0 1px,transparent 1px 3px)}
+#mine-lobby h2{text-shadow:0 0 14px rgba(25,240,199,.3)}
+.mine-level-card::after{content:'';position:absolute;top:0;left:-65%;width:45%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.07),transparent);transform:skewX(-20deg);transition:left .45s ease;pointer-events:none}
+.mine-level-card:hover:not(.locked)::after{left:125%}
+#hud-drivebar-track{height:4px;border-radius:2px;background:rgba(255,255,255,.07);overflow:hidden;margin-top:7px}
+#hud-drivebar{height:100%;border-radius:2px;background:linear-gradient(90deg,#e8a33d,#ffce6b);box-shadow:0 0 8px rgba(232,163,61,.5);transition:width .35s ease}
 </style>
 
 <!-- ══ LOBBY ══ -->
@@ -294,6 +300,7 @@ if(!empty($oreInv)):?>
         <button onclick="leaveMine()" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(255,45,149,.3);color:var(--neon2);border-radius:4px;cursor:pointer">✕ Abandon</button>
       </div>
     </div>
+    <div id="hud-drivebar-track"><div id="hud-drivebar" style="width:<?= (int)$player['cycles_max']>0 ? min(100,round((int)$player['cycles']/(int)$player['cycles_max']*100)) : 0 ?>%"></div></div>
   </div>
 
   <!-- Message bar -->
@@ -304,6 +311,7 @@ if(!empty($oreInv)):?>
     <div id="mine-stage">
       <canvas id="mine-canvas"></canvas>
       <canvas id="mine-minimap"></canvas>
+      <div id="mine-scan"></div>
     </div>
   </div>
 
@@ -390,6 +398,36 @@ var path=[];                   // queued auto-path dirs
 var pendingHarvest=null;       // {x,y} mine this once adjacent
 var keysDown=[];               // held movement keys
 var exitSeen=false;
+var flash=0;                   // white-out on mine entry, decays
+var lastDir='down';            // player heading tick
+var motes=[];                  // ambient dust
+var themeDepth=0;
+var theme={wallTop:'#0a0a18',wallFace:'#10102a',floor:'#0d0d26',edge:'#19f0c7'};
+
+function hexMix(a,b,t){
+  var pa=parseInt(a.slice(1),16), pb=parseInt(b.slice(1),16);
+  var r=Math.round(((pa>>16)&255)+((((pb>>16)&255)-((pa>>16)&255))*t));
+  var g=Math.round(((pa>>8)&255)+((((pb>>8)&255)-((pa>>8)&255))*t));
+  var bl=Math.round((pa&255)+(((pb&255)-(pa&255))*t));
+  return 'rgb('+r+','+g+','+bl+')';
+}
+function setTheme(){
+  var dcol=(depthNames[state.depth]||{}).col||'#19f0c7';
+  theme={
+    wallTop:hexMix('#0a0a18',dcol,.06),
+    wallFace:hexMix('#10102a',dcol,.10),
+    floor:hexMix('#0d0d26',dcol,.06),
+    edge:dcol
+  };
+}
+function initMotes(){
+  motes=[];
+  for(var i=0;i<26;i++) motes.push({
+    x:state.px+(Math.random()-.5)*VP, y:state.py+(Math.random()-.5)*VP,
+    vx:(Math.random()-.5)*.005, vy:(Math.random()-.5)*.004-.001,
+    s:.6+Math.random()*1.3, p:Math.random()*Math.PI*2
+  });
+}
 
 // ── Sound (tiny synth, no assets) ─────────────────────────────────────────
 var ac=null, muted=localStorage.getItem('mineMuted')==='1';
@@ -416,7 +454,8 @@ function dist(ax,ay,bx,by){ var dx=ax-bx,dy=ay-by; return Math.sqrt(dx*dx+dy*dy)
 function setState(s){
   var first=!state;
   state=s;
-  if(first||!moveAnim){ if(first){anim.x=s.px;anim.y=s.py;cam.x=s.px;cam.y=s.py;} }
+  if(first){anim.x=s.px;anim.y=s.py;cam.x=s.px;cam.y=s.py;}
+  if(s&&themeDepth!==s.depth){ themeDepth=s.depth; setTheme(); initMotes(); }
   updateHUD(); drawMini();
   // exit discovered?
   if(!exitSeen&&s){
@@ -459,8 +498,24 @@ function loop(now){
   cam.x+=(anim.x-cam.x)*.18;
   cam.y+=(anim.y-cam.y)*.18;
   shake*=.85; if(shake<.3) shake=0;
+  flash*=.90;
 
   draw(now);
+}
+
+function tileT(wx,wy){
+  if(!state||wx<0||wy<0||wx>=state.w||wy>=state.h) return -2;
+  return state.grid[wy][wx].t;
+}
+function pathHex(cx,cy,r){
+  ctx.beginPath();
+  for(var i=0;i<6;i++){var a=Math.PI/6+i*Math.PI/3;var X=cx+Math.cos(a)*r,Y=cy+Math.sin(a)*r;i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);}
+  ctx.closePath();
+}
+function pathStar(cx,cy,r){
+  ctx.beginPath();
+  for(var i=0;i<8;i++){var a=i*Math.PI/4-Math.PI/2;var rr=i%2?r*.42:r;var X=cx+Math.cos(a)*rr,Y=cy+Math.sin(a)*rr;i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);}
+  ctx.closePath();
 }
 
 function draw(now){
@@ -485,76 +540,140 @@ function draw(now){
         continue;
       }
 
-      var d=dist(wx,wy,anim.x,anim.y);
       var r=h2(wx,wy);
 
-      if(t===0){ // wall
-        ctx.fillStyle='#0b0b1c'; ctx.fillRect(sx,sy,CELL+1,CELL+1);
-        ctx.fillStyle='#12122c'; ctx.fillRect(sx+1,sy+1,CELL-2,CELL-2);
-        ctx.fillStyle='rgba(255,255,255,.045)';
-        ctx.fillRect(sx+1,sy+1,CELL-2,1.5);
-        if(r>.55){ ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(sx+3+r*8,sy+5+r*6,CELL*.32,1.5); }
-        if(r<.2){ ctx.fillStyle='rgba(255,255,255,.03)'; ctx.fillRect(sx+4,sy+CELL*.55,1.5,CELL*.3); }
+      if(t===0){ // wall — edge-lit toward open cave
+        ctx.fillStyle=theme.wallTop; ctx.fillRect(sx,sy,CELL+1,CELL+1);
+        ctx.fillStyle=theme.wallFace; ctx.fillRect(sx+1,sy+1,CELL-2,CELL-2);
+        ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(sx+1,sy+1,CELL-2,1.5);
+        if(r>.55){ ctx.fillStyle='rgba(0,0,0,.4)'; ctx.fillRect(sx+3+r*8,sy+5+r*6,CELL*.34,1.5); }
+        if(r<.22){ ctx.fillStyle='rgba(255,255,255,.035)'; ctx.fillRect(sx+4,sy+CELL*.55,1.5,CELL*.3); }
+        // rim light on faces adjacent to walkable cave
+        ctx.fillStyle=theme.edge;
+        ctx.globalAlpha=.14;
+        if(tileT(wx,wy+1)>0) ctx.fillRect(sx,sy+CELL-1.6,CELL,1.6);
+        ctx.globalAlpha=.08;
+        if(tileT(wx,wy-1)>0) ctx.fillRect(sx,sy,CELL,1.4);
+        if(tileT(wx-1,wy)>0) ctx.fillRect(sx,sy,1.4,CELL);
+        if(tileT(wx+1,wy)>0) ctx.fillRect(sx+CELL-1.4,sy,1.4,CELL);
+        ctx.globalAlpha=1;
       } else { // floor-ish
-        ctx.fillStyle='#0e0e28'; ctx.fillRect(sx,sy,CELL+1,CELL+1);
-        ctx.strokeStyle='rgba(255,255,255,.035)'; ctx.strokeRect(sx+.5,sy+.5,CELL-1,CELL-1);
-        if(r>.82){ ctx.fillStyle='rgba(255,255,255,.04)'; ctx.fillRect(sx+r*14,sy+(1-r)*16,1.5,1.5); }
-        if(t===4){ ctx.fillStyle='rgba(25,240,199,.06)'; ctx.fillRect(sx,sy,CELL,CELL); }
-      }
-
-      if(t===2){ // ore — only present in payload while inside scanner range
-        var oc=cell.c||'#888';
-        var pulse=.75+.25*Math.sin(now/280+r*9);
-        ctx.save();
-        ctx.translate(sx+CELL/2,sy+CELL/2);
-        ctx.rotate(Math.PI/4);
-        ctx.shadowColor=oc; ctx.shadowBlur=10*pulse;
-        ctx.fillStyle=oc+'88';
-        var s1=CELL*.36*pulse; ctx.fillRect(-s1/2,-s1/2,s1,s1);
-        ctx.fillStyle=oc;
-        var s2=CELL*.18; ctx.fillRect(-s2/2,-s2/2,s2,s2);
-        ctx.restore();
-        ctx.shadowBlur=0;
-        if(((now/600+r*7)%4)<.25){ // sparkle
-          ctx.fillStyle='rgba(255,255,255,.9)';
-          ctx.fillRect(sx+CELL*.28+r*6,sy+CELL*.25,1.6,1.6);
+        ctx.fillStyle=theme.floor; ctx.fillRect(sx,sy,CELL+1,CELL+1);
+        ctx.strokeStyle='rgba(255,255,255,.03)'; ctx.strokeRect(sx+.5,sy+.5,CELL-1,CELL-1);
+        if(r>.84){ ctx.fillStyle='rgba(255,255,255,.045)'; ctx.fillRect(sx+r*14,sy+(1-r)*16,1.5,1.5); }
+        else if(r>.74){ // hairline crack
+          ctx.strokeStyle='rgba(0,0,0,.3)'; ctx.beginPath();
+          ctx.moveTo(sx+r*10,sy+4); ctx.lineTo(sx+r*16,sy+CELL*.6); ctx.stroke();
+        } else if(r<.05){ // faint conduit glow detail
+          ctx.fillStyle=theme.edge; ctx.globalAlpha=.06+.03*Math.sin(now/700+r*40);
+          ctx.fillRect(sx+CELL*.3,sy+CELL*.45,CELL*.4,1.5); ctx.globalAlpha=1;
         }
-      } else if(t===3){ // exit shaft beacon
-        var ep=.6+.4*Math.sin(now/350);
-        ctx.shadowColor='#3bcf63'; ctx.shadowBlur=14*ep;
-        ctx.strokeStyle='rgba(59,207,99,'+(0.35*ep)+')';
-        ctx.beginPath(); ctx.arc(sx+CELL/2,sy+CELL/2,CELL*.42*ep+3,0,Math.PI*2); ctx.stroke();
-        ctx.fillStyle='#3bcf63'; ctx.font='bold '+(CELL-6)+'px monospace';
-        ctx.textAlign='center'; ctx.textBaseline='middle';
-        ctx.fillText('↑',sx+CELL/2,sy+CELL/2+1);
-        ctx.shadowBlur=0;
+        if(t===4){ ctx.fillStyle='rgba(25,240,199,.06)'; ctx.fillRect(sx,sy,CELL,CELL);
+          ctx.strokeStyle='rgba(25,240,199,.18)'; ctx.strokeRect(sx+3.5,sy+3.5,CELL-7,CELL-7); }
       }
 
-      // lighting falloff (explored map memory dims with distance)
-      var light=Math.max(0,1-d/4.4);
-      var dark=(1-light)*.86;
-      if(dark>0.02){ ctx.fillStyle='rgba(3,3,8,'+dark.toFixed(3)+')'; ctx.fillRect(sx,sy,CELL+1,CELL+1); }
+      if(t===2){ // ore — shape varies by tier glyph
+        var oc=cell.c||'#888';
+        var pulse=.78+.22*Math.sin(now/280+r*9);
+        var cx2=sx+CELL/2, cy2=sy+CELL/2;
+        ctx.shadowColor=oc; ctx.shadowBlur=11*pulse;
+        if(cell.g==='◇'){ // rare: star crystal + light beam
+          ctx.globalAlpha=.16*pulse; ctx.fillStyle=oc;
+          ctx.fillRect(cx2-2,sy-CELL*1.1,4,CELL*1.6);
+          ctx.globalAlpha=1;
+          ctx.fillStyle=oc+'99'; pathStar(cx2,cy2,CELL*.40*pulse); ctx.fill();
+          ctx.fillStyle='#fff'; pathStar(cx2,cy2,CELL*.15); ctx.fill();
+        } else if(cell.g==='◆'){ // mid: hex crystal
+          ctx.fillStyle=oc+'90'; pathHex(cx2,cy2,CELL*.38*pulse); ctx.fill();
+          ctx.fillStyle=oc; pathHex(cx2,cy2,CELL*.20); ctx.fill();
+          ctx.fillStyle='rgba(255,255,255,.55)'; ctx.fillRect(cx2-1,cy2-CELL*.16,2,CELL*.12);
+        } else { // common: rotated diamond
+          ctx.save(); ctx.translate(cx2,cy2); ctx.rotate(Math.PI/4);
+          ctx.fillStyle=oc+'88'; var s1=CELL*.36*pulse; ctx.fillRect(-s1/2,-s1/2,s1,s1);
+          ctx.fillStyle=oc; var s2=CELL*.18; ctx.fillRect(-s2/2,-s2/2,s2,s2);
+          ctx.restore();
+        }
+        ctx.shadowBlur=0;
+        if(((now/600+r*7)%4)<.25){
+          ctx.fillStyle='rgba(255,255,255,.9)';
+          ctx.fillRect(cx2-CELL*.22+r*6,sy+CELL*.25,1.6,1.6);
+        }
+      } else if(t===3){ // exit shaft — light column + rising chevrons
+        var ep=.6+.4*Math.sin(now/350);
+        var bx=sx+CELL/2;
+        var beam=ctx.createLinearGradient(0,sy-CELL*2.1,0,sy+CELL);
+        beam.addColorStop(0,'rgba(59,207,99,0)');
+        beam.addColorStop(1,'rgba(59,207,99,'+(0.16*ep+0.06)+')');
+        ctx.fillStyle=beam; ctx.fillRect(bx-CELL*.34,sy-CELL*2.1,CELL*.68,CELL*3.1);
+        ctx.shadowColor='#3bcf63'; ctx.shadowBlur=12*ep;
+        ctx.strokeStyle='rgba(59,207,99,'+(0.4*ep)+')';
+        ctx.beginPath(); ctx.arc(bx,sy+CELL/2,CELL*.40*ep+3,0,Math.PI*2); ctx.stroke();
+        ctx.font='bold '+(CELL-8)+'px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        for(var ci=0;ci<3;ci++){
+          var cp=((now/900)+ci/3)%1;
+          ctx.fillStyle='rgba(59,207,99,'+(0.85*(1-cp))+')';
+          ctx.fillText('↑',bx,sy+CELL/2-cp*CELL*1.6);
+        }
+        ctx.shadowBlur=0;
+      }
     }
   }
+
+  // ambient dust motes (drift through the lit cave)
+  ctx.fillStyle='rgba(190,230,255,.5)';
+  for(var mi=0;mi<motes.length;mi++){
+    var M=motes[mi];
+    M.x+=M.vx; M.y+=M.vy; M.p+=.02;
+    if(M.x<cam.x-HALF-1) M.x+=VP+2; if(M.x>cam.x+HALF+1) M.x-=VP+2;
+    if(M.y<cam.y-HALF-1) M.y+=VP+2; if(M.y>cam.y+HALF+1) M.y-=VP+2;
+    var md=dist(M.x,M.y,anim.x,anim.y);
+    var ma=Math.max(0,(1-md/4.5))*.30*(.6+.4*Math.sin(M.p));
+    if(ma<=0.01) continue;
+    ctx.globalAlpha=ma;
+    ctx.fillRect((M.x-ox)*CELL+shx,(M.y-oy)*CELL+Math.sin(M.p)*2+shy,M.s,M.s);
+  }
+  ctx.globalAlpha=1;
 
   // auto-path preview dots
   if(path.length){
     var px=state.px, py=state.py;
-    ctx.fillStyle='rgba(25,240,199,.35)';
+    ctx.fillStyle='rgba(25,240,199,.4)';
     var D={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]};
     for(var i=0;i<path.length;i++){
       var dd=D[path[i]]; px+=dd[0]; py+=dd[1];
-      ctx.beginPath(); ctx.arc((px-ox)*CELL+CELL/2+shx,(py-oy)*CELL+CELL/2+shy,2.4,0,Math.PI*2); ctx.fill();
+      var pr=1.8+.8*Math.sin(now/200-i*.7);
+      ctx.beginPath(); ctx.arc((px-ox)*CELL+CELL/2+shx,(py-oy)*CELL+CELL/2+shy,pr,0,Math.PI*2); ctx.fill();
     }
   }
 
-  // scanner ring
   var prx=(anim.x-ox)*CELL+CELL/2+shx, pry=(anim.y-oy)*CELL+CELL/2+shy;
+
+  // smooth darkness — radial light around the player, map memory dims at range
+  var lg=ctx.createRadialGradient(prx,pry,CELL*1.15,prx,pry,CELL*4.9);
+  lg.addColorStop(0,'rgba(2,2,8,0)');
+  lg.addColorStop(.55,'rgba(2,2,8,.30)');
+  lg.addColorStop(1,'rgba(2,2,8,.85)');
+  ctx.fillStyle=lg; ctx.fillRect(0,0,W,W);
+
+  // warm headlamp glow (additive)
+  ctx.globalCompositeOperation='lighter';
+  var pg=ctx.createRadialGradient(prx,pry,0,prx,pry,CELL*2.5);
+  pg.addColorStop(0,'rgba(25,240,199,.09)');
+  pg.addColorStop(1,'rgba(25,240,199,0)');
+  ctx.fillStyle=pg; ctx.fillRect(prx-CELL*2.5,pry-CELL*2.5,CELL*5,CELL*5);
+  ctx.globalCompositeOperation='source-over';
+
+  // scanner: static dashed range ring + expanding ping
   ctx.save();
-  ctx.strokeStyle='rgba(25,240,199,'+(0.08+0.04*Math.sin(now/500))+')';
+  ctx.strokeStyle='rgba(25,240,199,'+(0.07+0.04*Math.sin(now/500))+')';
   ctx.setLineDash([4,7]); ctx.lineWidth=1;
   ctx.beginPath(); ctx.arc(prx,pry,sensor*CELL+CELL/2,0,Math.PI*2); ctx.stroke();
   ctx.restore();
+  var pt=(now%2400)/2400;
+  ctx.strokeStyle='rgba(25,240,199,'+(0.22*(1-pt))+')';
+  ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.arc(prx,pry,pt*(sensor*CELL+CELL/2),0,Math.PI*2); ctx.stroke();
+  ctx.lineWidth=1;
 
   // hover highlight
   if(hover&&hover.wx>=0&&hover.wy>=0&&hover.wx<w&&hover.wy<h){
@@ -580,16 +699,28 @@ function draw(now){
     }
   }
 
-  // player
+  // player drone — hover bob, orbiting rotor lights, heading tick
+  var bob=Math.sin(now/300)*1.4;
+  var pyd=pry+bob;
   var pp=.8+.2*Math.sin(now/220);
+  ctx.fillStyle='rgba(0,0,0,.35)'; // ground shadow
+  ctx.beginPath(); ctx.ellipse(prx,pry+CELL*.34,CELL*.22,CELL*.08,0,0,Math.PI*2); ctx.fill();
   ctx.shadowColor='#19f0c7'; ctx.shadowBlur=16*pp;
-  ctx.fillStyle='rgba(25,240,199,.18)';
-  ctx.beginPath(); ctx.arc(prx,pry,CELL*.46,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(25,240,199,.16)';
+  ctx.beginPath(); ctx.arc(prx,pyd,CELL*.46,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#ffffff';
-  ctx.beginPath(); ctx.arc(prx,pry,CELL*.27,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(prx,pyd,CELL*.26,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#19f0c7';
-  ctx.beginPath(); ctx.arc(prx,pry,CELL*.27*.55*pp+1.5,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(prx,pyd,CELL*.26*.55*pp+1.5,0,Math.PI*2); ctx.fill();
   ctx.shadowBlur=0;
+  for(var ri=0;ri<3;ri++){ // rotor lights
+    var ra=now/260+ri*(Math.PI*2/3);
+    ctx.fillStyle='rgba(255,255,255,.7)';
+    ctx.beginPath(); ctx.arc(prx+Math.cos(ra)*CELL*.40,pyd+Math.sin(ra)*CELL*.40*.45,1.4,0,Math.PI*2); ctx.fill();
+  }
+  var HD={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]}[lastDir]||[0,1];
+  ctx.fillStyle='#0a0a12';
+  ctx.beginPath(); ctx.arc(prx+HD[0]*CELL*.13,pyd+HD[1]*CELL*.13,2.2,0,Math.PI*2); ctx.fill();
 
   // particles
   for(var pi=particles.length-1;pi>=0;pi--){
@@ -615,6 +746,12 @@ function draw(now){
     ctx.fillText(F.txt,(F.x-ox)*CELL+CELL/2+shx,(F.y-oy)*CELL+F.dy+shy);
   }
   ctx.globalAlpha=1;
+
+  // entry flash
+  if(flash>0.02){
+    ctx.fillStyle='rgba(170,255,235,'+(flash*.8).toFixed(3)+')';
+    ctx.fillRect(0,0,W,W);
+  }
 
   // vignette
   ctx.fillStyle=vignette; ctx.fillRect(0,0,W,W);
@@ -701,8 +838,8 @@ window.enterMine=function(depth){
   window._lastDepth=depth;
   minePost({mine_action:'enter',depth:depth},function(d){
     if(!d.ok){showMsg(d.err||'Error','var(--neon2)');return;}
-    exitSeen=false; path=[]; pendingHarvest=null; particles=[]; floaters=[];
-    state=null; setState(d.state);
+    exitSeen=false; path=[]; pendingHarvest=null; particles=[]; floaters=[]; flash=1;
+    state=null; themeDepth=0; setState(d.state);
     document.getElementById('mine-lobby').style.display='none';
     document.getElementById('mine-active').style.display='';
     document.getElementById('mine-result').style.display='none';
@@ -713,6 +850,7 @@ window.enterMine=function(depth){
 
 window.doMove=function(dir){
   if(!state||busy) return;
+  lastDir=dir;
   var fx=anim.x, fy=anim.y;
   minePost({mine_action:'move',dir:dir},function(d){
     if(!d.ok){
@@ -750,7 +888,11 @@ function doHarvest(tx,ty){
       shake=5;
       sfx(520,.09,'square',.04); setTimeout(function(){sfx(780,.12,'square',.04);},70);
     }
-    if(d.drive!==undefined){ var hd=document.getElementById('hud-drive'); if(hd) hd.textContent=d.drive; }
+    if(d.drive!==undefined){
+      var hd=document.getElementById('hud-drive'); if(hd) hd.textContent=d.drive;
+      var bar=document.getElementById('hud-drivebar');
+      if(bar&&d.drive_max>0) bar.style.width=Math.min(100,Math.round(d.drive/d.drive_max*100))+'%';
+    }
     var chips=document.querySelectorAll('#mine-ore-list .ore-chip');
     if(chips.length){ chips[chips.length-1].classList.add('pop'); }
   });
@@ -784,16 +926,25 @@ function showResult(d){
   var keys=Object.keys(summary);
   var totalXp=0, totalOre=0;
   keys.forEach(function(k){ totalXp+=(summary[k].xp||0)*summary[k].qty; totalOre+=summary[k].qty; });
-  document.getElementById('result-depth').textContent=
-    'Surfaced from '+depthName+' after '+d.steps+' steps — '+totalOre+' ore, +'+totalXp+' XP.';
+  // count-up animation on the summary line
+  (function(){
+    var el=document.getElementById('result-depth'), t0=performance.now(), DUR=700;
+    function tick(n){
+      var t=Math.min(1,(n-t0)/DUR), e=t*(2-t);
+      el.textContent='Surfaced from '+depthName+' after '+d.steps+' steps — '
+        +Math.round(totalOre*e)+' ore, +'+Math.round(totalXp*e)+' XP.';
+      if(t<1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  })();
   if(!keys.length){oreDiv.innerHTML='';empty.style.display='';}
   else{
     empty.style.display='none';
     var html='';
-    keys.forEach(function(k){
+    keys.forEach(function(k,idx){
       var o=summary[k];
-      html+='<div class="ore-chip pop" style="color:'+o.col+';border-color:'+o.col+'40;padding:6px 14px">'
-           +'<span style="font-size:16px">'+o.glyph+'</span>'
+      html+='<div class="ore-chip pop" style="color:'+o.col+';border-color:'+o.col+'40;padding:6px 14px;animation-delay:'+(idx*90)+'ms;box-shadow:0 0 14px '+o.col+'22">'
+           +'<span style="font-size:16px;text-shadow:0 0 8px '+o.col+'">'+o.glyph+'</span>'
            +'<div><div style="font-size:11px;color:var(--text)">'+o.name+'</div>'
            +'<div style="font-family:Orbitron,sans-serif;font-size:14px;font-weight:700">×'+o.qty+'</div></div></div>';
     });

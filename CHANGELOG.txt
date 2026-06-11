@@ -2,6 +2,35 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-30 ---
+
+MINING.PHP — VISUAL POLISH PASS 2
+-----------------------------------
+[mining.php]
+- LIGHTING REWORK: per-tile darkening replaced with a smooth radial darkness
+  gradient around the player plus an additive teal "headlamp" glow — no more
+  blocky light steps. Vignette retained on top.
+- DEPTH THEMES: walls/floors are now subtly tinted with each depth's signature
+  color (Surface Seam green, Copper Vein bronze, Void Deep gold, etc.) via a
+  hex-mix helper; cave walls get a colored rim-light on faces adjacent to open
+  tunnel (edge-aware neighbor check) for a carved-cave silhouette.
+- ORE TIERS LOOK DIFFERENT: common (◈) rotated diamond, mid-tier (◆) faceted
+  hex crystal with highlight, rare (◇) eight-point star crystal with a rising
+  vertical light beam. All keep the pulse/glow/sparkle.
+- EXIT SHAFT: now a glowing light column with three rising, fading chevrons.
+- PLAYER DRONE: hover bob, ground shadow, three orbiting rotor lights, heading
+  indicator dot (faces last move direction), expanding scanner ping ring every
+  2.4s out to the 2.5-tile detection radius.
+- ATMOSPHERE: 26 drifting dust motes that only show inside the lit radius;
+  floor variety (hairline cracks, faint pulsing conduit details); spawn pad
+  outline; subtle CRT scanline overlay on the canvas; teal entry flash when
+  dropping into a mine.
+- HUD: Drive bar (gradient amber, animated width) under the stat row, synced
+  on every extraction.
+- LOBBY: depth cards get a hover shine sweep + colored top edge; header glow.
+- RESULT SCREEN: ore/XP totals count up over 700ms; ore chips stagger-pop in
+  with per-ore glow; auto-path preview dots now pulse along the route.
+
 --- SESSION: 2026-06-11 BATCH-29 ---
 
 MINING.PHP — VISUAL/INTERACTION OVERHAUL + ORE SCANNER FOG
