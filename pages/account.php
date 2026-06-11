@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'profile') {
       $bio = trim($_POST['bio'] ?? ''); if (mb_strlen($bio) > 200) $bio = mb_substr($bio, 0, 200);
       $country = strtoupper(trim($_POST['country'] ?? '')); if (!isset($all_countries[$country])) $country = '';
-      $gender = in_array($_POST['gender'] ?? '', ['M','F'], true) ? $_POST['gender'] : '';
+      $gender = ($_POST['gender'] ?? '') === 'F' ? 'F' : 'M';
       $pdo->prepare('UPDATE players SET bio = ?, country = ?, gender = ? WHERE id = ?')->execute([$bio, $country, $gender, $pid]);
       $msg = 'Profile saved.'; $player = current_player();
     }
@@ -194,15 +194,12 @@ $curAccent = $player['accent_color'] ?? '';
     <div class="field">
       <span>Gender</span>
       <div style="display:flex;gap:12px">
-        <?php $curGender = $player['gender'] ?? ''; ?>
+        <?php $curGender = ($player['gender'] ?? '') === 'F' ? 'F' : 'M'; ?>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0">
           <input type="radio" name="gender" value="M" <?= $curGender==='M'?'checked':'' ?> style="width:auto;accent-color:#5fa8e8"> <span style="color:#5fa8e8">&#9794; Male</span>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0">
           <input type="radio" name="gender" value="F" <?= $curGender==='F'?'checked':'' ?> style="width:auto;accent-color:#ff75b5"> <span style="color:#ff75b5">&#9792; Female</span>
-        </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0">
-          <input type="radio" name="gender" value=""  <?= $curGender===''?'checked':'' ?> style="width:auto"> <span class="muted">Unset</span>
         </label>
       </div>
     </div>
