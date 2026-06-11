@@ -2,6 +2,30 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-50 ---
+
+HIDEOUT (home.php) + PROFILES (profile.php) — POLISH
+------------------------------------------------------
+[home.php]
+- HIDEOUT WINDOW HERO: your player card now sits in front of a canvas
+  window looking out at the Sprawl at night — procedural skyline with
+  flickering teal/pink windows, a passing aircar light, a pulsing neon
+  wash from an off-screen sign, rain drips running down the glass with
+  beads at the tips, window crossbars, and an interior shadow on the left
+  so the avatar/name/XP bar stay perfectly readable.
+- Notifications: bell icon wiggles while anything is unread; rows fade in
+  with a stagger; dismiss × buttons get hover/press feedback.
+- The four stat panels (Vitals / Combat / Loadout / Syndicate) are now
+  color-coded cards (green/magenta/teal/gold top edges) with hover lift.
+
+[profile.php]
+- HOLO ID-CARD HERO: the profile header sits over an animated registry
+  card — micro grid, a large breathing ☠ ghost watermark, "GRID ID
+  REGISTRY // SECTOR 9" microtext with scrolling hex code ticks, a holo
+  sheen sweep, scanline, and a left fade keeping the identity readable.
+- Online players' avatars get a pulsing green ring (matching the dot).
+- All profile panels get hover lift. No queries changed on either page.
+
 --- SESSION: 2026-06-11 BATCH-49 ---
 
 MESSAGE BOARDS (boards.php) + PUBLIC CHAT (chat.php) — POLISH

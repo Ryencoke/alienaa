@@ -108,11 +108,26 @@ $attrPoints = (int)($cStats['unspent'] ?? 0);
 if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','text'=>"You have <b>{$attrPoints} unspent attribute point".($attrPoints!==1?'s':'')."</b> from leveling up! <a href='index.php?p=pvp&tab=stats'>Spend Stats &rarr;</a>",'ts'=>date('Y-m-d H:i:s')]);
 ?>
 
+<style>
+#hm-canvas{display:block;width:100%;height:148px;border-radius:9px}
+.hm-card{position:relative;overflow:hidden;margin-bottom:0;transition:transform .12s,border-color .15s,box-shadow .15s}
+.hm-card:hover{transform:translateY(-2px);border-color:var(--hm-col,var(--accent));box-shadow:0 4px 12px rgba(0,0,0,.3),0 0 10px var(--hm-glow,rgba(25,240,199,.08))}
+.hm-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--hm-col,var(--accent)),transparent)}
+.hm-notif{animation:hmIn .25s ease-out backwards}
+@keyframes hmIn{0%{opacity:0;transform:translateY(5px)}100%{opacity:1;transform:none}}
+@keyframes hmBell{0%,100%{transform:rotate(0)}20%{transform:rotate(13deg)}40%{transform:rotate(-10deg)}60%{transform:rotate(6deg)}80%{transform:rotate(-3deg)}}
+.hm-bell{display:inline-block;animation:hmBell 2.4s ease-in-out infinite;transform-origin:top center}
+.hm-x{transition:opacity .12s,transform .08s}
+.hm-x:hover{opacity:1!important}.hm-x:active{transform:scale(1.3)}
+.hh-name,.hh-badges{text-shadow:0 1px 5px rgba(0,0,0,.8)}
+</style>
+
 <!-- ══ HERO ══════════════════════════════════════════════════ -->
 <div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,var(--accent),var(--neon2),transparent)"></div>
-  <div style="padding:18px 20px">
-    <div class="hh-wrap">
+  <div style="position:relative">
+    <canvas id="hm-canvas"></canvas>
+    <div style="position:absolute;inset:0;padding:16px 20px;display:flex;align-items:center">
+    <div class="hh-wrap" style="width:100%">
       <div class="hh-av"><?= mb_strtoupper(mb_substr($player['username'],0,1)) ?></div>
       <div class="hh-info">
         <?php $myMortality = (int)($player['mortality'] ?? 0); ?>
@@ -143,13 +158,14 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
         </div>
       </div>
     </div>
+    </div>
   </div>
 </div>
 
 <!-- ══ NOTIFICATIONS ════════════════════════════════════════ -->
 <div class="panel" id="home-news" style="border:1px solid rgba(25,240,199,.2);background:rgba(25,240,199,.03)">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-    <h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128276; Notifications<?php if (!empty($newsFeed)): ?> <span style="background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700;margin-left:6px"><?= count($newsFeed) ?></span><?php endif; ?></h3>
+    <h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.5px"><span class="<?= !empty($newsFeed) ? 'hm-bell' : '' ?>">&#128276;</span> Notifications<?php if (!empty($newsFeed)): ?> <span style="background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700;margin-left:6px"><?= count($newsFeed) ?></span><?php endif; ?></h3>
     <?php if (!empty($newsFeed)): ?>
     <form method="post" style="margin:0">
       <input type="hidden" name="action" value="dismiss_all_notifs">
@@ -168,7 +184,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
     $rawHtml = $item['type'] === 'levelup';
     $canDismiss = $item['id'] !== null;
   ?>
-  <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+  <div class="hm-notif" style="animation-delay:<?= min(10, $nfI = ($nfI ?? 0) + 1) * 45 ?>ms;display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">
     <span style="font-size:13px;flex:none;color:<?= $ncol ?>;margin-top:2px"><?= $nicon ?></span>
     <div style="flex:1;min-width:0">
       <div style="font-size:12px"><?= $rawHtml ? $item['text'] : e($item['text']) ?></div>
@@ -178,7 +194,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
     <form method="post" style="margin:0;flex:none;align-self:center">
       <input type="hidden" name="action" value="dismiss_notif">
       <input type="hidden" name="notif_id" value="<?= (int)$item['id'] ?>">
-      <button type="submit" style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1;opacity:.6" title="Dismiss">&times;</button>
+      <button type="submit" class="hm-x" style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1;opacity:.6" title="Dismiss">&times;</button>
     </form>
     <?php endif; ?>
   </div>
@@ -189,7 +205,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
 
   <!-- Vitals -->
-  <div class="panel" style="margin-bottom:0">
+  <div class="panel hm-card" style="--hm-col:#3bcf63;--hm-glow:rgba(59,207,99,.08)">
     <h3 style="margin-top:0;margin-bottom:14px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128293; Vitals</h3>
     <?php foreach ([
       ['Health', $player['integrity'],$player['integrity_max'],$hpPct, '#3bcf63'],
@@ -209,7 +225,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
   </div>
 
   <!-- Combat Stats -->
-  <div class="panel" style="margin-bottom:0">
+  <div class="panel hm-card" style="--hm-col:#ff2d95;--hm-glow:rgba(255,45,149,.08)">
     <h3 style="margin-top:0;margin-bottom:14px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#9876; Combat Stats</h3>
     <?php
     foreach ([
@@ -243,7 +259,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
   </div>
 
   <!-- Loadout -->
-  <div class="panel" style="margin-bottom:0">
+  <div class="panel hm-card" style="--hm-col:#19f0c7;--hm-glow:rgba(25,240,199,.08)">
     <h3 style="margin-top:0;margin-bottom:14px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128737; Loadout
       <?php if ($gearAtk||$gearDef): ?>
         <span style="float:right;font-size:11px;font-weight:400">
@@ -272,7 +288,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
   </div>
 
   <!-- Guild Info -->
-  <div class="panel" style="margin-bottom:0">
+  <div class="panel hm-card" style="--hm-col:#e8d44d;--hm-glow:rgba(232,212,77,.08)">
     <h3 style="margin-top:0;margin-bottom:14px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128101; Syndicate</h3>
     <?php if ($myHomeGuild): ?>
     <?php
@@ -333,3 +349,91 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
   </div>
   <?php endif; ?>
 </div>
+
+<script>
+(function(){
+'use strict';
+/* ── Hideout window: the Sprawl at night through rain-streaked glass ── */
+var hv=document.getElementById('hm-canvas');
+if(!hv) return;
+var c=hv.getContext('2d');
+var W=720, H=148;
+var dpr=Math.min(2,window.devicePixelRatio||1);
+hv.width=W*dpr; hv.height=H*dpr;
+c.scale(dpr,dpr);
+function cssVar(n,fb){
+  try{ var v=getComputedStyle(document.documentElement).getPropertyValue(n).trim(); return v||fb; }catch(e){ return fb; }
+}
+var ACCENT=cssVar('--accent','#19f0c7'), NEON2=cssVar('--neon2','#ff2d95');
+
+// skyline through the window (deterministic)
+var s=21; function rnd(){ s=(s*16807)%2147483647; return s/2147483647; }
+var towers=[]; var x=0;
+while(x<W){ var bw=26+rnd()*50, bh=30+rnd()*72; towers.push({x:x,w:bw,h:bh,seed:rnd()}); x+=bw+4+rnd()*10; }
+// rain drops running down the glass
+var drips=[];
+for(var i=0;i<26;i++) drips.push({x:Math.random()*W,y:Math.random()*H,v:.4+Math.random()*1.4,len:6+Math.random()*14,wob:Math.random()*9});
+
+function winLit(b,wx,wy,t){
+  var h2=Math.sin(b.seed*9999+wx*37+wy*91)*43758.55; var r=h2-Math.floor(h2);
+  return ((t/1600+r*6)%7)<(2.6+r*2.4);
+}
+
+function loop(t){
+  if(!document.body.contains(hv)) return;
+  requestAnimationFrame(loop);
+  c.clearRect(0,0,W,H);
+  var bg=c.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#07070f'); bg.addColorStop(1,'#0b0a14');
+  c.fillStyle=bg; c.fillRect(0,0,W,H);
+
+  // neon sign wash from somewhere outside (pulsing pink, right side)
+  var wash=.05+.03*Math.sin(t/900);
+  var ng=c.createRadialGradient(W-60,30,10,W-60,30,260);
+  ng.addColorStop(0,'rgba(255,45,149,'+wash*2+')'); ng.addColorStop(1,'rgba(255,45,149,0)');
+  c.fillStyle=ng; c.fillRect(0,0,W,H);
+
+  // skyline
+  towers.forEach(function(b){
+    c.fillStyle='#0d0d1a';
+    c.fillRect(b.x,H-b.h,b.w,b.h);
+    for(var wy=H-b.h+5;wy<H-6;wy+=10){
+      for(var wx=b.x+4;wx<b.x+b.w-4;wx+=8){
+        if(winLit(b,wx,wy,t)){
+          c.fillStyle=((wx+wy)%5===0)?'rgba(255,45,149,.30)':'rgba(25,240,199,.24)';
+          c.fillRect(wx,wy,2.6,3.4);
+        }
+      }
+    }
+  });
+
+  // distant aircar
+  var carX=((t/14)%(W+160))-80;
+  c.strokeStyle='rgba(25,240,199,.5)';
+  c.beginPath(); c.moveTo(carX-10,34); c.lineTo(carX,34); c.stroke();
+  c.fillStyle='#fff'; c.fillRect(carX-1,33,2,2);
+
+  // rain on the glass
+  c.strokeStyle='rgba(170,190,230,.16)'; c.lineWidth=1;
+  drips.forEach(function(d){
+    d.y+=d.v;
+    if(d.y>H+d.len){ d.y=-d.len; d.x=Math.random()*W; }
+    var wx2=Math.sin(t/700+d.wob)*1.2;
+    c.beginPath(); c.moveTo(d.x+wx2,d.y-d.len); c.lineTo(d.x,d.y); c.stroke();
+    // bead at the tip
+    c.fillStyle='rgba(190,210,245,.20)';
+    c.beginPath(); c.arc(d.x,d.y,1,0,Math.PI*2); c.fill();
+  });
+
+  // window frame crossbars
+  c.fillStyle='rgba(0,0,0,.45)';
+  c.fillRect(0,0,W,3); c.fillRect(0,H-3,W,3);
+  c.fillRect(W*0.62-2,0,4,H);
+  // interior vignette (left side darker where the player card sits)
+  var iv=c.createLinearGradient(0,0,W*.55,0);
+  iv.addColorStop(0,'rgba(4,4,10,.78)'); iv.addColorStop(1,'rgba(4,4,10,.05)');
+  c.fillStyle=iv; c.fillRect(0,0,W*.55,H);
+}
+requestAnimationFrame(loop);
+})();
+</script>

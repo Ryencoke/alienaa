@@ -7,7 +7,7 @@ $pq->execute([$id]);
 $prof = $pq->fetch();
 
 if (!$prof) {
-  echo '<div class="panel"><h2>Profile</h2><p class="muted">No such ghost on the Grid.</p></div>';
+  echo '<div class="panel pf-panel"><h2>Profile</h2><p class="muted">No such ghost on the Grid.</p></div>';
   return;
 }
 
@@ -60,9 +60,21 @@ $totalLoss = $rec['loss'];
 $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $totalLoss) * 100) : 0;
 ?>
 
-<div class="panel">
+<style>
+#pf-canvas{position:absolute;inset:0;width:100%;height:100%;border-radius:9px}
+.pf-hero-wrap{position:relative;overflow:hidden;border-radius:9px}
+.pf-hero-wrap .prof-hero{position:relative;z-index:1}
+.prof-username{text-shadow:0 1px 6px rgba(0,0,0,.8)}
+@keyframes pfRing{0%{box-shadow:0 0 0 0 rgba(59,207,99,.5)}100%{box-shadow:0 0 0 9px rgba(59,207,99,0)}}
+.pf-online-ring{animation:pfRing 1.8s ease-out infinite;border-radius:50%}
+.pf-panel{transition:transform .12s,border-color .15s,box-shadow .15s}
+.pf-panel:hover{transform:translateY(-2px);border-color:rgba(25,240,199,.25);box-shadow:0 4px 12px rgba(0,0,0,.3)}
+</style>
+
+<div class="panel pf-hero-wrap">
+  <canvas id="pf-canvas"></canvas>
   <div class="prof-hero">
-    <div class="prof-avatar"><?= mb_strtoupper(mb_substr($prof['username'],0,1)) ?></div>
+    <div class="prof-avatar <?= ($isOnline && !$isBanned) ? 'pf-online-ring' : '' ?>"><?= mb_strtoupper(mb_substr($prof['username'],0,1)) ?></div>
     <div class="prof-main">
       <?php $profMortality = (int)($prof['mortality'] ?? 0); ?>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -115,7 +127,7 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
   </div>
 </div>
 
-<div class="panel">
+<div class="panel pf-panel">
   <h3 style="margin-bottom:12px">&#128202; Stats</h3>
   <div class="prof-grid">
     <div class="prof-stat">
@@ -151,7 +163,7 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
   $SYN_RANK_LABELS_PROF = ['leader'=>'Leader','coleader'=>'Co-Leader','treasurer'=>'Treasurer','armourer'=>'Armourer','librarian'=>'Librarian','advisor'=>'Advisor','member'=>'Member'];
   $pGRank = $profGuild['rank'] ?? 'member';
 ?>
-<div class="panel">
+<div class="panel pf-panel">
   <h3 style="margin-bottom:10px">&#128101; Syndicate</h3>
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
     <div style="flex:1">
@@ -165,7 +177,7 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
 </div>
 <?php endif; ?>
 
-<div class="panel">
+<div class="panel pf-panel">
   <h3 style="margin-bottom:10px">&#9876; Combat Record</h3>
   <?php if (($totalWins + $totalLoss) > 0): ?>
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
@@ -198,7 +210,7 @@ if ((int)$prof['level'] >= 10) $badges[] = ['&#127381; Veteran', 'teal'];
 if ($casinoStats['net'] >= 10000) $badges[] = ['&#127920; High Roller', 'gold'];
 if ($badges):
 ?>
-<div class="panel">
+<div class="panel pf-panel">
   <h3 style="margin-bottom:8px">&#127942; Badges</h3>
   <div class="prof-badges">
     <?php foreach ($badges as [$label, $type]): ?>
@@ -212,7 +224,7 @@ if ($badges):
 $isStaffViewer = in_array($player['role'] ?? '', ['admin','manager','moderator'], true);
 ?>
 <?php if (!$isMe): ?>
-<div class="panel">
+<div class="panel pf-panel">
   <h3 style="margin-top:0;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#9889; Quick Actions</h3>
   <div style="display:flex;flex-wrap:wrap;gap:8px">
     <a href="index.php?p=messages&u=<?= $id ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid var(--accent);color:var(--accent);border-radius:6px;background:rgba(25,240,199,.05)">&#9993; Send Message</a>
@@ -261,3 +273,75 @@ $isStaffViewer = in_array($player['role'] ?? '', ['admin','manager','moderator']
   </div>
 </div>
 <?php endif; ?>
+
+<script>
+(function(){
+'use strict';
+/* Holo ID-card backdrop behind the profile hero */
+var pf=document.getElementById('pf-canvas');
+if(!pf) return;
+var c=pf.getContext('2d');
+var wrap=pf.parentNode;
+var W=720, H=Math.max(120,wrap.offsetHeight||150);
+var dpr=Math.min(2,window.devicePixelRatio||1);
+pf.width=W*dpr; pf.height=H*dpr;
+c.scale(dpr,dpr);
+var HEXC='0123456789ABCDEF';
+var ticks=[];
+for(var i=0;i<5;i++) ticks.push({y:16+i*((H-30)/5),txt:'',next:0});
+
+function loop(t){
+  if(!document.body.contains(pf)) return;
+  requestAnimationFrame(loop);
+  c.clearRect(0,0,W,H);
+  var bg=c.createLinearGradient(0,0,W,H);
+  bg.addColorStop(0,'#0b0c14'); bg.addColorStop(1,'#0e0f1a');
+  c.fillStyle=bg; c.fillRect(0,0,W,H);
+
+  // micro grid
+  c.strokeStyle='rgba(25,240,199,.04)';
+  for(var gx=0;gx<W;gx+=22){ c.beginPath(); c.moveTo(gx,0); c.lineTo(gx,H); c.stroke(); }
+  for(var gy=0;gy<H;gy+=22){ c.beginPath(); c.moveTo(0,gy); c.lineTo(W,gy); c.stroke(); }
+
+  // big ghost watermark (right)
+  c.save();
+  c.translate(W-86,H/2);
+  c.globalAlpha=.06+.02*Math.sin(t/1200);
+  c.font='900 92px monospace'; c.textAlign='center'; c.textBaseline='middle';
+  c.fillStyle='#19f0c7';
+  c.fillText('☠',0,4);
+  c.restore();
+
+  // registry microtext + scrolling hex ticks (right column)
+  c.font='700 8px monospace'; c.textAlign='right';
+  c.fillStyle='rgba(255,255,255,.18)';
+  c.fillText('GRID ID REGISTRY // SECTOR 9',W-14,12);
+  c.font='9px monospace';
+  ticks.forEach(function(k){
+    if(t>k.next){
+      k.next=t+400+Math.random()*900;
+      k.txt='';
+      for(var j=0;j<10;j++) k.txt+=HEXC[Math.floor(Math.random()*16)];
+    }
+    c.fillStyle='rgba(25,240,199,.13)';
+    c.fillText(k.txt,W-14,28+k.y);
+  });
+
+  // holo sheen sweep
+  var sx=((t/30)%(W+260))-130;
+  var sh=c.createLinearGradient(sx-70,0,sx+70,0);
+  sh.addColorStop(0,'rgba(255,255,255,0)'); sh.addColorStop(.5,'rgba(255,255,255,.035)'); sh.addColorStop(1,'rgba(255,255,255,0)');
+  c.fillStyle=sh; c.fillRect(0,0,W,H);
+
+  // scanline
+  var sy=(t/50)%H;
+  c.fillStyle='rgba(25,240,199,.05)'; c.fillRect(0,sy,W,1.4);
+
+  // left fade so the avatar/name stay readable
+  var lv=c.createLinearGradient(0,0,W*.6,0);
+  lv.addColorStop(0,'rgba(8,8,14,.75)'); lv.addColorStop(1,'rgba(8,8,14,0)');
+  c.fillStyle=lv; c.fillRect(0,0,W*.6,H);
+}
+requestAnimationFrame(loop);
+})();
+</script>
