@@ -2,6 +2,44 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-39 ---
+
+STAFF COMMAND (admin.php) — HUB OVERHAUL + NEW TOOLS
+------------------------------------------------------
+[admin.php — NEW TOOLS]
+- BROADCAST (sec=broadcast, admin+): push a [Staff] notification to all
+  players / online last 15 min / subscribers / staff only, with live target
+  counts in the selector, confirm prompt, and a recent-broadcasts list.
+  Every broadcast is written to admin_log.
+- QUICK GRANT (sec=grant, admin+): grant or deduct (negative amounts)
+  pocket/bank credits, shards, Drive, Health, or XP from any player by
+  handle (with autocomplete). Reason is REQUIRED; every grant lands in
+  admin_log (grant:field, ±amount, reason) and tx_log (admin_grant), with
+  an optional player notification. Floors at zero on deductions; amounts
+  capped at ±100M. Recent-grants audit list on the page.
+- ECONOMY DASHBOARD (sec=economy, admin+): 7-day money flows from tx_log
+  grouped by kind with volume bars, casino house P/L (plays + wagered),
+  bazaar sales volume, outstanding bank loans, credits locked in bonds,
+  and a top-10 richest players list linking into the editor.
+- SERVER HEALTH (inside Maintenance): row counts for 12 key tables (flags
+  missing tables in red), PHP + MySQL versions, session-path write check.
+
+[admin.php — HUB OVERHAUL]
+- COMMAND-CENTER HEADER: canvas with a faint tactical grid, drifting
+  scanline, and a live RADAR — sweep arm with conic trail, range rings,
+  and blips that light up as the sweep passes. Online-now LED + open-report
+  warning overlay.
+- QUICK JUMP: player search bar under the header with autocomplete —
+  pick a handle and you land directly in the player editor.
+- Records Hall stats row gains a 14-DAY SIGNUPS SPARKLINE (canvas, with
+  area fill) computed from players.created_at.
+- Staff tools reorganized into color-coded categories: Players (teal),
+  Economy (green), Moderation (magenta), System (amber) — with hover
+  lift/glow per category, a Combat Log card (section existed but had no
+  hub card), and NEW badges on the new tools.
+- ACTIVITY FEED: two-column hub footer — newest ghosts (linked to the
+  editor) and latest staff actions from admin_log.
+
 --- SESSION: 2026-06-11 BATCH-38 ---
 
 COMBAT ARENA (pvp.php) — BATTLE REPLAY OVERHAUL

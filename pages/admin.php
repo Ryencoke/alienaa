@@ -183,6 +183,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $uidd = (int)($_POST['id'] ?? 0); $b = trim($_POST['body'] ?? '');
       if ($b !== '') { $pdo->prepare('UPDATE updates SET body=? WHERE id=?')->execute([$b, $uidd]); $msg = 'Update edited.'; }
     }
+    elseif ($a === 'broadcast' && $canAdmin) {
+      $bBody   = trim($_POST['broadcast_body'] ?? '');
+      $bTarget = $_POST['broadcast_target'] ?? 'all';
+      if ($bBody === '') throw new RuntimeException('Write a message first.');
+      if (mb_strlen($bBody) > 500) $bBody = mb_substr($bBody, 0, 500);
+      if (!in_array($bTarget, ['all','online','subs','staff'], true)) $bTarget = 'all';
+      try { $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'); } catch (Throwable $e) {}
+      $wheres = [
+        'all'    => '1=1',
+        'online' => 'last_seen >= (NOW() - INTERVAL 15 MINUTE)',
+        'subs'   => 'sub_until >= CURDATE()',
+        'staff'  => "role IN ('chatmod','moderator','admin','manager')",
+      ];
+      $bc = $pdo->prepare("INSERT INTO player_notifications (player_id, type, body)
+                           SELECT id, 'announce', ? FROM players WHERE {$wheres[$bTarget]}");
+      $bc->execute(['[Staff] ' . htmlspecialchars($bBody, ENT_QUOTES)]);
+      $sent = $bc->rowCount();
+      try { $pdo->prepare('INSERT INTO admin_log (admin_id, target_id, field, old_value, new_value) VALUES (?,?,?,?,?)')
+                ->execute([$pid, 0, 'broadcast:'.$bTarget, '', mb_substr($bBody, 0, 120)]); } catch (Throwable $e) {}
+      $msg = "Broadcast sent to " . number_format($sent) . " player" . ($sent === 1 ? '' : 's') . " ({$bTarget}).";
+    }
+    elseif ($a === 'grant_player' && $canAdmin) {
+      $gHandle = trim($_POST['grant_handle'] ?? '');
+      $gField  = $_POST['grant_field'] ?? '';
+      $gAmt    = (int)($_POST['grant_amount'] ?? 0);
+      $gReason = trim($_POST['grant_reason'] ?? '');
+      $gNotify = !empty($_POST['grant_notify']);
+      $gFields = ['creds_pocket'=>'Pocket Credits','creds_bank'=>'Bank Credits','shards'=>'Shards','cycles'=>'Drive','integrity'=>'Health','xp'=>'XP'];
+      if (!isset($gFields[$gField])) throw new RuntimeException('Pick a valid currency/stat.');
+      if ($gAmt === 0) throw new RuntimeException('Amount cannot be zero (use a negative number to deduct).');
+      if (abs($gAmt) > 100000000) throw new RuntimeException('Amount out of range.');
+      if ($gReason === '') throw new RuntimeException('A reason is required — it goes in the audit log.');
+      $gq = $pdo->prepare('SELECT id, username FROM players WHERE username=?'); $gq->execute([$gHandle]); $gTarget = $gq->fetch();
+      if (!$gTarget) throw new RuntimeException('Ghost not found: ' . htmlspecialchars($gHandle, ENT_QUOTES));
+      $gid = (int)$gTarget['id'];
+      // Whitelisted column; floor at zero so deductions can't go negative
+      $pdo->prepare("UPDATE players SET {$gField} = GREATEST(0, {$gField} + ?) WHERE id = ?")->execute([$gAmt, $gid]);
+      try { $pdo->prepare('INSERT INTO admin_log (admin_id, target_id, field, old_value, new_value) VALUES (?,?,?,?,?)')
+                ->execute([$pid, $gid, 'grant:'.$gField, ($gAmt > 0 ? '+' : '').$gAmt, mb_substr($gReason, 0, 150)]); } catch (Throwable $e) {}
+      try { $pdo->prepare('INSERT INTO tx_log (from_id, to_id, kind, amount, note) VALUES (?,?,?,?,?)')
+                ->execute([null, $gid, 'admin_grant', abs($gAmt), $gField.' '.($gAmt > 0 ? '+' : '').$gAmt.' — '.mb_substr($gReason, 0, 100)]); } catch (Throwable $e) {}
+      if ($gNotify) {
+        try { $pdo->prepare('INSERT INTO player_notifications (player_id, type, body) VALUES (?,?,?)')
+                  ->execute([$gid, 'info', '[Staff] '.($gAmt > 0 ? 'Granted +' : 'Adjusted ').number_format($gAmt).' '.$gFields[$gField].'. Reason: '.htmlspecialchars($gReason, ENT_QUOTES)]); } catch (Throwable $e) {}
+      }
+      $msg = ($gAmt > 0 ? 'Granted +' : 'Deducted ') . number_format(abs($gAmt)) . ' ' . $gFields[$gField] . ' ' . ($gAmt > 0 ? 'to' : 'from') . ' ' . e($gTarget['username']) . '.';
+    }
 
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
 }
@@ -809,7 +856,216 @@ if ($sec === 'maintenance' && $canAdmin) { ?>
       </form>
     </div>
     <?php endif; ?>
+
+    <h4 style="margin:18px 0 8px">&#128340; Server Health</h4>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px">
+      <?php
+      $healthTables = ['players','chat_messages','pvp_log','market_listings','market_sales','auction_listings','casino_log','tx_log','settings','player_notifications','messages','posts'];
+      foreach ($healthTables as $ht):
+        $cnt = null;
+        try { $cnt = (int)$pdo->query("SELECT COUNT(*) FROM `{$ht}`")->fetchColumn(); } catch (Throwable $e) {}
+      ?>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px 10px">
+        <div style="font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:<?= $cnt === null ? 'var(--neon2)' : 'var(--accent)' ?>"><?= $cnt === null ? 'missing' : number_format($cnt) ?></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px"><?= e($ht) ?></div>
+      </div>
+      <?php endforeach; ?>
+    </div>
+    <?php
+    $dbVer = '?';
+    try { $dbVer = (string)$pdo->query('SELECT VERSION()')->fetchColumn(); } catch (Throwable $e) {}
+    ?>
+    <p class="muted" style="font-size:11px">PHP <?= e(PHP_VERSION) ?> &middot; MySQL <?= e($dbVer) ?> &middot; Session save path writable: <?= is_writable(session_save_path() ?: sys_get_temp_dir()) ? '<b style="color:#3bcf63">yes</b>' : '<b style="color:var(--neon2)">no</b>' ?></p>
     <p class="muted" style="font-size:12px">Manage the database directly via your hosting control panel for other maintenance tasks.</p>
+  </div>
+  <?php return;
+}
+
+/* ============================ ECONOMY DASHBOARD ============================ */
+if ($sec === 'economy' && $canAdmin) {
+  $ecoKinds = []; $ecoCasino = null; $ecoMarket = null; $ecoRich = []; $ecoLiab = ['loans'=>0,'bonds'=>0];
+  try { $ecoKinds = $pdo->query("SELECT kind, COUNT(*) n, COALESCE(SUM(amount),0) vol FROM tx_log WHERE created_at >= (NOW() - INTERVAL 7 DAY) GROUP BY kind ORDER BY vol DESC LIMIT 12")->fetchAll(); } catch (Throwable $e) {}
+  try { $ecoCasino = $pdo->query("SELECT COUNT(*) n, COALESCE(SUM(bet),0) wagered, COALESCE(SUM(net),0) playernet FROM casino_log WHERE played_at >= (NOW() - INTERVAL 7 DAY)")->fetch(); } catch (Throwable $e) {}
+  try { $ecoMarket = $pdo->query("SELECT COUNT(*) n, COALESCE(SUM(qty*unit_price),0) vol FROM market_sales WHERE sold_at >= (NOW() - INTERVAL 7 DAY)")->fetch(); } catch (Throwable $e) {}
+  try { $ecoRich = $pdo->query("SELECT id, username, creds_pocket, creds_bank, (creds_pocket+creds_bank) total FROM players ORDER BY total DESC LIMIT 10")->fetchAll(); } catch (Throwable $e) {}
+  try { $ecoLiab['loans'] = (int)$pdo->query("SELECT COALESCE(SUM(loan),0) FROM players")->fetchColumn(); } catch (Throwable $e) {}
+  try { $ecoLiab['bonds'] = (int)$pdo->query("SELECT COALESCE(SUM(amount),0) FROM bonds WHERE status='active'")->fetchColumn(); } catch (Throwable $e) {}
+  $houseNet = $ecoCasino ? -(int)$ecoCasino['playernet'] : 0;
+  ?>
+  <div class="panel">
+    <h2>&#128202; Economy Dashboard <span class="muted" style="font-size:12px;font-weight:400">— last 7 days</span></h2>
+    <?= $back ?><?= $flash ?>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-bottom:16px">
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:11px 12px">
+        <div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:<?= $houseNet >= 0 ? '#3bcf63' : 'var(--neon2)' ?>"><?= ($houseNet >= 0 ? '+' : '') . number_format($houseNet) ?> cr</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Casino house P/L &middot; <?= number_format((int)($ecoCasino['n'] ?? 0)) ?> plays &middot; <?= number_format((int)($ecoCasino['wagered'] ?? 0)) ?> wagered</div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:11px 12px">
+        <div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:var(--accent)"><?= number_format((int)($ecoMarket['vol'] ?? 0)) ?> cr</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Bazaar volume &middot; <?= number_format((int)($ecoMarket['n'] ?? 0)) ?> sales</div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:11px 12px">
+        <div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:#e8a33d"><?= number_format($ecoLiab['loans']) ?> cr</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Outstanding bank loans</div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:11px 12px">
+        <div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:#a66de8"><?= number_format($ecoLiab['bonds']) ?> cr</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Locked in active bonds</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+      <div>
+        <h4 style="margin:0 0 8px">Transfer flows by kind (tx_log)</h4>
+        <?php if (empty($ecoKinds)): ?><p class="muted" style="font-size:12px">No transactions logged in the last 7 days.</p>
+        <?php else: $ecoMax = max(1, max(array_column($ecoKinds, 'vol'))); ?>
+        <?php foreach ($ecoKinds as $ek): ?>
+        <div style="margin-bottom:7px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px">
+            <span><?= e($ek['kind']) ?> <span class="muted">×<?= number_format($ek['n']) ?></span></span>
+            <b style="color:var(--accent)"><?= number_format($ek['vol']) ?> cr</b>
+          </div>
+          <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden">
+            <div style="height:100%;width:<?= round($ek['vol'] / $ecoMax * 100) ?>%;background:linear-gradient(90deg,var(--accent),#3bcf63);border-radius:3px"></div>
+          </div>
+        </div>
+        <?php endforeach; endif; ?>
+      </div>
+      <div>
+        <h4 style="margin:0 0 8px">Richest players</h4>
+        <?php foreach ($ecoRich as $i => $rp): ?>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px">
+          <span style="width:18px;color:var(--muted);font-family:'Orbitron',sans-serif;font-size:10px"><?= $i+1 ?></span>
+          <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$rp['id'] ?>" style="flex:1"><?= e($rp['username']) ?></a>
+          <span class="muted" style="font-size:10px">pocket <?= number_format($rp['creds_pocket']) ?></span>
+          <b style="color:var(--accent)"><?= number_format($rp['total']) ?> cr</b>
+        </div>
+        <?php endforeach; ?>
+        <p style="margin:10px 0 0"><a href="index.php?p=admin&sec=txlog" style="font-size:11px;color:var(--muted)">Full transaction log &rarr;</a></p>
+      </div>
+    </div>
+  </div>
+  <?php return;
+}
+
+/* ============================ BROADCAST ============================ */
+if ($sec === 'broadcast' && $canAdmin) {
+  $bcCounts = ['all'=>0,'online'=>0,'subs'=>0,'staff'=>0];
+  try {
+    $bcr = $pdo->query("SELECT COUNT(*) a,
+      SUM(last_seen >= (NOW() - INTERVAL 15 MINUTE)) o,
+      SUM(sub_until >= CURDATE()) s,
+      SUM(role IN ('chatmod','moderator','admin','manager')) st FROM players")->fetch();
+    if ($bcr) $bcCounts = ['all'=>(int)$bcr['a'],'online'=>(int)$bcr['o'],'subs'=>(int)$bcr['s'],'staff'=>(int)$bcr['st']];
+  } catch (Throwable $e) {}
+  $recentBc = [];
+  try { $rbq = $pdo->query("SELECT l.*, a.username admin_name FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id WHERE l.field LIKE 'broadcast:%' ORDER BY l.id DESC LIMIT 8"); $recentBc = $rbq->fetchAll(); } catch (Throwable $e) {}
+  ?>
+  <div class="panel">
+    <h2>&#128226; Broadcast</h2>
+    <?= $back ?><?= $flash ?>
+    <p class="muted" style="font-size:12px;margin-bottom:14px">Push a notification to players' Hideout feeds. It arrives prefixed with <b>[Staff]</b> and stays until dismissed.</p>
+    <form method="post" style="max-width:520px">
+      <input type="hidden" name="action" value="broadcast">
+      <div class="field"><span>Message (max 500 chars)</span>
+        <textarea name="broadcast_body" maxlength="500" style="width:100%;min-height:80px" placeholder="Server maintenance tonight at 02:00 MT — expect 10 minutes of downtime."></textarea>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;margin:10px 0;flex-wrap:wrap">
+        <select name="broadcast_target" style="flex:1;min-width:200px">
+          <option value="all">All players (<?= number_format($bcCounts['all']) ?>)</option>
+          <option value="online">Online last 15 min (<?= number_format($bcCounts['online']) ?>)</option>
+          <option value="subs">Subscribers (<?= number_format($bcCounts['subs']) ?>)</option>
+          <option value="staff">Staff only (<?= number_format($bcCounts['staff']) ?>)</option>
+        </select>
+        <button type="submit" onclick="return confirm('Send this broadcast?')" style="background:rgba(25,240,199,.1);border-color:rgba(25,240,199,.35);color:var(--accent)">&#128226; Send Broadcast</button>
+      </div>
+    </form>
+    <?php if ($recentBc): ?>
+    <h4 style="margin:18px 0 8px">Recent broadcasts</h4>
+    <?php foreach ($recentBc as $rb): ?>
+    <div style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px">
+      <span class="muted" style="font-size:10px"><?= e($rb['created_at'] ?? '') ?> &middot; <?= e($rb['admin_name'] ?? '?') ?> &middot; <?= e(str_replace('broadcast:','to ',$rb['field'])) ?></span>
+      <div><?= e($rb['new_value']) ?></div>
+    </div>
+    <?php endforeach; endif; ?>
+  </div>
+  <?php return;
+}
+
+/* ============================ QUICK GRANT ============================ */
+if ($sec === 'grant' && $canAdmin) {
+  $recentGrants = [];
+  try { $rgq = $pdo->query("SELECT l.*, a.username admin_name, t.username target_name FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id LEFT JOIN players t ON t.id=l.target_id WHERE l.field LIKE 'grant:%' ORDER BY l.id DESC LIMIT 12"); $recentGrants = $rgq->fetchAll(); } catch (Throwable $e) {}
+  ?>
+  <div class="panel">
+    <h2>&#127873; Quick Grant</h2>
+    <?= $back ?><?= $flash ?>
+    <p class="muted" style="font-size:12px;margin-bottom:14px">Grant (or deduct, with a negative amount) credits, shards, or stats. Every grant requires a reason and is written to the edit log and transaction log.</p>
+    <form method="post" style="max-width:520px">
+      <input type="hidden" name="action" value="grant_player">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field"><span>Player handle</span>
+          <div class="ac-wrap" style="position:relative">
+            <input type="text" name="grant_handle" id="grantHandle" autocomplete="off" data-no-counter style="width:100%" placeholder="Ghost's handle">
+            <div class="ac-list" id="grantAcList" style="display:none"></div>
+          </div>
+        </div>
+        <div class="field"><span>Currency / stat</span>
+          <select name="grant_field" style="width:100%">
+            <option value="creds_pocket">Pocket Credits</option>
+            <option value="creds_bank">Bank Credits</option>
+            <option value="shards">Shards</option>
+            <option value="cycles">Drive</option>
+            <option value="integrity">Health</option>
+            <option value="xp">XP</option>
+          </select>
+        </div>
+        <div class="field"><span>Amount (negative = deduct)</span>
+          <input type="number" name="grant_amount" style="width:100%" placeholder="e.g. 5000 or -5000">
+        </div>
+        <div class="field"><span>Reason (required, audited)</span>
+          <input type="text" name="grant_reason" maxlength="150" style="width:100%" placeholder="e.g. event prize / bug compensation">
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:10px 0;color:var(--muted)">
+        <input type="checkbox" name="grant_notify" value="1" checked> Notify the player (with the reason)
+      </label>
+      <button type="submit" style="background:rgba(59,207,99,.1);border-color:rgba(59,207,99,.35);color:#3bcf63">&#127873; Apply Grant</button>
+    </form>
+    <script>
+    (function(){
+      var inp=document.getElementById('grantHandle'), list=document.getElementById('grantAcList');
+      if(!inp||!list) return;
+      inp.addEventListener('input',function(){
+        var q=inp.value.trim(); if(q.length<1){ list.style.display='none'; return; }
+        fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
+          .then(function(r){return r.json();})
+          .then(function(names){
+            if(!names.length){ list.style.display='none'; return; }
+            list.innerHTML='';
+            names.forEach(function(n){
+              var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
+              d.addEventListener('mousedown',function(e){ e.preventDefault(); inp.value=n; list.style.display='none'; });
+              list.appendChild(d);
+            });
+            list.style.display='block';
+          }).catch(function(){});
+      });
+      document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none'; });
+    })();
+    </script>
+    <?php if ($recentGrants): ?>
+    <h4 style="margin:18px 0 8px">Recent grants</h4>
+    <?php foreach ($recentGrants as $rg): ?>
+    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;flex-wrap:wrap">
+      <span class="muted" style="font-size:10px;flex:none"><?= e($rg['created_at'] ?? '') ?></span>
+      <b style="color:var(--accent)"><?= e($rg['admin_name'] ?? '?') ?></b>
+      <span>&rarr; <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$rg['target_id'] ?>"><?= e($rg['target_name'] ?? '#'.$rg['target_id']) ?></a></span>
+      <b style="color:<?= ($rg['old_value'][0] ?? '+') === '-' ? 'var(--neon2)' : '#3bcf63' ?>"><?= e($rg['old_value']) ?></b>
+      <span class="muted"><?= e(str_replace('grant:','',$rg['field'])) ?></span>
+      <span class="muted" style="flex-basis:100%;font-size:11px;padding-left:60px">&ldquo;<?= e($rg['new_value']) ?>&rdquo;</span>
+    </div>
+    <?php endforeach; endif; ?>
   </div>
   <?php return;
 }
@@ -859,19 +1115,55 @@ try {
 
 $openReports = 0;
 try { $openReports = (int)db()->query("SELECT COUNT(*) FROM reports WHERE status='open'")->fetchColumn(); } catch (Throwable $e) {}
-$recentBans = [];
-try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='banned' ORDER BY id DESC LIMIT 5")->fetchAll(); } catch (Throwable $e) {}
-?>
 
-<div class="panel">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <div>
-      <h2 style="margin:0">&#128737; Staff Panel</h2>
-      <p class="muted" style="margin:4px 0 0">Role: <b style="color:var(--accent)"><?= e(role_label($role) ?: 'Member') ?></b></p>
+// Signups per day, last 14 days (sparkline)
+$signupSeries = array_fill(0, 14, 0);
+try {
+  $ssq = db()->query("SELECT DATE(created_at) d, COUNT(*) n FROM players WHERE created_at >= (NOW() - INTERVAL 14 DAY) GROUP BY DATE(created_at)");
+  $byDay = [];
+  foreach ($ssq as $sr) $byDay[$sr['d']] = (int)$sr['n'];
+  for ($i = 13; $i >= 0; $i--) $signupSeries[13 - $i] = $byDay[date('Y-m-d', strtotime("-{$i} days"))] ?? 0;
+} catch (Throwable $e) {}
+
+// Activity feed
+$feedSignups = []; $feedAdmin = [];
+try { $feedSignups = db()->query("SELECT id, username, level, created_at FROM players ORDER BY id DESC LIMIT 6")->fetchAll(); } catch (Throwable $e) {}
+try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, t.username target_name FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id LEFT JOIN players t ON t.id=l.target_id ORDER BY l.id DESC LIMIT 6")->fetchAll(); } catch (Throwable $e) {}
+?>
+<style>
+#adm-canvas{display:block;width:100%;height:96px;border-radius:9px 9px 0 0}
+#adm-head h2{text-shadow:0 0 14px rgba(25,240,199,.35)}
+.staffcard{transition:transform .12s,border-color .15s,box-shadow .15s}
+.staffcard:hover{transform:translateY(-2px);border-color:var(--sg-col,var(--accent));box-shadow:0 4px 14px rgba(0,0,0,.35),0 0 12px var(--sg-glow,rgba(25,240,199,.12))}
+.adm-cat{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;margin:16px 0 8px;display:flex;align-items:center;gap:8px}
+.adm-cat::after{content:'';flex:1;height:1px;background:var(--line)}
+#adm-search{background:var(--panel2);border:1px solid var(--line);border-radius:18px;color:var(--text);padding:7px 14px;font-size:12px;width:100%;transition:border-color .15s}
+#adm-search:focus{border-color:var(--accent);outline:none;box-shadow:0 0 10px rgba(25,240,199,.15)}
+.adm-feed-row{display:flex;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px}
+</style>
+
+<div class="panel" id="adm-head" style="padding:0;overflow:hidden">
+  <div style="position:relative">
+    <canvas id="adm-canvas"></canvas>
+    <div style="position:absolute;left:16px;bottom:10px;pointer-events:none">
+      <h2 style="margin:0">&#128737; Staff Command</h2>
+      <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">Role: <b style="color:var(--accent)"><?= e(role_label($role) ?: 'Member') ?></b> &middot; <?= date('M j, Y g:i a') ?></p>
     </div>
-    <div class="muted" style="font-size:11px">Sprawl-9 &mdash; <?= date('M j, Y g:i a') ?></div>
+    <div style="position:absolute;right:14px;bottom:10px;text-align:right;font-size:10px;color:var(--muted)">
+      <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:50%;background:#3bcf63;box-shadow:0 0 8px #3bcf63"></span> <?= number_format((int)($hubStats['online_now'] ?? 0)) ?> ONLINE</span>
+      <?php if ($openReports): ?><br><span style="color:var(--neon2);font-weight:700"><?= $openReports ?> OPEN REPORT<?= $openReports!==1?'S':'' ?></span><?php endif; ?>
+    </div>
   </div>
-  <?= $flash ?>
+  <div style="padding:10px 14px">
+    <?= $flash ?>
+    <?php if ($canAdmin): ?>
+    <form method="post" action="index.php?p=admin&sec=editplayer" style="margin:0;position:relative" class="ac-wrap">
+      <input type="hidden" name="action" value="find">
+      <input type="text" name="handle" id="adm-search" placeholder="&#128269; Jump to player — type a handle and press Enter..." autocomplete="off" data-no-counter>
+      <div class="ac-list" id="admAcList" style="display:none"></div>
+    </form>
+    <?php endif; ?>
+  </div>
 </div>
 
 <?php if ($canAdmin && $hubStats): ?>
@@ -916,6 +1208,11 @@ try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='
       <div class="asb-lbl">Avg Level</div>
       <div class="asb-sub">Max: <?= (int)$hubStats['max_level'] ?></div>
     </div>
+    <div class="admin-stat-box">
+      <canvas id="adm-spark" width="130" height="34" style="display:block;margin:2px auto 0"></canvas>
+      <div class="asb-lbl">Signups &middot; 14d</div>
+      <div class="asb-sub"><?= array_sum($signupSeries) ?> total</div>
+    </div>
     <div class="admin-stat-box" style="border-color:rgba(232,212,77,.3)">
       <a href="index.php?p=admin&sec=records&filter=good" style="text-decoration:none">
         <div class="asb-val" style="color:#e8d44d">&#9728; <?= number_format($hubStats['good_players']) ?></div>
@@ -941,65 +1238,127 @@ try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='
 </div>
 <?php endif; ?>
 
+<?php if ($canAdmin): ?>
+<div class="adm-cat">&#128101; Players</div>
 <div class="staffgrid">
-  <?php if ($canAdmin): ?>
-  <a class="staffcard" href="index.php?p=admin&sec=editplayer">
+  <a class="staffcard" href="index.php?p=admin&sec=editplayer" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
     <span class="ic">&#128101;</span><h4>Players</h4>
     <p>Search and edit player accounts &mdash; stats, role &amp; subscription.</p>
     <span class="req">Admin+</span>
   </a>
-  <a class="staffcard" href="index.php?p=admin&sec=txlog">
-    <span class="ic">&#128202;</span><h4>Economy</h4>
-    <p>View cred transfer logs and monitor the economic health of the Sprawl.</p>
+  <a class="staffcard" href="index.php?p=admin&sec=records&filter=total" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
+    <span class="ic">&#128196;</span><h4>Records Hall</h4>
+    <p>Browse the full player registry. Filter by alignment, activity, subscriptions, and more.</p>
     <span class="req">Admin+</span>
   </a>
-  <a class="staffcard" href="index.php?p=admin&sec=updates">
-    <span class="ic">&#128226;</span><h4>Announcements</h4>
-    <p>Post, edit, and delete game update announcements.</p>
+  <a class="staffcard" href="index.php?p=admin&sec=createuser" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
+    <span class="ic">&#128100;</span><h4>Create User</h4>
+    <p>Manually create a new player account with username, email, and password.</p>
     <span class="req">Admin+</span>
   </a>
-  <a class="staffcard" href="index.php?p=admin&sec=editlog">
-    <span class="ic">&#128220;</span><h4>Edit Log</h4>
-    <p>Audit trail of all admin account changes &mdash; who changed what.</p>
+  <a class="staffcard" href="index.php?p=admin&sec=combat" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
+    <span class="ic">&#9876;</span><h4>Combat Log</h4>
+    <p>Site-wide PvP history, filterable by player. Spot harassment patterns.</p>
     <span class="req">Admin+</span>
   </a>
-  <?php endif; ?>
-  <a class="staffcard" href="index.php?p=admin&sec=moderation">
+</div>
+
+<div class="adm-cat">&#128176; Economy</div>
+<div class="staffgrid">
+  <a class="staffcard" href="index.php?p=admin&sec=economy" style="--sg-col:#3bcf63;--sg-glow:rgba(59,207,99,.12)">
+    <span class="ic">&#128202;</span><h4>Economy Dashboard</h4>
+    <p>7-day money flows, casino house P/L, market volume, richest players.</p>
+    <span class="req">Admin+ &middot; NEW</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=grant" style="--sg-col:#3bcf63;--sg-glow:rgba(59,207,99,.12)">
+    <span class="ic">&#127873;</span><h4>Quick Grant</h4>
+    <p>Grant or deduct credits, shards, and stats — reason required, fully audited.</p>
+    <span class="req">Admin+ &middot; NEW</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=txlog" style="--sg-col:#3bcf63;--sg-glow:rgba(59,207,99,.12)">
+    <span class="ic">&#129534;</span><h4>Transaction Log</h4>
+    <p>Raw cred transfer log — every transfer, grant, and fee.</p>
+    <span class="req">Admin+</span>
+  </a>
+</div>
+<?php endif; ?>
+
+<div class="adm-cat">&#128737; Moderation</div>
+<div class="staffgrid">
+  <a class="staffcard" href="index.php?p=admin&sec=moderation" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
     <span class="ic">&#128737;</span><h4>Moderation</h4>
     <p>Delete chat messages, board posts and topics.</p>
     <?php if ($openReports): ?><p style="color:var(--neon2);font-weight:bold">&#9888; <?= $openReports ?> open report(s)</p><?php endif; ?>
     <span class="req">Mod+</span>
   </a>
   <?php if (in_array($role, ['moderator','admin','manager'], true)): ?>
-  <a class="staffcard" href="index.php?p=admin&sec=iplog">
+  <a class="staffcard" href="index.php?p=admin&sec=iplog" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
     <span class="ic">&#127758;</span><h4>IP &amp; Access Log</h4>
     <p>Track logins, IP addresses, and flag suspicious session activity.</p>
     <span class="req">Mod+</span>
   </a>
   <?php endif; ?>
   <?php if ($canAdmin): ?>
-  <a class="staffcard" href="index.php?p=jail">
+  <a class="staffcard" href="index.php?p=jail" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
     <span class="ic">&#128274;</span><h4>Confinement Grid</h4>
     <p>Jail players for violations. Set reason and duration. Release early.</p>
     <span class="req">Admin+</span>
   </a>
-  <a class="staffcard" href="index.php?p=admin&sec=createuser">
-    <span class="ic">&#128100;</span><h4>Create User</h4>
-    <p>Manually create a new player account with username, email, and password.</p>
-    <span class="req">Admin+</span>
-  </a>
-  <a class="staffcard" href="index.php?p=admin&sec=maintenance">
-    <span class="ic">&#9881;</span><h4>Maintenance</h4>
-    <p>Trigger daily reset for all players. Manager-only tools.</p>
-    <span class="req">Admin+</span>
-  </a>
-  <a class="staffcard" href="index.php?p=admin&sec=records&filter=total">
-    <span class="ic">&#128196;</span><h4>Records Hall</h4>
-    <p>Browse the full player registry. Filter by alignment, activity, subscriptions, and more.</p>
-    <span class="req">Admin+</span>
-  </a>
   <?php endif; ?>
 </div>
+
+<?php if ($canAdmin): ?>
+<div class="adm-cat">&#9881; System</div>
+<div class="staffgrid">
+  <a class="staffcard" href="index.php?p=admin&sec=broadcast" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
+    <span class="ic">&#128226;</span><h4>Broadcast</h4>
+    <p>Push a notification to all players, online players, subs, or staff.</p>
+    <span class="req">Admin+ &middot; NEW</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=updates" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
+    <span class="ic">&#128240;</span><h4>Announcements</h4>
+    <p>Post, edit, and delete game update announcements.</p>
+    <span class="req">Admin+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=editlog" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
+    <span class="ic">&#128220;</span><h4>Edit Log</h4>
+    <p>Audit trail of all admin account changes &mdash; who changed what.</p>
+    <span class="req">Admin+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=maintenance" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
+    <span class="ic">&#9881;</span><h4>Maintenance</h4>
+    <p>Daily reset trigger, table row counts, and server health readout.</p>
+    <span class="req">Admin+</span>
+  </a>
+</div>
+
+<!-- Activity feed -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+  <div class="panel" style="margin:0">
+    <h3 style="margin-top:0;font-size:13px">&#128075; Newest Ghosts</h3>
+    <?php if (empty($feedSignups)): ?><p class="muted" style="font-size:12px">No players yet.</p>
+    <?php else: foreach ($feedSignups as $fs): ?>
+    <div class="adm-feed-row">
+      <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$fs['id'] ?>" style="flex:1"><?= e($fs['username']) ?></a>
+      <span class="muted" style="font-size:10px">Lv<?= (int)$fs['level'] ?></span>
+      <span class="muted" style="font-size:10px"><?= e(date('M j g:ia', strtotime($fs['created_at']))) ?></span>
+    </div>
+    <?php endforeach; endif; ?>
+  </div>
+  <div class="panel" style="margin:0">
+    <h3 style="margin-top:0;font-size:13px">&#128220; Latest Staff Actions</h3>
+    <?php if (empty($feedAdmin)): ?><p class="muted" style="font-size:12px">No admin actions logged yet.</p>
+    <?php else: foreach ($feedAdmin as $fa): ?>
+    <div class="adm-feed-row">
+      <b style="color:var(--accent);flex:none"><?= e($fa['admin_name'] ?? '?') ?></b>
+      <span class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= e($fa['field']) ?><?= $fa['target_name'] ? ' → '.e($fa['target_name']) : '' ?></span>
+      <span class="muted" style="font-size:10px;flex:none"><?= e(date('M j', strtotime($fa['created_at'] ?? 'now'))) ?></span>
+    </div>
+    <?php endforeach; endif; ?>
+    <p style="margin:8px 0 0"><a href="index.php?p=admin&sec=editlog" style="font-size:11px;color:var(--muted)">Full edit log &rarr;</a></p>
+  </div>
+</div>
+<?php endif; ?>
 
 <?php if ($canAdmin): ?>
 <div class="panel" style="border:1px solid rgba(255,45,149,.2);background:rgba(255,45,149,.03)">
@@ -1030,4 +1389,98 @@ try { $recentBans = db()->query("SELECT username, role FROM players WHERE role='
   </div>
 </div>
 <?php endif; ?>
+
+<script>
+(function(){
+'use strict';
+
+/* ── Command-center header: scan grid + radar sweep + status blips ── */
+var hc=document.getElementById('adm-canvas');
+if(hc){
+  var c=hc.getContext('2d');
+  var HW=560, HH=96;
+  var dpr=Math.min(2,window.devicePixelRatio||1);
+  hc.width=HW*dpr; hc.height=HH*dpr;
+  c.scale(dpr,dpr);
+  var blips=[];
+  for(var i=0;i<8;i++) blips.push({x:HW-90+(Math.random()-.5)*70,y:48+(Math.random()-.5)*54,p:Math.random()*9});
+  function hLoop(t){
+    if(!document.body.contains(hc)) return;
+    requestAnimationFrame(hLoop);
+    c.clearRect(0,0,HW,HH);
+    var bg=c.createLinearGradient(0,0,0,HH);
+    bg.addColorStop(0,'#080a12'); bg.addColorStop(1,'#0c0e1a');
+    c.fillStyle=bg; c.fillRect(0,0,HW,HH);
+    // grid
+    c.strokeStyle='rgba(25,240,199,.05)';
+    for(var gx=0;gx<HW;gx+=28){ c.beginPath(); c.moveTo(gx,0); c.lineTo(gx,HH); c.stroke(); }
+    for(var gy=0;gy<HH;gy+=28){ c.beginPath(); c.moveTo(0,gy); c.lineTo(HW,gy); c.stroke(); }
+    // radar (right side)
+    var rx=HW-90, ry=48, rr=40;
+    c.strokeStyle='rgba(25,240,199,.18)';
+    [rr,rr*.66,rr*.33].forEach(function(r2){ c.beginPath(); c.arc(rx,ry,r2,0,Math.PI*2); c.stroke(); });
+    c.beginPath(); c.moveTo(rx-rr,ry); c.lineTo(rx+rr,ry); c.moveTo(rx,ry-rr); c.lineTo(rx,ry+rr); c.stroke();
+    var ang=t/1300;
+    var sweep=c.createConicGradient?(function(){var g2=c.createConicGradient(ang,rx,ry);g2.addColorStop(0,'rgba(25,240,199,.30)');g2.addColorStop(.12,'rgba(25,240,199,0)');g2.addColorStop(1,'rgba(25,240,199,0)');return g2;})():null;
+    if(sweep){ c.fillStyle=sweep; c.beginPath(); c.moveTo(rx,ry); c.arc(rx,ry,rr,0,Math.PI*2); c.fill(); }
+    c.strokeStyle='rgba(25,240,199,.6)';
+    c.beginPath(); c.moveTo(rx,ry); c.lineTo(rx+Math.cos(ang)*rr,ry+Math.sin(ang)*rr); c.stroke();
+    // blips light up as the sweep passes
+    for(var bi=0;bi<blips.length;bi++){
+      var B=blips[bi];
+      var ba=Math.atan2(B.y-ry,B.x-rx);
+      var diff=((ang-ba)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
+      var lit=Math.max(0,1-diff/1.1);
+      c.fillStyle='rgba(59,207,99,'+(.15+.85*lit)+')';
+      c.beginPath(); c.arc(B.x,B.y,1.8+lit,0,Math.PI*2); c.fill();
+    }
+    // scanline
+    var sy=(t/40)%HH;
+    c.fillStyle='rgba(25,240,199,.05)'; c.fillRect(0,sy,HW,1.5);
+  }
+  requestAnimationFrame(hLoop);
+}
+
+/* ── Signups sparkline ── */
+var sp=document.getElementById('adm-spark');
+if(sp){
+  var sc=sp.getContext('2d');
+  var data=<?= json_encode(array_values($signupSeries)) ?>;
+  var W2=sp.width, H2=sp.height;
+  var mx=Math.max(1,Math.max.apply(null,data));
+  sc.strokeStyle='#19f0c7'; sc.lineWidth=1.6; sc.lineJoin='round';
+  sc.beginPath();
+  data.forEach(function(v,i){
+    var x=4+i*(W2-8)/(data.length-1), y=H2-4-(v/mx)*(H2-10);
+    i?sc.lineTo(x,y):sc.moveTo(x,y);
+  });
+  sc.stroke();
+  var lg=sc.createLinearGradient(0,0,0,H2);
+  lg.addColorStop(0,'rgba(25,240,199,.25)'); lg.addColorStop(1,'rgba(25,240,199,0)');
+  sc.lineTo(W2-4,H2-2); sc.lineTo(4,H2-2); sc.closePath();
+  sc.fillStyle=lg; sc.fill();
+}
+
+/* ── Quick player search autocomplete ── */
+var qs=document.getElementById('adm-search'), ql=document.getElementById('admAcList');
+if(qs&&ql){
+  qs.addEventListener('input',function(){
+    var q=qs.value.trim(); if(q.length<1){ ql.style.display='none'; return; }
+    fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
+      .then(function(r){return r.json();})
+      .then(function(names){
+        if(!names.length){ ql.style.display='none'; return; }
+        ql.innerHTML='';
+        names.forEach(function(n){
+          var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
+          d.addEventListener('mousedown',function(e){ e.preventDefault(); qs.value=n; qs.closest('form').submit(); });
+          ql.appendChild(d);
+        });
+        ql.style.display='block';
+      }).catch(function(){});
+  });
+  document.addEventListener('click',function(e){ if(!qs.contains(e.target)&&!ql.contains(e.target)) ql.style.display='none'; });
+}
+})();
+</script>
 
