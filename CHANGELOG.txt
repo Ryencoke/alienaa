@@ -2,6 +2,33 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-32 ---
+
+THE FORGE (blacksmith.php) — INTERACTIVE OVERHAUL + CRITICAL BUY FIX
+----------------------------------------------------------------------
+[blacksmith.php]
+- CRITICAL BUG FIX: the buy handler called $pdo->rowCount() — a method that
+  doesn't exist on PDO (only PDOStatement) — so every purchase threw an Error
+  AFTER the INSERT IGNORE had already recorded ownership: players received
+  gear without ever being charged. Purchases now run in a transaction that
+  charges first (atomic creds_pocket >= price guard), then records ownership,
+  rolling back cleanly on "already owned".
+- Error messages now render as flash-err (previously every message, including
+  failures, showed as a green success flash).
+- ANIMATED FORGE HEADER: canvas scene with a flickering furnace mouth (radial
+  glow + arch silhouette), rising embers, an anvil silhouette with furnace rim
+  light, and periodic spark bursts off the anvil. Header/pocket overlay on top.
+- RARITY TIERS: items are tiered (COMMON/UNCOMMON/RARE/EPIC/LEGENDARY) from
+  sub-category + price; cards get tier-colored top edge, corner badge, icon
+  glow on hover, hover lift, selected-card glow; unaffordable prices show red.
+- DETAIL PANEL: tier-colored name/border/glow, tier label, and ATK/DEF/SPD
+  rendered as colored stat BARS (scaled to catalog maxima) instead of text.
+- FORGING ANIMATION: buying plays a body-level overlay (survives the AJAX
+  swap) — the item sits glowing hot on an anvil while a hammer strikes three
+  times with spark bursts and metallic clang SFX (WebAudio, mute toggle
+  persisted), then the item cools into its tier color with "FORGED — <name>".
+- Buy button is now tier-colored "⚒ Forge It".
+
 --- SESSION: 2026-06-11 BATCH-31 ---
 
 HYDROFARMS (vats.php) — INTERACTIVE GROW BAY + HERB ECONOMY
