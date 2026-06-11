@@ -2,6 +2,32 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-34 ---
+
+THE BAZAAR (bazaar.php) — INTERACTIVE OVERHAUL
+------------------------------------------------
+[bazaar.php]
+- MARKET STREET HEADER: canvas scene — scalloped stall awnings in five colors
+  swaying gently, hanging neon shop signs (交易 / MKT / ¥$) that flicker and
+  sway on their cables, crowd silhouettes drifting along the walkway, rising
+  ¤ credit glyphs, and a LIVE TRADE TICKER along the bottom fed by the actual
+  last 14 market_sales rows ("Iron Alloy ×3 @ 120cr ///").
+- DEAL BADGES: every browse row compares its unit price to the item's market
+  average — green "▼ 23%" for below-market deals, red "▲ 15%" for overpriced,
+  "≈ mkt" within 10%. Tooltip explains the math.
+- LIVE SEARCH: filter box instantly narrows listings by item / seller /
+  category (client-side, no reload); empty-result notice.
+- LIVE ROW TOTALS: changing a buy quantity updates an inline "= 340 cr" total.
+- SELL TAB: market-average hint under the price field with click-to-use
+  ("Mkt avg: 120 cr") sourced from sales history per inventory item.
+- DEAL-STAMP ANIMATION: buying/listing/cancelling plays a body-level holo
+  receipt from the "GRID TRADE AUTHORITY" (survives the AJAX swap) — item,
+  qty, and total lines, then a rotated stamp slams in: green DEAL CLOSED on
+  buys, amber LISTED on listings, slate RECALLED on cancels — with coin-clink
+  and stamp-thud SFX (WebAudio, persisted mute toggle).
+- Category badges now consistently colored per category (stable hash palette)
+  across Browse / My Listings / Recent Sales; row hover highlight.
+
 --- SESSION: 2026-06-11 BATCH-33 ---
 
 THE SUPPLY NODE (generalstore.php) — INTERACTIVE OVERHAUL
