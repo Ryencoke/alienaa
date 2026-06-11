@@ -1,6 +1,10 @@
 <?php
 /* lib.php — shared view helpers (committed & deployed; config.php is gitignored). */
 
+// Sessions created before BATCH-28 stored pid as a string; pages compare it
+// with strict === against (int) ids. Normalise once so every comparison works.
+if (isset($_SESSION['pid'])) $_SESSION['pid'] = (int)$_SESSION['pid'];
+
 // ---- chat / roles ----
 
 // Staff roles get fixed colors; members use their own picked color.

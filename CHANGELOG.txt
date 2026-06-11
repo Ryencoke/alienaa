@@ -2,6 +2,27 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-44 ---
+
+FIX: BLACK MARKET LIVE TAB SHOWING "NO ACTIVE AUCTIONS"
+---------------------------------------------------------
+[auction.php]
+- BUG FIX: the Live tab filtered out the viewer's OWN listings — a filter
+  that had been silently broken for years (string session pid vs strict
+  int comparison never matched), so everyone always saw all listings. When
+  BATCH-28/42 fixed the session pid to an int, the filter started working
+  and hid your own auctions; if you were the only seller, Live showed
+  "No active auctions" despite live listings. Browse now shows ALL active
+  auctions again, with your own rows getting a "your listing →" link (to
+  My Listings) instead of a bid form — matching the original row design.
+- Self-bid server check hardened with an explicit (int) cast.
+
+[lib.php]
+- Session pid is now normalised to int on every request — sessions created
+  before the BATCH-28 login fix stored it as a string, which silently broke
+  every strict ===-vs-int comparison across the codebase (self-checks,
+  "you" row tints, leading-bid badges) for those sessions until re-login.
+
 --- SESSION: 2026-06-11 BATCH-43B ---
 
 SYNDICATES (guilds.php) — HQ FACELIFT

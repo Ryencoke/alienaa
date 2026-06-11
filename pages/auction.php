@@ -135,7 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $q = $pdo->prepare("SELECT * FROM auction_listings WHERE id=? AND status='active' AND ends_at > NOW() FOR UPDATE");
       $q->execute([$listId]); $row = $q->fetch();
       if (!$row) { $pdo->rollBack(); throw new RuntimeException('Auction not found or already ended.'); }
-      if ((int)$row['seller_id'] === $pid) { $pdo->rollBack(); throw new RuntimeException("You can't bid on your own auction."); }
+      if ((int)$row['seller_id'] === (int)$pid) { $pdo->rollBack(); throw new RuntimeException("You can't bid on your own auction."); }
       $minBid = max((int)$row['starting_price'], (int)$row['current_bid'] + 1);
       if ($bidAmt < $minBid) { $pdo->rollBack(); throw new RuntimeException('Minimum bid is ' . number_format($minBid) . ' credits.'); }
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
@@ -281,7 +281,10 @@ if ($tab === 'myhistory') {
 
 <!-- ===================== BROWSE ===================== -->
 <?php if ($tab === 'browse'):
-  $browseList = array_filter($active, fn($r) => (int)$r['seller_id'] !== $pid);
+  // Show ALL active listings (own ones get a "your listing" cell instead of a
+  // bid form). Filtering own listings out made the Live tab look empty whenever
+  // you were the only seller.
+  $browseList = $active;
 ?>
 <div class="panel" style="padding:0;overflow:hidden">
   <?php if (empty($browseList)): ?>
@@ -296,7 +299,8 @@ if ($tab === 'myhistory') {
     $tLeft    = $ended ? 'Ended' : ($secsLeft < 3600 ? round($secsLeft/60).'m' : round($secsLeft/3600,1).'h');
     $topBid   = (int)$row['current_bid'] > 0 ? (int)$row['current_bid'] : (int)$row['starting_price'];
     $minBid   = max((int)$row['starting_price'], (int)$row['current_bid'] + 1);
-    $iTop     = (int)$row['bidder_id'] === $pid;
+    $iTop     = (int)$row['bidder_id'] === (int)$pid;
+    $isOwn    = (int)$row['seller_id'] === (int)$pid;
     $hot      = (int)$row['bid_count'] >= 5;
     $ending   = !$ended && $secsLeft < 300;
   ?>
@@ -310,7 +314,9 @@ if ($tab === 'myhistory') {
       <div style="text-align:right;font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:var(--accent)"><?= number_format($topBid) ?> <span style="font-size:10px;font-weight:400;color:var(--muted)">cr</span></div>
       <div style="text-align:center;font-size:12px;color:var(--muted)" data-ends="<?= (int)$row['ends_unix'] ?>" class="auction-timer"><?= $tLeft ?></div>
       <div>
-        <?php if (!$ended): ?>
+        <?php if ($isOwn): ?>
+          <a href="index.php?p=auction&tab=mine" class="muted" style="font-size:11px;text-decoration:underline">your listing &rarr;</a>
+        <?php elseif (!$ended): ?>
         <form method="post" style="margin:0;display:flex;gap:4px;align-items:center;flex-wrap:wrap" data-aufx="bid" data-au-name="<?= e($row['item_name']) ?>">
           <input type="hidden" name="action" value="bid">
           <input type="hidden" name="listing_id" value="<?= (int)$row['id'] ?>">
