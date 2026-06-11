@@ -309,15 +309,70 @@ if (($tab === 'log') && isset($_GET['detail'])) {
 }
 ?>
 
+<style>
+#pvp-canvas{display:block;width:100%;height:108px;border-radius:9px 9px 0 0}
+#pvp-head h2{text-shadow:0 0 16px rgba(255,45,149,.45)}
+.pvp-tab{padding:7px 14px;border-radius:20px;font-size:12px;text-decoration:none;border:1px solid var(--line);background:var(--panel2);color:var(--muted);transition:border-color .15s,color .15s}
+.pvp-tab.on{border-color:var(--neon2);background:rgba(255,45,149,.1);color:var(--neon2);box-shadow:0 0 10px rgba(255,45,149,.14)}
+/* battle stage */
+#pvp-stage{position:relative;display:grid;grid-template-columns:1fr 70px 1fr;gap:10px;align-items:stretch;background:radial-gradient(ellipse at 50% 120%,rgba(255,45,149,.07),transparent 60%),#0a0712;border:1px solid var(--line);border-radius:10px;padding:18px 14px 14px;overflow:hidden}
+.pf{position:relative;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:9px;padding:12px;text-align:center;transition:transform .14s ease,filter .4s,opacity .4s}
+.pf.me{border-color:rgba(25,240,199,.35)}
+.pf.foe{border-color:rgba(255,45,149,.35)}
+.pf.lunge-r{transform:translateX(16px) rotate(1.2deg)}
+.pf.lunge-l{transform:translateX(-16px) rotate(-1.2deg)}
+.pf.hitflash{animation:pfHit .25s ease-out}
+@keyframes pfHit{0%{filter:brightness(2.2) saturate(.2)}100%{filter:none}}
+.pf.ko{filter:grayscale(1) brightness(.5);opacity:.55;transform:rotate(-2deg) translateY(5px)}
+.pf-ava{width:46px;height:46px;border-radius:50%;margin:0 auto 7px;display:flex;align-items:center;justify-content:center;font-family:'Orbitron',sans-serif;font-weight:900;font-size:20px;background:var(--panel2);border:2px solid currentColor}
+.pf.me .pf-ava{color:var(--accent);box-shadow:0 0 14px rgba(25,240,199,.3)}
+.pf.foe .pf-ava{color:var(--neon2);box-shadow:0 0 14px rgba(255,45,149,.3)}
+.pf-name{font-weight:700;font-size:13px;margin-bottom:7px}
+.pf-hpbar{height:9px;border-radius:5px;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.12);overflow:hidden}
+.pf-hpfill{height:100%;border-radius:5px;width:100%;transition:width .35s cubic-bezier(.2,.8,.3,1)}
+.pf.me .pf-hpfill{background:linear-gradient(90deg,#19f0c7,#3bcf63)}
+.pf.foe .pf-hpfill{background:linear-gradient(90deg,#ff2d95,#ff6b35)}
+.pf-hpfill.low{background:linear-gradient(90deg,#ff2d95,#e8a33d)!important}
+.pf-hpt{font-size:10px;font-family:'Orbitron',sans-serif;margin-top:4px;color:var(--muted)}
+.pf-stats{font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6}
+.pvp-mid{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+#pvp-vs{font-family:'Orbitron',sans-serif;font-weight:900;font-size:22px;color:var(--neon2);text-shadow:0 0 14px rgba(255,45,149,.6)}
+#pvp-round{font-size:10px;font-family:'Orbitron',sans-serif;color:var(--muted);letter-spacing:.1em;min-height:14px}
+.pvp-float{position:absolute;font-family:'Orbitron',sans-serif;font-weight:900;pointer-events:none;animation:pvpFloat 1s ease-out forwards;z-index:5;text-shadow:0 2px 6px #000}
+@keyframes pvpFloat{0%{transform:translateY(0) scale(.7);opacity:0}15%{opacity:1;transform:translateY(-8px) scale(1.15)}100%{transform:translateY(-44px) scale(1);opacity:0}}
+#pvp-stage.shake{animation:pvpShake .26s linear}
+@keyframes pvpShake{0%,100%{transform:translate(0,0)}25%{transform:translate(-5px,3px)}50%{transform:translate(4px,-3px)}75%{transform:translate(-3px,-2px)}}
+#pvp-ticker{min-height:20px;text-align:center;font-size:12px;padding:8px 6px 0;transition:opacity .2s}
+#pvp-banner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background:rgba(5,3,8,.72);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .25s;z-index:8}
+#pvp-banner.show{opacity:1}
+#pvp-banner .pb-txt{font-family:'Orbitron',sans-serif;font-weight:900;font-size:34px;letter-spacing:.14em;transform:scale(2.6);opacity:0}
+#pvp-banner.show .pb-txt{animation:pbSlam .4s cubic-bezier(.2,1.6,.4,1) forwards}
+@keyframes pbSlam{to{transform:scale(1);opacity:1}}
+#pvp-banner .pb-sub{font-size:12px;color:var(--text);opacity:0;margin-top:8px}
+#pvp-banner.show .pb-sub{animation:pbSub .3s .35s forwards}
+@keyframes pbSub{to{opacity:.85}}
+#pvp-details.veiled{display:none}
+#pvp-skip{font-size:10px;padding:3px 10px;background:transparent;border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:10px;cursor:pointer}
+.pvp-reward{text-align:center}
+.pvp-reward b{font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700}
+</style>
+
 <!-- Header -->
 <?php if ($_pvpIsMerchant): ?>
 <div class="flash flash-err">&#9878; Commerce Accord active — combat is locked until <?= e($_pvpMerchantUntil) ?>.</div>
 <?php endif; ?>
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,var(--neon2),#e8a33d,transparent)"></div>
-  <div style="padding:14px 20px">
-    <h2 style="margin:0 0 2px">&#9876; Combat Arena</h2>
-    <p class="muted" style="margin:0;font-size:12px">Ghost vs Ghost. Stats, gear, and buffs determine the outcome. Your stats are hidden — others cannot see them.</p>
+<div class="panel" id="pvp-head" style="padding:0;overflow:hidden">
+  <div style="position:relative">
+    <canvas id="pvp-canvas"></canvas>
+    <div style="position:absolute;left:16px;bottom:12px;pointer-events:none">
+      <h2 style="margin:0">&#9876; Combat Arena</h2>
+      <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">Ghost vs Ghost. Stats, gear, and buffs decide it. Your numbers stay hidden.</p>
+    </div>
+    <div style="position:absolute;right:14px;bottom:12px;text-align:right;font-size:11px;color:var(--muted)">
+      <div>HP <b style="font-family:'Orbitron',sans-serif;color:<?= (int)$player['integrity'] < 20 ? 'var(--neon2)' : 'var(--accent)' ?>"><?= number_format($player['integrity']) ?></b><span style="opacity:.6">/<?= number_format($player['integrity_max']) ?></span></div>
+      <div style="margin-top:2px">SIGNAL <b style="font-family:'Orbitron',sans-serif;color:var(--neon2)"><?= (int)$player['signal'] ?></b><span style="opacity:.6">/<?= (int)$player['signal_max'] ?></span></div>
+    </div>
+    <button id="pvp-mute" onclick="togglePvpSound()" title="Toggle sound" style="position:absolute;top:8px;right:10px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
   </div>
 </div>
 
@@ -325,40 +380,55 @@ if (($tab === 'log') && isset($_GET['detail'])) {
 <div style="background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.3);border-radius:6px;padding:10px 14px;font-size:13px;color:var(--neon2)"><?= e($msg) ?></div>
 <?php endif; ?>
 
-<div style="display:flex;gap:6px;flex-wrap:wrap">
+<div style="display:flex;gap:8px;flex-wrap:wrap">
   <?php foreach (['arena'=>'&#9876; Arena','stats'=>'&#128202; My Stats','log'=>'&#128203; Combat Log ('.count($recentPvp).')'] as $tid=>$tl): ?>
-  <a href="index.php?p=pvp&tab=<?= $tid ?>" style="padding:7px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $tab===$tid ? 'var(--neon2)' : 'var(--line)' ?>;background:<?= $tab===$tid ? 'rgba(255,45,149,.1)' : 'var(--panel2)' ?>;color:<?= $tab===$tid ? 'var(--neon2)' : 'var(--muted)' ?>"><?= $tl ?></a>
+  <a href="index.php?p=pvp&tab=<?= $tid ?>" class="pvp-tab <?= $tab===$tid ? 'on' : '' ?>"><?= $tl ?></a>
   <?php endforeach; ?>
 </div>
 
 <!-- ── BATTLE RESULT ── -->
-<?php if ($battleResult): $r = $battleResult; ?>
+<?php if ($battleResult): $r = $battleResult;
+  $replayJson = json_encode([
+    'atk'=>['name'=>$r['atk_p']['username'],'hp'=>(int)$r['atk_s']['hp'],'final'=>max(0,(int)$r['atk_final_hp'])],
+    'def'=>['name'=>$r['def_p']['username'],'hp'=>(int)$r['def_s']['hp'],'final'=>max(0,(int)$r['def_final_hp'])],
+    'rounds'=>$r['rounds'],
+    'won'=>$r['won'],
+  ]);
+?>
 <div class="panel" style="border:2px solid <?= $r['won'] ? 'rgba(25,240,199,.5)' : 'rgba(255,45,149,.5)' ?>;background:<?= $r['won'] ? 'rgba(25,240,199,.04)' : 'rgba(255,45,149,.04)' ?>">
-  <div style="text-align:center;margin-bottom:16px">
-    <div style="font-size:36px;margin-bottom:6px"><?= $r['won'] ? '&#9989;' : '&#10060;' ?></div>
-    <div style="font-family:'Orbitron',sans-serif;font-size:20px;font-weight:900;color:<?= $r['won'] ? 'var(--accent)' : 'var(--neon2)' ?>"><?= $r['won'] ? 'VICTORY' : 'DEFEAT' ?></div>
-    <div style="font-size:13px;color:var(--muted);margin-top:4px">vs. <?= e($r['def_p']['username']) ?> &mdash; <?= (int)$r['total_rounds'] ?> round<?= $r['total_rounds']!==1?'s':'' ?></div>
-  </div>
 
-  <!-- Combatant comparison -->
-  <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:12px;padding:12px;background:rgba(0,0,0,.2);border-radius:8px">
-    <div style="text-align:center">
-      <div style="font-weight:700;font-size:14px;color:var(--accent)"><?= e($r['atk_p']['username']) ?></div>
-      <div style="font-size:11px;color:var(--muted)">STR <?= $r['atk_s']['str'] ?> &middot; END <?= $r['atk_s']['end'] ?> &middot; SPD <?= $r['atk_s']['spd'] ?></div>
-      <div style="font-size:11px;color:var(--muted)">ATK <?= $r['atk_s']['atk'] ?> &middot; DEF <?= $r['atk_s']['def'] ?></div>
-      <div style="font-size:11px;color:<?= $r['atk_final_hp'] > 0 ? 'var(--accent)' : 'var(--neon2)' ?>">HP: <?= max(0,$r['atk_final_hp']) ?> / <?= $r['atk_s']['hp'] ?></div>
+  <!-- Battle stage (replayed client-side; static fallback below for no-JS) -->
+  <div id="pvp-stage">
+    <div class="pf me" id="pf-atk">
+      <div class="pf-ava"><?= e(strtoupper(mb_substr($r['atk_p']['username'],0,1))) ?></div>
+      <div class="pf-name" style="color:var(--accent)"><?= e($r['atk_p']['username']) ?></div>
+      <div class="pf-hpbar"><div class="pf-hpfill" id="pf-atk-hp"></div></div>
+      <div class="pf-hpt" id="pf-atk-hpt"><?= max(0,(int)$r['atk_final_hp']) ?> / <?= (int)$r['atk_s']['hp'] ?></div>
+      <div class="pf-stats">STR <?= $r['atk_s']['str'] ?> &middot; END <?= $r['atk_s']['end'] ?> &middot; SPD <?= $r['atk_s']['spd'] ?><br>ATK <?= $r['atk_s']['atk'] ?> &middot; DEF <?= $r['atk_s']['def'] ?></div>
     </div>
-    <div style="font-size:24px;text-align:center">&#9876;</div>
-    <div style="text-align:center">
-      <div style="font-weight:700;font-size:14px;color:var(--neon2)"><?= e($r['def_p']['username']) ?></div>
-      <div style="font-size:11px;color:var(--muted)">STR <?= $r['def_s']['str'] ?> &middot; END <?= $r['def_s']['end'] ?> &middot; SPD <?= $r['def_s']['spd'] ?></div>
-      <div style="font-size:11px;color:var(--muted)">ATK <?= $r['def_s']['atk'] ?> &middot; DEF <?= $r['def_s']['def'] ?></div>
-      <div style="font-size:11px;color:<?= $r['def_final_hp'] > 0 ? 'var(--accent)' : 'var(--neon2)' ?>">HP: <?= max(0,$r['def_final_hp']) ?> / <?= $r['def_s']['hp'] ?></div>
+    <div class="pvp-mid">
+      <div id="pvp-vs">VS</div>
+      <div id="pvp-round"><?= (int)$r['total_rounds'] ?> RND</div>
+      <button id="pvp-skip" type="button">skip &#9197;</button>
+    </div>
+    <div class="pf foe" id="pf-def">
+      <div class="pf-ava"><?= e(strtoupper(mb_substr($r['def_p']['username'],0,1))) ?></div>
+      <div class="pf-name" style="color:var(--neon2)"><?= e($r['def_p']['username']) ?></div>
+      <div class="pf-hpbar"><div class="pf-hpfill" id="pf-def-hp"></div></div>
+      <div class="pf-hpt" id="pf-def-hpt"><?= max(0,(int)$r['def_final_hp']) ?> / <?= (int)$r['def_s']['hp'] ?></div>
+      <div class="pf-stats">STR <?= $r['def_s']['str'] ?> &middot; END <?= $r['def_s']['end'] ?> &middot; SPD <?= $r['def_s']['spd'] ?><br>ATK <?= $r['def_s']['atk'] ?> &middot; DEF <?= $r['def_s']['def'] ?></div>
+    </div>
+    <div id="pvp-banner">
+      <div class="pb-txt" style="color:<?= $r['won'] ? 'var(--accent)' : 'var(--neon2)' ?>;text-shadow:0 0 20px <?= $r['won'] ? 'rgba(25,240,199,.7)' : 'rgba(255,45,149,.7)' ?>"><?= $r['won'] ? 'VICTORY' : 'DEFEAT' ?></div>
+      <div class="pb-sub">vs. <?= e($r['def_p']['username']) ?> &mdash; <?= (int)$r['total_rounds'] ?> round<?= $r['total_rounds']!==1?'s':'' ?></div>
     </div>
   </div>
+  <div id="pvp-ticker" class="muted">&nbsp;</div>
+
+  <div id="pvp-details">
 
   <!-- Round-by-round log -->
-  <div style="max-height:320px;overflow-y:auto;border:1px solid var(--line);border-radius:7px;padding:10px">
+  <div style="max-height:320px;overflow-y:auto;border:1px solid var(--line);border-radius:7px;padding:10px;margin-top:10px">
     <?php foreach ($r['rounds'] as $rnd): ?>
     <div style="margin-bottom:10px">
       <div style="font-size:10px;font-family:'Orbitron',sans-serif;color:var(--muted);text-transform:uppercase;margin-bottom:4px">Round <?= $rnd['num'] ?></div>
@@ -393,21 +463,17 @@ if (($tab === 'log') && isset($_GET['detail'])) {
 
   <!-- Rewards -->
   <div style="display:flex;justify-content:center;gap:20px;margin-top:14px;flex-wrap:wrap">
-    <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:#e8a33d">+<?= $r['atk_xp'] ?> XP</div><div style="font-size:10px;color:var(--muted)">XP Earned</div></div>
-    <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:var(--neon2)">-<?= $r['int_lost'] ?> HP</div><div style="font-size:10px;color:var(--muted)">Health Lost</div></div>
+    <div class="pvp-reward"><b style="color:#e8a33d" data-cnt="<?= (int)$r['atk_xp'] ?>" data-pre="+" data-suf=" XP">+<?= $r['atk_xp'] ?> XP</b><div style="font-size:10px;color:var(--muted)">XP Earned</div></div>
+    <div class="pvp-reward"><b style="color:var(--neon2)" data-cnt="<?= (int)$r['int_lost'] ?>" data-pre="-" data-suf=" HP">-<?= $r['int_lost'] ?> HP</b><div style="font-size:10px;color:var(--muted)">Health Lost</div></div>
     <?php if (($r['credits_looted'] ?? 0) > 0): ?>
-    <div style="text-align:center">
-      <div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:<?= $r['won'] ? '#3bcf63' : 'var(--neon2)' ?>">
-        <?= $r['won'] ? '+' : '-' ?><?= number_format($r['credits_looted']) ?>¢
-      </div>
+    <div class="pvp-reward">
+      <b style="color:<?= $r['won'] ? '#3bcf63' : 'var(--neon2)' ?>" data-cnt="<?= (int)$r['credits_looted'] ?>" data-pre="<?= $r['won'] ? '+' : '-' ?>" data-suf="¢"><?= $r['won'] ? '+' : '-' ?><?= number_format($r['credits_looted']) ?>¢</b>
       <div style="font-size:10px;color:var(--muted)">Credits <?= $r['won'] ? 'Looted' : 'Lost' ?></div>
     </div>
     <?php endif; ?>
     <?php $md = (int)($r['mortality_delta'] ?? 0); if ($md !== 0): ?>
-    <div style="text-align:center">
-      <div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:<?= $md > 0 ? '#e8d44d' : '#ff2d95' ?>">
-        <?= $md > 0 ? '&#9728; +' : '&#9760; ' ?><?= $md ?>
-      </div>
+    <div class="pvp-reward">
+      <b style="color:<?= $md > 0 ? '#e8d44d' : '#ff2d95' ?>"><?= $md > 0 ? '&#9728; +' : '&#9760; ' ?><?= $md ?></b>
       <div style="font-size:10px;color:var(--muted)"><?= $md > 0 ? 'Good' : 'Evil' ?> Alignment</div>
     </div>
     <?php endif; ?>
@@ -415,7 +481,10 @@ if (($tab === 'log') && isset($_GET['detail'])) {
   <?php if (!empty($r['log_id'])): ?>
   <div style="text-align:center;margin-top:10px"><a href="index.php?p=pvp&tab=log&detail=<?= (int)$r['log_id'] ?>" style="font-size:11px;color:var(--muted);text-decoration:underline">&#128203; View in combat log</a></div>
   <?php endif; ?>
+
+  </div><!-- /#pvp-details -->
 </div>
+<script>window._pvpReplay = <?= $replayJson ?>;</script>
 <?php endif; ?>
 
 <!-- ── ARENA ── -->
@@ -659,3 +728,237 @@ if (!empty($arenaLatest) && !$battleResult): ?>
 <?php endif; ?>
 
 <?php endif; ?>
+
+<script>
+/* PvP sound kit — bound once, persists across AJAX swaps. */
+(function(){
+  if(window._pvpFxBound) return;
+  window._pvpFxBound=true;
+  var ac=null, muted=localStorage.getItem('pvpMuted')==='1';
+  function tone(freq,dur,type,vol,slide){
+    if(muted) return;
+    try{
+      ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+      var o=ac.createOscillator(),g=ac.createGain();
+      o.type=type||'sine'; o.frequency.value=freq;
+      if(slide) o.frequency.exponentialRampToValueAtTime(slide,ac.currentTime+dur);
+      g.gain.value=vol||.05;
+      g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime+dur);
+    }catch(e){}
+  }
+  window.togglePvpSound=function(){
+    muted=!muted; localStorage.setItem('pvpMuted',muted?'1':'0');
+    var b=document.getElementById('pvp-mute'); if(b) b.innerHTML=muted?'&#128263;':'&#128266;';
+    if(!muted) tone(660,.08,'sine',.05);
+  };
+  window.pvpFX={
+    tone:tone,
+    hit:function(big){ tone(big?90:130,.1,'square',big?.07:.05); tone(big?700:900,.04,'sine',.03); },
+    miss:function(){ tone(500,.12,'sine',.035,180); },
+    intro:function(){ tone(196,.18,'square',.05); setTimeout(function(){tone(262,.22,'square',.05);},150); },
+    victory:function(){ [523,659,784,1047].forEach(function(f,i){ setTimeout(function(){tone(f,.16,'sine',.055);},i*120); }); },
+    defeat:function(){ tone(330,.3,'sine',.05,140); setTimeout(function(){tone(110,.4,'sine',.05);},250); }
+  };
+})();
+</script>
+
+<script>
+(function(){
+  /* mute icon re-init per swap */
+  var mb=document.getElementById('pvp-mute');
+  if(mb) mb.innerHTML=localStorage.getItem('pvpMuted')==='1'?'&#128263;':'&#128266;';
+
+  /* ── Arena header: sweeping spotlights, crossed sabers, crowd ── */
+  var pc=document.getElementById('pvp-canvas');
+  if(pc){
+    var c=pc.getContext('2d');
+    var PW=560, PH=108;
+    var dpr=Math.min(2,window.devicePixelRatio||1);
+    pc.width=PW*dpr; pc.height=PH*dpr;
+    c.scale(dpr,dpr);
+    var crowd=[];
+    for(var i=0;i<60;i++) crowd.push({x:8+Math.random()*(PW-16),y:PH-26+Math.random()*16,p:Math.random()*9,s:1.4+Math.random()*1.6});
+    function pLoop(t){
+      if(!document.body.contains(pc)) return;
+      requestAnimationFrame(pLoop);
+      c.clearRect(0,0,PW,PH);
+      var bg=c.createLinearGradient(0,0,0,PH);
+      bg.addColorStop(0,'#0c0710'); bg.addColorStop(1,'#120816');
+      c.fillStyle=bg; c.fillRect(0,0,PW,PH);
+      // sweeping spotlights
+      for(var sp=0;sp<2;sp++){
+        var ang=Math.sin(t/2400+sp*2.4)*.55;
+        var ox=PW*(.3+.4*sp);
+        c.save(); c.translate(ox,-6); c.rotate(ang);
+        var cone=c.createLinearGradient(0,0,0,PH+20);
+        var col=sp?'255,45,149':'25,240,199';
+        cone.addColorStop(0,'rgba('+col+',.12)'); cone.addColorStop(1,'rgba('+col+',0)');
+        c.fillStyle=cone;
+        c.beginPath(); c.moveTo(0,0); c.lineTo(-34,PH+20); c.lineTo(34,PH+20); c.closePath(); c.fill();
+        c.restore();
+      }
+      // crossed energy sabers (center)
+      var gl=.6+.4*Math.sin(t/520);
+      c.save(); c.translate(PW/2,52);
+      [[-1,'#19f0c7'],[1,'#ff2d95']].forEach(function(sb){
+        c.save(); c.rotate(sb[0]*Math.PI/5);
+        c.shadowColor=sb[1]; c.shadowBlur=12*gl;
+        c.strokeStyle=sb[1]; c.globalAlpha=.5+.4*gl; c.lineWidth=3; c.lineCap='round';
+        c.beginPath(); c.moveTo(0,22); c.lineTo(0,-30); c.stroke();
+        c.lineWidth=1; c.globalAlpha=1; c.restore();
+      });
+      c.shadowBlur=0; c.restore();
+      // clash spark at intersection
+      if(Math.random()<.06){
+        c.fillStyle='rgba(255,255,255,.9)';
+        c.fillRect(PW/2-1+(Math.random()-.5)*8,44+(Math.random()-.5)*8,2,2);
+      }
+      // crowd silhouettes (front rows, flickering phone-lights)
+      for(var ci=0;ci<crowd.length;ci++){
+        var K=crowd[ci];
+        var bob=Math.sin(t/300+K.p)*1.1;
+        c.fillStyle='rgba(0,0,0,.6)';
+        c.beginPath(); c.arc(K.x,K.y+bob,K.s+1.4,0,Math.PI*2); c.fill();
+        if(((t/700+K.p)%6)<.25){ c.fillStyle='rgba(180,220,255,.65)'; c.fillRect(K.x+2,K.y+bob-3,1.2,1.2); }
+      }
+      // floor line
+      c.fillStyle='rgba(255,45,149,.08)'; c.fillRect(0,PH-8,PW,8);
+    }
+    requestAnimationFrame(pLoop);
+  }
+
+  /* ── Battle replay ── */
+  var R=window._pvpReplay||null;
+  window._pvpReplay=null; // consume once
+  var stage=document.getElementById('pvp-stage');
+  if(!R||!stage||!window.pvpFX) return;
+  var FX=window.pvpFX;
+  var details=document.getElementById('pvp-details');
+  var banner=document.getElementById('pvp-banner');
+  var ticker=document.getElementById('pvp-ticker');
+  var roundEl=document.getElementById('pvp-round');
+  var els={
+    atk:{card:document.getElementById('pf-atk'),fill:document.getElementById('pf-atk-hp'),txt:document.getElementById('pf-atk-hpt')},
+    def:{card:document.getElementById('pf-def'),fill:document.getElementById('pf-def-hp'),txt:document.getElementById('pf-def-hpt')}
+  };
+  if(details) details.classList.add('veiled');
+
+  var hp={atk:R.atk.hp,def:R.def.hp};
+  function setHp(side){
+    var max=R[side].hp, cur=Math.max(0,hp[side]);
+    var pct=max>0?cur/max*100:0;
+    els[side].fill.style.width=pct+'%';
+    els[side].fill.classList.toggle('low',pct<=30);
+    els[side].txt.textContent=cur+' / '+max;
+  }
+  setHp('atk'); setHp('def');
+
+  // flatten rounds → steps, inferring actor/target from event text
+  var steps=[];
+  (R.rounds||[]).forEach(function(rnd){
+    steps.push({t:'round',n:rnd.num});
+    (rnd.events||[]).forEach(function(ev){
+      var target, actor;
+      if(ev.type==='dodge'){
+        target=(ev.text||'').indexOf(R.atk.name)===0?'atk':'def';
+        actor=target==='atk'?'def':'atk';
+      } else {
+        actor=(ev.text||'').indexOf(R.atk.name)===0?'atk':'def';
+        target=actor==='atk'?'def':'atk';
+      }
+      steps.push({t:ev.type==='dodge'?'dodge':'hit',actor:actor,target:target,dmg:ev.dmg||0,text:ev.text||'',color:ev.color||'var(--text)'});
+    });
+  });
+  var stepMs=Math.max(300,Math.min(700,Math.round(9000/Math.max(1,steps.length))));
+  var idx=0, timer=null, finished=false;
+
+  function floatText(side,txt,col,big){
+    var card=els[side].card;
+    var f=document.createElement('div');
+    f.className='pvp-float';
+    f.textContent=txt;
+    f.style.color=col;
+    f.style.fontSize=big?'20px':'15px';
+    f.style.left=(card.offsetLeft+card.offsetWidth/2-20+(Math.random()-.5)*30)+'px';
+    f.style.top=(card.offsetTop+18)+'px';
+    stage.appendChild(f);
+    setTimeout(function(){ if(f.parentNode) f.remove(); },1050);
+  }
+
+  function finish(skip){
+    if(finished) return;
+    finished=true;
+    if(timer) clearTimeout(timer);
+    hp.atk=R.atk.final; hp.def=R.def.final;
+    setHp('atk'); setHp('def');
+    els[R.won?'def':'atk'].card.classList.add('ko');
+    var skipBtn=document.getElementById('pvp-skip');
+    if(skipBtn) skipBtn.style.display='none';
+    if(ticker) ticker.innerHTML='&nbsp;';
+    setTimeout(function(){
+      if(banner) banner.classList.add('show');
+      if(R.won) FX.victory(); else FX.defeat();
+    },skip?60:350);
+    setTimeout(function(){
+      if(details){
+        details.classList.remove('veiled');
+        details.style.opacity='0';
+        requestAnimationFrame(function(){ details.style.transition='opacity .4s'; details.style.opacity='1'; });
+        // reward count-ups
+        details.querySelectorAll('[data-cnt]').forEach(function(el){
+          var n=parseInt(el.dataset.cnt,10)||0, pre=el.dataset.pre||'', suf=el.dataset.suf||'';
+          var t0=performance.now(), DUR=650;
+          (function cnt(now){
+            var p=Math.min(1,(now-t0)/DUR), e2=p*(2-p);
+            el.textContent=pre+Math.round(n*e2).toLocaleString('en-US')+suf;
+            if(p<1) requestAnimationFrame(cnt);
+          })(t0);
+        });
+      }
+    },skip?200:900);
+  }
+
+  function step(){
+    if(idx>=steps.length){ finish(false); return; }
+    var s=steps[idx++];
+    if(s.t==='round'){
+      if(roundEl) roundEl.textContent='ROUND '+s.n;
+      timer=setTimeout(step,Math.min(380,stepMs));
+      return;
+    }
+    if(ticker){ ticker.style.color=s.color; ticker.textContent=s.text; }
+    if(s.t==='hit'){
+      var big=s.dmg>=15;
+      els[s.actor].card.classList.add(s.actor==='atk'?'lunge-r':'lunge-l');
+      setTimeout(function(){ els[s.actor].card.classList.remove('lunge-r','lunge-l'); },170);
+      setTimeout(function(){
+        hp[s.target]-=s.dmg;
+        setHp(s.target);
+        els[s.target].card.classList.remove('hitflash');
+        void els[s.target].card.offsetWidth;
+        els[s.target].card.classList.add('hitflash');
+        floatText(s.target,'-'+s.dmg,big?'#ff2d95':'#ff6b6b',big);
+        FX.hit(big);
+        if(big){ stage.classList.remove('shake'); void stage.offsetWidth; stage.classList.add('shake'); }
+      },120);
+    } else { // dodge
+      els[s.actor].card.classList.add(s.actor==='atk'?'lunge-r':'lunge-l');
+      setTimeout(function(){ els[s.actor].card.classList.remove('lunge-r','lunge-l'); },170);
+      setTimeout(function(){
+        floatText(s.target,'MISS','#e8d44d',false);
+        FX.miss();
+      },120);
+    }
+    timer=setTimeout(step,stepMs);
+  }
+
+  var skipBtn=document.getElementById('pvp-skip');
+  if(skipBtn) skipBtn.addEventListener('click',function(){ finish(true); });
+
+  FX.intro();
+  if(roundEl) roundEl.textContent='FIGHT';
+  timer=setTimeout(step,700);
+})();
+</script>

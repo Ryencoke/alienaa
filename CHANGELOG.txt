@@ -2,6 +2,37 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-38 ---
+
+COMBAT ARENA (pvp.php) — BATTLE REPLAY OVERHAUL
+-------------------------------------------------
+[pvp.php]
+- ANIMATED BATTLE REPLAY: after a fight, the attacker no longer gets a wall
+  of text — the stored round log is performed on a battle stage. Two fighter
+  cards (you teal, them magenta) with avatar, stats, and animated HP bars
+  face off across a VS divider. Each round plays out: the striker's card
+  lunges, the victim flashes white and takes a floating "-N" damage number,
+  HP bars drain smoothly (turning amber under 30%), big hits (15+) shake the
+  whole stage, dodges sidestep with a gold "MISS". A one-line ticker narrates
+  each event; the round counter tracks progress. Replay paces itself to
+  ~9 seconds regardless of fight length; a skip button jumps to the end.
+- FINALE: the loser's card grays out and slumps, then a VICTORY / DEFEAT
+  banner slams over the stage (fanfare or descending womp), after which the
+  detailed breakdown (full round log, loadouts, rewards) fades in with
+  XP / HP / credit reward COUNT-UPS.
+- The defender sees nothing live (async PvP unchanged) — they still get the
+  existing notification, and either player can re-open the fight from the
+  combat log as before. No-JS fallback: the full static breakdown renders.
+- ARENA HEADER: canvas with two sweeping spotlight cones (teal/magenta),
+  crossed energy sabers that spark at the intersection, and a flickering
+  crowd silhouette row with phone-lights. HP/Signal readout + persisted
+  mute toggle.
+- Pill-style tabs; fighter card hover/KO states; WebAudio kit (hit thuds,
+  miss whoosh, intro sting, victory fanfare, defeat womp).
+- Combat math, rewards, notifications, and all SQL verified unchanged —
+  the replay consumes the same round data that was already stored in
+  pvp_log.log_data.
+
 --- SESSION: 2026-06-11 BATCH-37 ---
 
 THE LUCKY DAEMON (daemon.php) — INTERACTIVE OVERHAUL
