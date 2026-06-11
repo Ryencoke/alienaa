@@ -25,8 +25,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'claim
   try {
     if (!$eligible) throw new RuntimeException('Your account is too old for the Subsistence Terminal.');
     if ($claimedToday) throw new RuntimeException('Already claimed today. Come back tomorrow.');
+    // Write the day-marker FIRST as the atomic gate: 0 affected rows = already claimed today.
+    $gate = $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)');
+    $gate->execute(["welfare_at:{$pid}", $today]);
+    if ($gate->rowCount() === 0) throw new RuntimeException('Already claimed today. Come back tomorrow.');
     $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([WELFARE_AMOUNT, $pid]);
-    $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["welfare_at:{$pid}", $today]);
     $msg = 'success';
     $claimedToday = true;
     $player = current_player();

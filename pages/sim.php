@@ -25,11 +25,11 @@ if (!function_exists('grant_xp')) {
     $pdo->prepare('UPDATE players SET level = ?, xp = ?, xp_next = ? WHERE id = ?')
         ->execute([$level, $xp, $next, $pid]);
     if ($gained > 0) {
-      // Award 5 attribute points per level gained
+      // Award 5 attribute points per level gained — player_stats.unspent is the
+      // sole source of truth (BATCH-25); the legacy settings key is no longer read.
       try {
-        $aq = $pdo->prepare('SELECT COALESCE(v,0) FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]);
-        $cur = (int)($aq->fetchColumn() ?: 0);
-        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["attr_points:{$pid}", $cur + $gained * 5]);
+        $pdo->prepare('INSERT INTO player_stats (pid, unspent) VALUES (?,?)
+                       ON DUPLICATE KEY UPDATE unspent = unspent + ?')->execute([$pid, $gained * 5, $gained * 5]);
       } catch(Throwable $e) {}
     }
     return $gained;

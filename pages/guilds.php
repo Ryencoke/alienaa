@@ -674,7 +674,12 @@ elseif ($tab === 'chat' && $mySyn):
       var line=document.createElement('div'); line.className='chatline-full';
       var t=document.createElement('span'); t.className='chattime-full'; t.textContent=m.time;
       var body=document.createElement('div'); body.className='chatline-body';
-      body.innerHTML='<a href="index.php?p=profile&id='+m.id+'" style="color:'+(m.name_color||'#c9d1e0')+';font-weight:700">'+m.username+'</a><span style="color:var(--muted)">:</span> <span style="color:'+(m.color||'#c9d1e0')+'">'+m.html+'</span>';
+      var who=document.createElement('a'); who.href='index.php?p=profile&id='+m.id;
+      who.style.color=m.name_color||'#c9d1e0'; who.style.fontWeight='700';
+      who.textContent=m.username; // textContent, not innerHTML — don't trust the username shape
+      var sep=document.createElement('span'); sep.style.color='var(--muted)'; sep.textContent=': ';
+      var txt=document.createElement('span'); txt.style.color=m.color||'#c9d1e0'; txt.innerHTML=m.html; // server-sanitized bbcode
+      body.appendChild(who); body.appendChild(sep); body.appendChild(txt);
       line.appendChild(t); line.appendChild(body); room.appendChild(line);
     });
     room.scrollTop=room.scrollHeight;

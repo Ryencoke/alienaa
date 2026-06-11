@@ -86,7 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   try {
     if ($act === 'buy') {
       $sid   = (int)($_POST['stock_id'] ?? 0);
-      $qty   = max(1, (int)($_POST['qty'] ?? 1));
+      $qty   = min(1000000, max(1, (int)($_POST['qty'] ?? 1)));
       $qs    = $pdo->prepare('SELECT id,name,ticker,price FROM stocks WHERE id=?'); $qs->execute([$sid]); $stock = $qs->fetch();
       if (!$stock) throw new RuntimeException('Stock not found.');
       $cost  = (int)$stock['price'] * $qty;
@@ -124,12 +124,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $net   = $gross - $fee;
 
       $pdo->beginTransaction();
-      $newShares = (int)$hold['shares'] - $qty;
-      if ($newShares <= 0) {
-        $pdo->prepare('DELETE FROM stock_holdings WHERE player_id=? AND stock_id=?')->execute([$pid, $sid]);
-      } else {
-        $pdo->prepare('UPDATE stock_holdings SET shares=? WHERE player_id=? AND stock_id=?')->execute([$newShares, $pid, $sid]);
-      }
+      $dec = $pdo->prepare('UPDATE stock_holdings SET shares = shares - ? WHERE player_id=? AND stock_id=? AND shares >= ?');
+      $dec->execute([$qty, $pid, $sid, $qty]);
+      if ($dec->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough shares to sell.'); }
+      $pdo->prepare('DELETE FROM stock_holdings WHERE player_id=? AND stock_id=? AND shares <= 0')->execute([$pid, $sid]);
       $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$net, $pid]);
       $pdo->commit();
       $msg = 'Sold ' . $qty . 'x ' . $hold['ticker'] . ' for ' . number_format($net) . ' credits (after fee).';

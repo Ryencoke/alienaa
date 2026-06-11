@@ -12,9 +12,9 @@ $buffAtk = 0; $buffAtkExp = 0; $buffDef = 0; $buffDefExp = 0;
 try {
   $bq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
   $bq->execute(["buff:atk:{$pid}"]); $bv = $bq->fetchColumn();
-  if ($bv !== false && $bv !== '') { [$bon,$exp]=explode('|',$bv,2); if(time()<(int)$exp){$buffAtk=(int)$bon;$buffAtkExp=(int)$exp;} }
+  if ($bv !== false && str_contains((string)$bv, '|')) { [$bon,$exp]=explode('|',$bv,2); if(time()<(int)$exp){$buffAtk=(int)$bon;$buffAtkExp=(int)$exp;} }
   $bq->execute(["buff:def:{$pid}"]); $bv = $bq->fetchColumn();
-  if ($bv !== false && $bv !== '') { [$bon,$exp]=explode('|',$bv,2); if(time()<(int)$exp){$buffDef=(int)$bon;$buffDefExp=(int)$exp;} }
+  if ($bv !== false && str_contains((string)$bv, '|')) { [$bon,$exp]=explode('|',$bv,2); if(time()<(int)$exp){$buffDef=(int)$bon;$buffDefExp=(int)$exp;} }
 } catch (Throwable $e) {}
 
 $STIMS = [

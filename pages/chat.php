@@ -31,8 +31,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'say')
   if ($body !== '') {
     try {
       if (mb_strlen($body) > 240) $body = mb_substr($body, 0, 240);
-      $pdo->prepare('INSERT INTO chat_messages (player_id, room, body, created_at) VALUES (?,?,?,NOW())')
-          ->execute([$pid, $room, $body]);
+      // Same 1-message-per-second throttle as chat_api.php — this fallback used to skip it
+      $tq = $pdo->prepare('SELECT COUNT(*) FROM chat_messages WHERE player_id=? AND created_at > (NOW() - INTERVAL 1 SECOND)');
+      $tq->execute([$pid]);
+      if ((int)$tq->fetchColumn() === 0) {
+        $pdo->prepare('INSERT INTO chat_messages (player_id, room, body, created_at) VALUES (?,?,?,NOW())')
+            ->execute([$pid, $room, $body]);
+      }
     } catch (Throwable $e) {}
   }
 }
@@ -163,7 +168,12 @@ if ($synRoomKey) $roomIcons[$synRoomKey] = '&#9760;';
       var line=document.createElement('div'); line.className='chatline-full';
       var t=document.createElement('span'); t.className='chattime-full'; t.textContent=m.time;
       var body=document.createElement('div'); body.className='chatline-body';
-      body.innerHTML='<a href="index.php?p=profile&id='+m.id+'" style="color:'+(m.name_color||'#c9d1e0')+';font-weight:700">'+m.username+'</a><span style="color:var(--muted)">:</span> <span style="color:'+(m.color||'#c9d1e0')+'">'+m.html+'</span>';
+      var who=document.createElement('a'); who.href='index.php?p=profile&id='+m.id;
+      who.style.color=m.name_color||'#c9d1e0'; who.style.fontWeight='700';
+      who.textContent=m.username; // textContent, not innerHTML — don't trust the username shape
+      var sep=document.createElement('span'); sep.style.color='var(--muted)'; sep.textContent=': ';
+      var txt=document.createElement('span'); txt.style.color=m.color||'#c9d1e0'; txt.innerHTML=m.html; // server-sanitized bbcode
+      body.appendChild(who); body.appendChild(sep); body.appendChild(txt);
       line.appendChild(t); line.appendChild(body);
       room.appendChild(line);
     });

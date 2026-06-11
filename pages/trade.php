@@ -176,9 +176,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $toId = 0;
       if (ctype_digit($toHandle)) { $r=$pdo->prepare('SELECT id FROM players WHERE id=?'); $r->execute([(int)$toHandle]); $toId=(int)$r->fetchColumn(); }
       if (!$toId) { $r=$pdo->prepare('SELECT id FROM players WHERE username=?'); $r->execute([$toHandle]); $toId=(int)$r->fetchColumn(); }
-      if (!$toId || $toId === $pid) throw new RuntimeException('Recipient not found or invalid.');
+      if (!$toId || $toId === (int)$pid) throw new RuntimeException('Recipient not found or invalid.');
       $amt = max(1,(int)($_POST['amount']??0));
       $type = ($_POST['currency']??'credits') === 'shards' ? 'shards' : 'credits';
+      $pdo->beginTransaction();
       if ($type === 'credits') {
         $u=$pdo->prepare('UPDATE players SET creds_pocket=creds_pocket-? WHERE id=? AND creds_pocket>=?');
         $u->execute([$amt,$pid,$amt]); if ($u->rowCount()!==1) throw new RuntimeException('Not enough credits.');
@@ -188,6 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $u->execute([$amt,$pid,$amt]); if ($u->rowCount()!==1) throw new RuntimeException('Not enough shards.');
         $pdo->prepare('UPDATE players SET shards=shards+? WHERE id=?')->execute([$amt,$toId]);
       }
+      $pdo->commit();
       $tgt=$pdo->prepare('SELECT username FROM players WHERE id=?'); $tgt->execute([$toId]); $tname=$tgt->fetchColumn();
       $msg = 'Transferred ' . number_format($amt) . ' ' . $type . ' to ' . $tname . '.';
       $player = current_player();

@@ -2,7 +2,112 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
---- SESSION: 2026-06-11 BATCH-27 ---
+--- SESSION: 2026-06-11 BATCH-28 ---
+
+FULL-CODEBASE BUG AUDIT — EXPLOITS, RACES, LOGIC FIXES
+--------------------------------------------------------
+ECONOMY EXPLOITS (HIGH)
+[datacore.php]
+- CRITICAL EXPLOIT FIX: Negative slider values in the pts[] array reduced the Drive
+  cost (array_sum included negatives) while the apply loop skipped them — skills could
+  be maxed for ~5 Drive. Negatives now clamped before summing; Drive deduction is
+  atomic (WHERE cycles >= cost + rowCount check).
+[stockex.php]
+- EXPLOIT FIX: Concurrent sells of the same holding both passed the stale share check
+  and both paid out (credits minted from nothing). Share decrement is now atomic
+  (shares = shares - ? ... AND shares >= ?) with rowCount verification.
+- Buy quantity capped at 1,000,000 to prevent integer-overflow pricing.
+[bonds.php]
+- EXPLOIT FIX: Two simultaneous collects of one bond both paid out. Status flip now
+  happens first with AND status='active' guard; payout only if exactly 1 row changed.
+  Same fix for early withdrawal.
+[apartments.php]
+- EXPLOIT FIX: Sell-back always refunded 50% of CATALOG price — buying a Spire Suite
+  from an alt for 1 cr and selling back for 37,500 minted credits. New paid_price
+  column (auto-migrated) records what was actually paid; refund = 50% of
+  min(catalog, paid). Legacy rows treated as catalog. Shard-bought market units
+  record 0 credit basis.
+- RACE FIX: market_buy now claims the listing first (AND on_market=1 AND seller match,
+  rowCount-checked) inside the transaction so two buyers can't both pay for one unit.
+[auction.php]
+- EXPLOIT FIX: POSTing item_id=0 with free-text item_name created a listing backed by
+  no item — the winner paid and received nothing. Listings now require a real owned
+  inventory item; deduction is atomic.
+- RACE FIX: Bids now lock the listing row (SELECT ... FOR UPDATE). Previously two
+  concurrent bids could refund the same old bidder twice and strand the other
+  bidder's escrowed credits.
+- BUG FIX: Cancelling a listing destroyed the listed item — it was deducted at create
+  and never returned. Cancel now returns item_qty to inventory, runs in a transaction,
+  and the status flip is guarded (no double-penalty on double-submit).
+- Removed dead no-op query line in the bid handler.
+[generalstore.php] Purchase deduction now atomic (AND creds_pocket >= price).
+[welfare.php] Double-claim race fixed: the day-marker upsert is now the atomic gate
+  (0 affected rows = already claimed) and runs BEFORE crediting the 500.
+[ledger.php] Borrow is now atomic against the loan cap (AND loan + amt <= cap);
+  concurrent borrows can no longer exceed the cap.
+[trade.php] Direct transfer wrapped in a transaction; self-transfer check fixed
+  (int-vs-string strict comparison never matched).
+
+GAMEPLAY / PROGRESSION
+[pvp.php]
+- BUG FIX: Dodge was rolled AFTER damage was applied — a "dodged" attack still dealt
+  full damage (dodge was purely cosmetic). Dodge now rolls first and prevents damage.
+- BUG FIX: Defender XP (def_xp) was computed, logged, and shown in the defender's
+  notification but never actually granted. grant_xp now called for the defender.
+- spend_stat: unspent decrement now guarded (AND unspent > 0 + rowCount) for both
+  regular stats and signal_max.
+[sim.php]
+- BUG FIX: grant_xp still wrote level-up attribute points to the legacy
+  settings['attr_points'] key, which nothing reads since BATCH-25 — PvE level-ups
+  silently lost their stat points unless unspent happened to hit 0. Now writes to
+  player_stats.unspent like mining.php/pvp.php.
+[transit.php]
+- BALANCE/EXPLOIT FIX: Tunnel mining had no Drive cost and no cooldown — unlimited
+  free item farming (every other gathering venue charges). Digs now cost
+  5 + skill_req Drive (atomic deduct); cost shown on each dig site row.
+[weaponcraft.php] Craft ore deductions now verify rowCount per ore and roll back the
+  whole craft if stock changed (no more gear-without-ore edge case).
+[synth.php] Compound gather verifies the Drive deduction landed before crediting.
+[foundry.php] Cooldown marker now written inside the loot transaction — a crash
+  between the two can't grant loot without setting the cooldown.
+
+CASINO (daemon.php)
+- RULE FIX: Player natural 21 paid 3:2 even when the dealer ALSO had a natural
+  (correct rule: push), and a dealer natural was never resolved as an instant loss.
+  Naturals now resolve properly: both = push, dealer only = loss, player only = 3:2.
+- BUG FIX: Session-state collision with the legacy standalone blackjack.php/poker.php
+  pages (same $_SESSION['bj']/['vp'] keys, incompatible shapes → PHP TypeErrors and
+  clobbered in-progress hands). Daemon now uses daemon_bj / daemon_vp keys.
+- bj_deal bet deduction now uses the atomic place_bet() like every other game.
+
+SECURITY / ACCESS CONTROL
+[admin.php]
+- ACCESS FIX: sec=iplog was reachable by chatmods via direct URL (page gate admits
+  chatmod; only the hub card was hidden). Now hard-gated to moderator+.
+- ACCESS FIX: del_post / del_topic gated to moderator+ (chatmod = chat moderation
+  only, per role spec); board-deletion forms hidden from chatmods.
+- Removed dead duplicate COUNT query in the iplog handler.
+[landing.php] signup_verify now calls session_regenerate_id(true) before setting the
+  session pid (login.php already did; the signup path was missing the fixation guard).
+[account.php + registry.php]
+- BUG FIX: Account > Credentials offered a FREE handle rename that bypassed the
+  ID Registry's 50-shard cost and 30-day cooldown entirely. Free path retired
+  (links to the Registry); Registry gained the staff-name-similarity block that
+  only the account path had, a case-insensitive duplicate check, and an atomic
+  shard deduction.
+[login.php] Session pid stored as int (string pid broke strict === id comparisons,
+  e.g. the "can't friend yourself" check never fired).
+[friends.php] Self-friend check fixed (cast before strict comparison).
+[chat.php] Non-AJAX say fallback now enforces the same 1-msg/sec throttle as
+  chat_api.php (was a rate-limit bypass).
+[chat.php + guilds.php] Chat renderers now insert usernames via textContent instead
+  of string-concatenated innerHTML (defense-in-depth; safety no longer depends
+  solely on the username regex).
+
+MISC
+[index.php] Staff-note JSON: undefined-key warning when 'at' missing ($sj['at'] ?? '').
+[lounge.php] Buff parsing guards against settings values without a '|' separator
+  (prevented a potential PHP 8 warning/destructure error).
 
 MINING.PHP — COMPLETE INTERACTIVE REWRITE
 ------------------------------------------

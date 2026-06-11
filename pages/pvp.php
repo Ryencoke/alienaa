@@ -129,17 +129,16 @@ function pvp_simulate($atk_p, $atk_s, $def_p, $def_s) {
     $atkFirst = ($atkSpd + mt_rand(0,4)) >= ($defSpd + mt_rand(0,4));
 
     $doPunch = function($offAtk, $offName, $defDef, &$defHp, $defName) use (&$round) {
+      $dodge = mt_rand(1,100) <= 8; // 8% dodge chance — roll BEFORE applying damage
+      if ($dodge) {
+        $round['events'][] = ['type'=>'dodge','text'=>"{$defName} dodged the attack!",'color'=>'#e8d44d'];
+        return 0;
+      }
       $variance = mt_rand(80, 120) / 100;
       $dmg = max(1, (int)round(($offAtk - $defDef * 0.4) * $variance));
       $defHp = max(0, $defHp - $dmg);
-      $dodge = mt_rand(1,100) <= 8; // 8% dodge chance
-      if ($dodge) {
-        $round['events'][] = ['type'=>'dodge','text'=>"{$defName} dodged the attack!",'color'=>'#e8d44d'];
-      } else {
-        $round['events'][] = ['type'=>'hit','text'=>"{$offName} struck for {$dmg} damage.",'color'=>$dmg>15?'var(--neon2)':'var(--text)','dmg'=>$dmg];
-      }
-      if (!$dodge) return $dmg;
-      return 0;
+      $round['events'][] = ['type'=>'hit','text'=>"{$offName} struck for {$dmg} damage.",'color'=>$dmg>15?'var(--neon2)':'var(--text)','dmg'=>$dmg];
+      return $dmg;
     };
 
     $atkName = $atk_p['username']; $defName = $def_p['username'];
@@ -171,14 +170,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($stat === 'signal_max') {
         if ((int)$myStats['unspent'] < 1) throw new RuntimeException('No unspent stat points.');
         if ((int)$player['signal_max'] >= 50) throw new RuntimeException('Signal is already at maximum capacity (50).');
+        $sp = $pdo->prepare('UPDATE player_stats SET unspent = unspent - 1 WHERE pid=? AND unspent > 0');
+        $sp->execute([$pid]);
+        if ($sp->rowCount() !== 1) throw new RuntimeException('No unspent stat points.');
         $pdo->prepare('UPDATE players SET signal_max = LEAST(50, signal_max + 1) WHERE id=?')->execute([$pid]);
-        $pdo->prepare('UPDATE player_stats SET unspent = unspent - 1 WHERE pid=?')->execute([$pid]);
         $qs->execute([$pid]); $myStats = $qs->fetch(); $player = current_player();
         $msg = 'Signal bandwidth upgraded!';
       } else {
         if (!in_array($stat, ['str_pts','spd_pts','end_pts'], true)) throw new RuntimeException('Invalid stat.');
         if ((int)$myStats['unspent'] < 1) throw new RuntimeException('No unspent stat points.');
-        $pdo->prepare("UPDATE player_stats SET {$stat} = {$stat} + 1, unspent = unspent - 1 WHERE pid=?")->execute([$pid]);
+        $sp = $pdo->prepare("UPDATE player_stats SET {$stat} = {$stat} + 1, unspent = unspent - 1 WHERE pid=? AND unspent > 0");
+        $sp->execute([$pid]);
+        if ($sp->rowCount() !== 1) throw new RuntimeException('No unspent stat points.');
         $qs->execute([$pid]); $myStats = $qs->fetch();
         $msg = 'Stat point spent!';
       }
@@ -240,6 +243,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $logId = (int)$pdo->lastInsertId();
 
       grant_xp($pid, $atkXp);
+      grant_xp((int)$defPlayer['id'], $defXp); // defender earns the XP shown in their log/notification
 
       // Mortality alignment: beating a good player gains evil, beating an evil player gains good
       $winnerId2 = $won ? $pid : (int)$defPlayer['id'];

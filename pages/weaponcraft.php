@@ -135,11 +135,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (($oreInv[$ore] ?? 0) < $need)
           throw new RuntimeException('Need ' . $need . '× ' . ($ORE_NAMES[$ore][0] ?? $ore) . ' — you only have ' . ($oreInv[$ore] ?? 0) . '.');
       }
-      // Deduct ore
+      // Deduct ore — verify each guarded UPDATE actually hit, or roll the craft back
       $pdo->beginTransaction();
       foreach ($cost as $ore => $need) {
-        $pdo->prepare('UPDATE player_ore SET quantity = quantity - ? WHERE player_id = ? AND ore_type = ? AND quantity >= ?')
-            ->execute([$need, $pid, $ore, $need]);
+        $du = $pdo->prepare('UPDATE player_ore SET quantity = quantity - ? WHERE player_id = ? AND ore_type = ? AND quantity >= ?');
+        $du->execute([$need, $pid, $ore, $need]);
+        if ($du->rowCount() !== 1) {
+          $pdo->rollBack();
+          throw new RuntimeException('Need ' . $need . '× ' . ($ORE_NAMES[$ore][0] ?? $ore) . ' — stock changed, try again.');
+        }
       }
       // Insert gear
       $pdo->prepare('INSERT INTO player_gear (player_id, recipe_id, name, gear_type, atk_bonus, def_bonus) VALUES (?,?,?,?,?,?)')

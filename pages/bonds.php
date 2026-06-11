@@ -70,8 +70,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($matured) {
         $payout = (int)round($principal * (1 + (float)$bond['interest_rate']));
         $pdo->beginTransaction();
+        $flip = $pdo->prepare("UPDATE bonds SET status='matured' WHERE id=? AND status='active'");
+        $flip->execute([$bid]);
+        if ($flip->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Bond already collected.'); }
         $pdo->prepare('UPDATE players SET creds_bank = creds_bank + ? WHERE id = ?')->execute([$payout, $pid]);
-        $pdo->prepare("UPDATE bonds SET status='matured' WHERE id=?")->execute([$bid]);
         $pdo->commit();
         $interest = $payout - $principal;
         $msg = 'Bond matured! Collected ' . number_format($payout) . ' credits (+' . number_format($interest) . ' interest).';
@@ -79,8 +81,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $penalty = (int)ceil($principal * BOND_EARLY_PENALTY);
         $payout  = $principal - $penalty;
         $pdo->beginTransaction();
+        $flip = $pdo->prepare("UPDATE bonds SET status='withdrawn' WHERE id=? AND status='active'");
+        $flip->execute([$bid]);
+        if ($flip->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Bond already collected.'); }
         $pdo->prepare('UPDATE players SET creds_bank = creds_bank + ? WHERE id = ?')->execute([$payout, $pid]);
-        $pdo->prepare("UPDATE bonds SET status='withdrawn' WHERE id=?")->execute([$bid]);
         $pdo->commit();
         $msg = 'Early withdrawal: received ' . number_format($payout) . ' credits. Penalty: ' . number_format($penalty) . ' credits (10% of principal).';
       }

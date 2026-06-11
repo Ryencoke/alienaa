@@ -232,7 +232,7 @@ try {
       $s = db()->prepare('SELECT v FROM settings WHERE k=?'); $s->execute([$noteKey]); $sv = $s->fetchColumn();
       if ($sv !== false && $sv !== '') {
         $sj = json_decode($sv, true);
-        if (is_array($sj)) { $snote = $sj['note'] ?? ''; $snoteAuthor = ($sj['by'] ?? '') . ($sj['at'] ? ' · ' . $sj['at'] : ''); $snoteEditText = $snote; }
+        if (is_array($sj)) { $snote = $sj['note'] ?? ''; $snoteAuthor = ($sj['by'] ?? '') . (!empty($sj['at']) ? ' · ' . $sj['at'] : ''); $snoteEditText = $snote; }
         else { $snote = $sv; $snoteEditText = $sv; } // legacy plain text
       }
     } catch (Throwable $e) {}

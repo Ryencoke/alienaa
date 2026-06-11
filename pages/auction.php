@@ -100,15 +100,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $hoursRaw  = (int)($_POST['duration'] ?? 24);
       $hours     = in_array($hoursRaw, [1,6,12,24,48]) ? $hoursRaw : 24;
       $qty       = max(1, min(99, (int)($_POST['qty'] ?? 1)));
-      if ($selItemId > 0) {
-        $iq = $pdo->prepare('SELECT i.name,pi.qty FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.item_id=? AND pi.qty>0');
-        $iq->execute([$pid, $selItemId]); $invRow = $iq->fetch();
-        if (!$invRow) throw new RuntimeException('Item not found in inventory.');
-        if ((int)$invRow['qty'] < $qty) throw new RuntimeException('Not enough in inventory (you have '.(int)$invRow['qty'].').');
-        $itemName = $invRow['name'];
-        if ((int)$invRow['qty'] <= $qty) $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=?')->execute([$pid, $selItemId]);
-        else $pdo->prepare('UPDATE player_items SET qty=qty-? WHERE player_id=? AND item_id=?')->execute([$qty, $pid, $selItemId]);
-      }
+      // Listings must be backed by a real inventory item — otherwise the winner pays for nothing.
+      if ($selItemId <= 0) throw new RuntimeException('Select an item from your inventory.');
+      $iq = $pdo->prepare('SELECT i.name,pi.qty FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.item_id=? AND pi.qty>0');
+      $iq->execute([$pid, $selItemId]); $invRow = $iq->fetch();
+      if (!$invRow) throw new RuntimeException('Item not found in inventory.');
+      if ((int)$invRow['qty'] < $qty) throw new RuntimeException('Not enough in inventory (you have '.(int)$invRow['qty'].').');
+      $itemName = $invRow['name'];
+      $dec = $pdo->prepare('UPDATE player_items SET qty=qty-? WHERE player_id=? AND item_id=? AND qty>=?');
+      $dec->execute([$qty, $pid, $selItemId, $qty]);
+      if ($dec->rowCount() !== 1) throw new RuntimeException('Not enough in inventory.');
+      $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=? AND qty<=0')->execute([$pid, $selItemId]);
       if ($itemName === '') throw new RuntimeException('Select an item from your inventory.');
       if (strlen($itemName) > 100) throw new RuntimeException('Item name too long.');
       $feePct  = $AUCTION_LISTING_FEES[$hours] ?? 0.05;
@@ -126,14 +128,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($act === 'bid') {
       $listId = (int)($_POST['listing_id'] ?? 0);
       $bidAmt = (int)($_POST['bid_amount'] ?? 0);
-      $row = $pdo->prepare("SELECT * FROM auction_listings WHERE id=? AND status='active'")->execute([$listId]) ? null : null;
-      $q   = $pdo->prepare("SELECT * FROM auction_listings WHERE id=? AND status='active'");
-      $q->execute([$listId]); $row = $q->fetch();
-      if (!$row) throw new RuntimeException('Auction not found or already ended.');
-      if ((int)$row['seller_id'] === $pid) throw new RuntimeException("You can't bid on your own auction.");
-      $minBid = max((int)$row['starting_price'], (int)$row['current_bid'] + 1);
-      if ($bidAmt < $minBid) throw new RuntimeException('Minimum bid is ' . number_format($minBid) . ' credits.');
+      // Lock the listing row so concurrent bids serialize — otherwise two bids can
+      // both refund the same old bidder and strand one bidder's escrowed credits.
       $pdo->beginTransaction();
+      $q = $pdo->prepare("SELECT * FROM auction_listings WHERE id=? AND status='active' AND ends_at > NOW() FOR UPDATE");
+      $q->execute([$listId]); $row = $q->fetch();
+      if (!$row) { $pdo->rollBack(); throw new RuntimeException('Auction not found or already ended.'); }
+      if ((int)$row['seller_id'] === $pid) { $pdo->rollBack(); throw new RuntimeException("You can't bid on your own auction."); }
+      $minBid = max((int)$row['starting_price'], (int)$row['current_bid'] + 1);
+      if ($bidAmt < $minBid) { $pdo->rollBack(); throw new RuntimeException('Minimum bid is ' . number_format($minBid) . ' credits.'); }
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([$bidAmt, $pid, $bidAmt]);
       if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough credits.'); }
@@ -155,13 +158,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ((int)$row['bid_count'] > 0) throw new RuntimeException('Cannot cancel — bids have been placed.');
       $gracePassed = (time() - strtotime($row['created_at'])) > AUCTION_GRACE_SEC;
       $penalty = 0;
+      $pdo->beginTransaction();
+      $flip = $pdo->prepare("UPDATE auction_listings SET status='cancelled' WHERE id=? AND seller_id=? AND status='active' AND bid_count=0");
+      $flip->execute([$listId, $pid]);
+      if ($flip->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Listing not found.'); }
       if ($gracePassed) {
         $penalty = (int)ceil((int)$row['starting_price'] * AUCTION_CANCEL_PCT);
         $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
         $u->execute([$penalty, $pid, $penalty]);
-        if ($u->rowCount() !== 1) throw new RuntimeException('Not enough credits to pay the ' . number_format($penalty) . ' cr cancellation penalty.');
+        if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough credits to pay the ' . number_format($penalty) . ' cr cancellation penalty.'); }
       }
-      $pdo->prepare("UPDATE auction_listings SET status='cancelled' WHERE id=?")->execute([$listId]);
+      // Return the listed item — it was deducted from inventory at listing time
+      if ((int)$row['item_id'] > 0) {
+        $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)')
+            ->execute([$pid, (int)$row['item_id'], max(1, (int)($row['item_qty'] ?? 1))]);
+      }
+      $pdo->commit();
       $msg = 'Auction cancelled.' . ($penalty > 0 ? ' Penalty: ' . number_format($penalty) . ' cr.' : ' No penalty (within 5-minute window).');
       $tab = 'mine';
     }

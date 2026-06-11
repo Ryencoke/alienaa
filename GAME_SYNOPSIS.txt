@@ -193,6 +193,19 @@ RECENTLY COMPLETED (as of 2026-06-10)
 - Sidebar customization (drag-order, toggle pages, hide topbar)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECENTLY COMPLETED (2026-06-11 BATCH-28)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Full-codebase bug audit: closed economy exploits (datacore negative-invest, stockex
+  sell race, bonds double-collect, apartment sell-back arbitrage + paid_price column,
+  auction phantom listings / bid race / item loss on cancel, welfare double-claim,
+  loan cap race), gameplay fixes (PvP dodge applied damage, defender XP never granted,
+  sim.php attr points to wrong store, transit tunnel mining now costs Drive),
+  blackjack dealer-natural push rule, daemon session keys namespaced (daemon_bj/vp),
+  admin iplog + board deletion gated to moderator+, signup session fixation guard,
+  free handle rename retired (ID Registry is the single paid path).
+  Full detail in CHANGELOG.txt BATCH-28.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RECENTLY COMPLETED (2026-06-11 BATCH-22)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - guilds.php: Armoury tab (weapons/armor with ATK/DEF stats, loan/return/remove, donate)

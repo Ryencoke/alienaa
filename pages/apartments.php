@@ -17,6 +17,8 @@ try {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (Throwable $e) {}
 try { $pdo->exec("ALTER TABLE player_apartments ADD COLUMN market_currency ENUM('credits','shards') NOT NULL DEFAULT 'credits'"); } catch (Throwable $e) {}
+// Credits actually paid for the unit (NULL = legacy row, treat as catalog price). Caps sell-back refunds.
+try { $pdo->exec("ALTER TABLE player_apartments ADD COLUMN paid_price INT NULL DEFAULT NULL"); } catch (Throwable $e) {}
 try {
   $pdo->exec("CREATE TABLE IF NOT EXISTS apartment_decor (
     id INT AUTO_INCREMENT PRIMARY KEY, apt_id INT NOT NULL, player_id INT NOT NULL,
@@ -94,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Check if they have a primary residence
       $qp = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND is_primary=1'); $qp->execute([$pid]);
       $hasPrimary = (int)$qp->fetchColumn() > 0;
-      $pdo->prepare('INSERT INTO player_apartments (player_id, apt_type_id, region, is_primary) VALUES (?,?,?,?)')->execute([$pid, $typeId, $apt['region'], $hasPrimary ? 0 : 1]);
+      $pdo->prepare('INSERT INTO player_apartments (player_id, apt_type_id, region, is_primary, paid_price) VALUES (?,?,?,?,?)')->execute([$pid, $typeId, $apt['region'], $hasPrimary ? 0 : 1, $price]);
       if (!$hasPrimary) perk_apply($pdo, $pid, $typeId, $APT_TYPES, true);
       $msg = 'Purchased ' . $apt['name'] . '!';
       if (!$hasPrimary) $msg .= ' Set as your primary residence — perks applied!';
@@ -139,7 +141,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$aptRow) throw new RuntimeException('Cannot sell back — not found, is your primary, or unavailable.');
       $atype = $APT_TYPES[$aptRow['apt_type_id']] ?? null;
       if (!$atype) throw new RuntimeException('Unknown apartment type.');
-      $refund = (int)($atype['price'] / 2);
+      // Refund 50% of what was actually paid (capped at catalog) so cheap player-market
+      // purchases can't be flipped to the system for profit. Legacy rows = catalog price.
+      $paid   = $aptRow['paid_price'] !== null ? (int)$aptRow['paid_price'] : (int)$atype['price'];
+      $refund = (int)(min((int)$atype['price'], $paid) / 2);
       $pdo->beginTransaction();
       try { $pdo->prepare('DELETE FROM apartment_decor WHERE apt_id=?')->execute([$aptId]); } catch (Throwable $e) {}
       $pdo->prepare('DELETE FROM player_apartments WHERE id=? AND player_id=?')->execute([$aptId, $pid]);
@@ -184,6 +189,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $price2 = (int)$listing['market_price'];
       $currency = $listing['market_currency'] ?? 'credits';
       $pdo->beginTransaction();
+      // Claim the listing first (guarded on on_market + seller) so two buyers can't both pay
+      $qp = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND is_primary=1'); $qp->execute([$pid]); $hasPrimary = (int)$qp->fetchColumn() > 0;
+      $paidCreds = $currency === 'shards' ? 0 : $price2; // shard buys have no credit refund value
+      $claim = $pdo->prepare('UPDATE player_apartments SET player_id=?, on_market=0, market_price=0, market_currency=\'credits\', is_primary=?, rented_to=NULL, paid_price=? WHERE id=? AND on_market=1 AND player_id=?');
+      $claim->execute([$pid, $hasPrimary?0:1, $paidCreds, $aptId, $listing['player_id']]);
+      if ($claim->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Listing no longer available.'); }
       if ($currency === 'shards') {
         $u = $pdo->prepare('UPDATE players SET shards = shards - ? WHERE id = ? AND shards >= ?');
         $u->execute([$price2, $pid, $price2]);
@@ -195,9 +206,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough credits.'); }
         $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$price2, $listing['player_id']]);
       }
-      // Check if buyer has a primary
-      $qp = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND is_primary=1'); $qp->execute([$pid]); $hasPrimary = (int)$qp->fetchColumn() > 0;
-      $pdo->prepare('UPDATE player_apartments SET player_id=?, on_market=0, market_price=0, market_currency=\'credits\', is_primary=?, rented_to=NULL WHERE id=?')->execute([$pid, $hasPrimary?0:1, $aptId]);
       $pdo->commit();
       if (!$hasPrimary) perk_apply($pdo, $pid, (int)$listing['apt_type_id'], $APT_TYPES, true);
       $msg = 'Purchased ' . $APT_TYPES[$listing['apt_type_id']]['name'] . ' from ' . $listing['seller_name'] . '!';

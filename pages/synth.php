@@ -89,7 +89,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $bonus = 0;
       for ($i = 0; $i < $sigBonus; $i++) { if (random_int(1, 100) <= 35) $bonus++; }
       $got = $qty + $bonus;
-      $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?')->execute([$totalCost, $pid, $totalCost]);
+      $du = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');
+      $du->execute([$totalCost, $pid, $totalCost]);
+      if ($du->rowCount() !== 1) throw new RuntimeException('Not enough Drive (' . $totalCost . ' needed).');
       $myComps[$compId] = ($myComps[$compId] ?? 0) + $got;
       $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["synth_comp:{$pid}", json_encode($myComps)]);
       $msg = 'Acquired ' . $got . 'x ' . $comp['name'] . ($bonus ? " (+{$bonus} from signal hotspot!)" : '') . '.';

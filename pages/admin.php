@@ -4,6 +4,7 @@ $pdo = db();
 $msg = '';
 $role = $player['role'] ?? 'member';
 $canMod   = in_array($role, ['chatmod','moderator','admin','manager'], true);
+$canBoardMod = in_array($role, ['moderator','admin','manager'], true); // chatmod = chat only
 $canAdmin = in_array($role, ['admin','manager'], true);
 
 if (!$canMod) { echo '<script>if(history.length>1){history.back();}else{window.location.href="index.php?p=home";}</script>'; return; }
@@ -164,10 +165,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($a === 'del_chat' && $canMod) {
       $pdo->prepare('DELETE FROM chat_messages WHERE id=?')->execute([(int)($_POST['id'] ?? 0)]); $msg = 'Chat message deleted.';
     }
-    elseif ($a === 'del_post' && $canMod) {
+    elseif ($a === 'del_post' && $canBoardMod) {
       $pdo->prepare('DELETE FROM posts WHERE id=?')->execute([(int)($_POST['id'] ?? 0)]); $msg = 'Post deleted.';
     }
-    elseif ($a === 'del_topic' && $canMod) {
+    elseif ($a === 'del_topic' && $canBoardMod) {
       $tid = (int)($_POST['id'] ?? 0);
       $pdo->prepare('DELETE FROM posts WHERE topic_id=?')->execute([$tid]);
       $pdo->prepare('DELETE FROM topics WHERE id=?')->execute([$tid]); $msg = 'Topic deleted.';
@@ -575,12 +576,14 @@ if ($sec === 'moderation') {
           <td><form method="post" style="margin:0"><input type="hidden" name="action" value="del_chat"><input type="hidden" name="id" value="<?= (int)$c['id'] ?>"><button>Delete</button></form></td></tr>
       <?php endforeach; ?>
     </table>
+    <?php if ($canBoardMod): ?>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
       <form method="post"><input type="hidden" name="action" value="del_post"><label>Delete board post by ID</label>
         <p style="display:flex;gap:6px"><input type="number" name="id"><button>Delete</button></p></form>
       <form method="post"><input type="hidden" name="action" value="del_topic"><label>Delete board topic by ID</label>
         <p style="display:flex;gap:6px"><input type="number" name="id"><button>Delete</button></p></form>
     </div>
+    <?php endif; ?>
     <p class="muted" style="font-size:11px;margin-top:8px">Tip: you can also delete a post directly from a thread on the <a href="index.php?p=boards">Message Boards</a>.</p>
   </div>
   <?php return;
@@ -588,6 +591,11 @@ if ($sec === 'moderation') {
 
 /* ============================ IP LOG ============================ */
 if ($sec === 'iplog') {
+  // IP data is moderator+ (chatmods pass the page-level $canMod gate but must not see IPs)
+  if (!in_array($role, ['moderator','admin','manager'], true)) {
+    echo '<div class="panel"><h2>&#127758; IP &amp; Access Log</h2><p class="muted">Moderator access required.</p></div>';
+    return;
+  }
   $filterIp     = trim($_GET['ip'] ?? '');
   $filterPlayer = trim($_GET['player'] ?? '');
   $filterAction = $_GET['act'] ?? '';
@@ -603,8 +611,6 @@ if ($sec === 'iplog') {
 
   $rows = []; $total = 0;
   try {
-    $countParams = $params;
-    $total = (int)$pdo->prepare("SELECT COUNT(*) FROM ip_log l LEFT JOIN players p ON p.id=l.player_id $wq")->execute($countParams) ? $pdo->prepare("SELECT COUNT(*) FROM ip_log l LEFT JOIN players p ON p.id=l.player_id $wq")->execute($countParams) : 0;
     $cq = $pdo->prepare("SELECT COUNT(*) FROM ip_log l LEFT JOIN players p ON p.id=l.player_id $wq");
     $cq->execute($params); $total = (int)$cq->fetchColumn();
     $lq = $pdo->prepare("SELECT l.*, p.username FROM ip_log l LEFT JOIN players p ON p.id=l.player_id $wq ORDER BY l.id DESC LIMIT $perPage OFFSET $offset");

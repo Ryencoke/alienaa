@@ -25,10 +25,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $cost = 50;
       if ((int)$player['shards'] < $cost) throw new RuntimeException('Not enough shards. Need ' . $cost . ' &#9670;.');
       // Check uniqueness
-      $chk = $pdo->prepare('SELECT id FROM players WHERE username = ? AND id != ?');
+      $chk = $pdo->prepare('SELECT id FROM players WHERE LOWER(username) = LOWER(?) AND id != ?');
       $chk->execute([$newHandle, $pid]); if ($chk->fetchColumn()) throw new RuntimeException('That handle is already taken.');
-      $pdo->prepare('UPDATE players SET prev_username=username, username=?, shards=shards-?, handle_changed_at=NOW() WHERE id=?')
-          ->execute([$newHandle, $cost, $pid]);
+      // Block handles matching/too similar to staff names (same letters after stripping digits/symbols)
+      $staffQ = $pdo->query("SELECT username FROM players WHERE role IN ('admin','manager','moderator','chatmod')");
+      $newLetters = preg_replace('/[^a-z]/', '', strtolower($newHandle));
+      foreach ($staffQ->fetchAll(PDO::FETCH_COLUMN) as $sn) {
+        if (strtolower($newHandle) === strtolower($sn)) throw new RuntimeException('That handle matches a staff member\'s name.');
+        $snLetters = preg_replace('/[^a-z]/', '', strtolower($sn));
+        if ($newLetters !== '' && $snLetters !== '' && $newLetters === $snLetters)
+          throw new RuntimeException('That handle is too similar to a staff member\'s name.');
+      }
+      $u = $pdo->prepare('UPDATE players SET prev_username=username, username=?, shards=shards-?, handle_changed_at=NOW() WHERE id=? AND shards >= ?');
+      $u->execute([$newHandle, $cost, $pid, $cost]);
+      if ($u->rowCount() !== 1) throw new RuntimeException('Not enough shards. Need ' . $cost . ' &#9670;.');
       $player = current_player();
       $msg = 'Handle updated to ' . $newHandle . '. ' . $cost . ' shards deducted.';
     }

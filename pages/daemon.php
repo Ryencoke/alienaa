@@ -132,20 +132,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $bet = (int)($_POST['bet'] ?? 0);
       if ($bet <= 0)      throw new RuntimeException('Place a bet above zero.');
       if ($bet > MAX_BET) throw new RuntimeException('Max single bet is '.number_format(MAX_BET).'.');
-      if ($bet > $player['creds_pocket']) throw new RuntimeException('Not enough creds in pocket.');
+      if (!place_bet($pid, $bet)) throw new RuntimeException('Not enough creds in pocket.');
       $pHand = [bj_card(), bj_card()];
       $dHand = [bj_card(), bj_card()];
-      $_SESSION['bj'] = ['phase'=>'playing','phand'=>$pHand,'dhand'=>$dHand,'bet'=>$bet];
-      $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ?')->execute([$bet, $pid]);
-      $player = current_player();
+      $_SESSION['daemon_bj'] = ['phase'=>'playing','phand'=>$pHand,'dhand'=>$dHand,'bet'=>$bet];
       $pv = bj_hand_value($pHand);
-      if ($pv === 21) {
-        // Blackjack — natural 21
-        $win = (int)round($bet * 1.5);
-        $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$bet + $win, $pid]);
-        settle($pid, 'blackjack', $bet, 'Natural Blackjack', $bet + $win);
-        $_SESSION['bj']['phase'] = 'done';
-        $msg = "&#127881; Blackjack! +".number_format($win)." creds!"; $activeTab = 'blackjack';
+      $dv = bj_hand_value($dHand);
+      if ($pv === 21 || $dv === 21) {
+        // Resolve naturals immediately: both = push, dealer only = loss, player only = 3:2
+        $_SESSION['daemon_bj']['phase'] = 'done';
+        if ($pv === 21 && $dv === 21) {
+          $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$bet, $pid]);
+          settle($pid, 'blackjack', $bet, 'Both natural — push', $bet);
+          $msg = "Both drew natural 21 — push. Bet returned.";
+        } elseif ($dv === 21) {
+          settle($pid, 'blackjack', $bet, 'Dealer natural blackjack', 0);
+          $msg = "Dealer flips a natural 21. The Daemon feeds."; $msgType = 'err';
+        } else {
+          $win = (int)round($bet * 1.5);
+          $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$bet + $win, $pid]);
+          settle($pid, 'blackjack', $bet, 'Natural Blackjack', $bet + $win);
+          $msg = "&#127881; Blackjack! +".number_format($win)." creds!";
+        }
+        $activeTab = 'blackjack';
       } else {
         $msg = 'Cards dealt. Hit or Stand?'; $activeTab = 'blackjack';
       }
@@ -153,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     elseif ($action === 'bj_hit') {
-      $bj = $_SESSION['bj'] ?? null;
+      $bj = $_SESSION['daemon_bj'] ?? null;
       if (!$bj || $bj['phase'] !== 'playing') throw new RuntimeException('No active hand.');
       $bj['phand'][] = bj_card();
       $pv = bj_hand_value($bj['phand']);
@@ -164,11 +173,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       } else {
         $msg = "Hit — your hand is now {$pv}.";
       }
-      $_SESSION['bj'] = $bj; $activeTab = 'blackjack'; $player = current_player();
+      $_SESSION['daemon_bj'] = $bj; $activeTab = 'blackjack'; $player = current_player();
     }
 
     elseif ($action === 'bj_stand') {
-      $bj = $_SESSION['bj'] ?? null;
+      $bj = $_SESSION['daemon_bj'] ?? null;
       if (!$bj || $bj['phase'] !== 'playing') throw new RuntimeException('No active hand.');
       $dHand = $bj['dhand'];
       while (bj_hand_value($dHand) < 17) $dHand[] = bj_card();
@@ -193,11 +202,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         settle($pid, 'blackjack', $bet, "Push {$pv} | P:{$pCards} D:{$dCards}", $bet);
         $msg = "Push — {$pv} each. Bet returned.";
       }
-      $_SESSION['bj'] = $bj; $activeTab = 'blackjack'; $player = current_player();
+      $_SESSION['daemon_bj'] = $bj; $activeTab = 'blackjack'; $player = current_player();
     }
 
     elseif ($action === 'bj_reset') {
-      unset($_SESSION['bj']); $activeTab = 'blackjack';
+      unset($_SESSION['daemon_bj']); $activeTab = 'blackjack';
     }
 
     // ── Video Poker ──
@@ -209,13 +218,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!place_bet($pid, $bet)) { $pdo->rollBack(); throw new RuntimeException('Not enough creds in pocket.'); }
       $pdo->commit();
       $deck = vp_deck();
-      $_SESSION['vp'] = ['hand'=>array_slice($deck,0,5),'deck'=>array_slice($deck,5),'bet'=>$bet,'phase'=>'hold'];
+      $_SESSION['daemon_vp'] = ['hand'=>array_slice($deck,0,5),'deck'=>array_slice($deck,5),'bet'=>$bet,'phase'=>'hold'];
       $msg = 'Cards dealt — select which to hold, then Draw.'; $activeTab = 'vp';
       $player = current_player();
     }
 
     elseif ($action === 'vp_draw') {
-      $vp = $_SESSION['vp'] ?? null;
+      $vp = $_SESSION['daemon_vp'] ?? null;
       if (!$vp || $vp['phase'] !== 'hold') throw new RuntimeException('No active hand.');
       $holdKeys = array_map('intval', (array)($_POST['hold'] ?? []));
       $hand = $vp['hand']; $deck = $vp['deck']; $di = 0;
@@ -227,12 +236,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($net > 0)      $msg = "&#9654; {$hName}! Won +".number_format($net)." creds!";
       elseif ($net === 0) $msg = "{$hName} — push. Bet returned.";
       else               { $msg = "{$hName}. The Daemon takes your ".number_format($bet)."."; $msgType = 'err'; }
-      $_SESSION['vp'] = ['hand'=>$hand,'bet'=>$bet,'phase'=>'done','name'=>$hName,'mult'=>$mult,'net'=>$net];
+      $_SESSION['daemon_vp'] = ['hand'=>$hand,'bet'=>$bet,'phase'=>'done','name'=>$hName,'mult'=>$mult,'net'=>$net];
       $activeTab = 'vp'; $player = current_player();
     }
 
     elseif ($action === 'vp_reset') {
-      unset($_SESSION['vp']); $activeTab = 'vp';
+      unset($_SESSION['daemon_vp']); $activeTab = 'vp';
     }
 
   } catch (Throwable $ex) {
@@ -242,8 +251,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Active blackjack / video poker sessions
-$bj = $_SESSION['bj'] ?? null;
-$vp = $_SESSION['vp'] ?? null;
+$bj = $_SESSION['daemon_bj'] ?? null;
+$vp = $_SESSION['daemon_vp'] ?? null;
 
 // History + stats
 $rl = $pdo->prepare('SELECT * FROM casino_log WHERE player_id = ? ORDER BY played_at DESC LIMIT 50');

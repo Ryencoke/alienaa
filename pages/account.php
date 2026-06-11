@@ -82,31 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $msg = 'Font preference saved.';
     }
     elseif ($action === 'handle') {
-      $newu = trim($_POST['new_username'] ?? ''); $cur = $_POST['current_password'] ?? '';
-      if (!password_verify($cur, $player['pass_hash'])) $msg = 'Current passkey is wrong.';
-      elseif (!preg_match('/^[A-Za-z0-9_]{3,32}$/', $newu)) $msg = 'Handle must be 3–32 characters (letters, numbers, underscore).';
-      else {
-        $dup = $pdo->prepare('SELECT COUNT(*) FROM players WHERE LOWER(username)=LOWER(?) AND id!=?');
-        $dup->execute([$newu, $pid]);
-        if ((int)$dup->fetchColumn() > 0) {
-          $msg = 'That handle is already taken.';
-        } else {
-          // Block handles too similar to staff names (same letters after stripping digits/symbols)
-          $staffQ = $pdo->prepare("SELECT username FROM players WHERE role IN ('admin','manager','moderator','chatmod')");
-          $staffQ->execute(); $staffNames = $staffQ->fetchAll(PDO::FETCH_COLUMN);
-          $newLetters = preg_replace('/[^a-z]/','',strtolower($newu));
-          $staffBlocked = false;
-          foreach ($staffNames as $sn) {
-            if (strtolower($newu) === strtolower($sn)) { $msg = 'That handle matches a staff member\'s name.'; $staffBlocked = true; break; }
-            $snLetters = preg_replace('/[^a-z]/','',strtolower($sn));
-            if ($newLetters !== '' && $snLetters !== '' && $newLetters === $snLetters) { $msg = 'That handle is too similar to a staff member\'s name.'; $staffBlocked = true; break; }
-          }
-          if (!$staffBlocked) {
-            try { $pdo->prepare('UPDATE players SET username=? WHERE id=?')->execute([$newu,$pid]); $msg='Handle changed to '.$newu.'.'; $player=current_player(); }
-            catch (PDOException $e) { $msg='That handle is taken.'; }
-          }
-        }
-      }
+      // Handle renames go through the ID Registry (50 shards, 30-day cooldown) —
+      // this free path bypassed that and is intentionally retired.
+      $msg = 'Handle changes are processed at the ID Registry.';
     }
     elseif ($action === 'add_goal') {
       $gtype   = $_POST['goal_type']   ?? 'custom';
@@ -554,19 +532,10 @@ $curAccent = $player['accent_color'] ?? '';
 
 <?php elseif ($sec === 'account'): ?>
   <h3>Change Handle</h3>
-  <form method="post" style="margin-bottom:24px">
-    <input type="hidden" name="action" value="handle">
-    <div class="field">
-      <span>New handle</span>
-      <input type="text" name="new_username" id="handle-input" value="<?= e($player['username']) ?>" data-no-counter style="max-width:280px" autocomplete="off">
-      <span id="handle-warn" style="display:none;font-size:11px;color:var(--neon2);margin-top:3px">Handle must be 3–32 characters.</span>
-    </div>
-    <div class="field">
-      <span>Current passkey (to confirm)</span>
-      <div class="pass-wrap"><input type="password" name="current_password" autocomplete="current-password"><button type="button" class="pass-toggle" onclick="pwToggle(this)" title="Show/hide">&#128065;</button></div>
-    </div>
-    <button type="submit">Change Handle</button>
-  </form>
+  <p class="muted" style="font-size:12px;margin-bottom:24px">
+    Handle changes are processed at the <a href="index.php?p=registry" style="color:var(--accent)">ID Registry</a>
+    (50 &#9670;, 30-day cooldown).
+  </p>
 
   <h3>Change Passkey</h3>
   <form method="post" style="margin-bottom:24px">

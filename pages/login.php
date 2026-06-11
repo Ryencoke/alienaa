@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
   $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
   if ($row && password_verify($pw,$row['pass_hash'])) {
     session_regenerate_id(true);
-    $_SESSION['pid']=$row['id'];
+    $_SESSION['pid']=(int)$row['id']; // int, so strict ===-comparisons against (int) ids behave
     $_SESSION['last_activity']=time();
     unset($_SESSION['timed_out']);
     try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id'],$ip,$ua,'login']); } catch(Throwable $e){}

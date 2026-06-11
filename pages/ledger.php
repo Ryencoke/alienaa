@@ -90,7 +90,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($amt <= 0)      throw new RuntimeException('Enter an amount above zero.');
       if ($amt > $avail)  throw new RuntimeException('You can only borrow up to ' . number_format($avail) . ' creds.');
       $owe = (int)ceil($amt * 1.045); // 4.5% surcharge
-      $pdo->prepare("UPDATE players SET loan = loan + ?, {$dest} = {$dest} + ? WHERE id = ?")->execute([$owe, $amt, $pid]);
+      $b = $pdo->prepare("UPDATE players SET loan = loan + ?, {$dest} = {$dest} + ? WHERE id = ? AND loan + ? <= ?");
+      $b->execute([$owe, $amt, $pid, $amt, $loanCap]);
+      if ($b->rowCount() !== 1) throw new RuntimeException('That would push you past your loan cap of ' . number_format($loanCap) . ' creds.');
       $msg = 'Borrowed ' . number_format($amt) . ' creds. You now owe ' . number_format($owe) . '.';
     }
 

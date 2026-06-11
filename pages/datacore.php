@@ -22,19 +22,21 @@ $SKILLS_META = [
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  $invest = $_POST['pts'] ?? [];
-  $total  = array_sum(array_map('intval', $invest));
+  $invest = array_map(static fn($v) => max(0, (int)$v), is_array($_POST['pts'] ?? null) ? $_POST['pts'] : []);
+  $total  = array_sum($invest);
   try {
     if ($total <= 0)                        throw new RuntimeException('Move a slider to allocate Drive.');
     if ($total * 5 > $player['cycles'])    throw new RuntimeException('Not enough Drive. Need '.number_format($total * 5).' Drive for '.number_format($total).' cycles.');
+    $burn = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');
+    $burn->execute([$total * 5, $pid, $total * 5]);
+    if ($burn->rowCount() !== 1) throw new RuntimeException('Not enough Drive.');
     foreach ($invest as $sid => $pts) {
-      $pts = (int)$pts; if ($pts <= 0) continue;
+      if ($pts <= 0) continue;
       $pdo->prepare('UPDATE player_skills ps JOIN skills s ON s.id = ps.skill_id
                      SET ps.points = LEAST(s.max_pts, ps.points + ?)
                      WHERE ps.player_id = ? AND ps.skill_id = ?')
           ->execute([$pts, $pid, (int)$sid]);
     }
-    $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ?')->execute([$total * 5, $pid]);
     $msg = "Burned " . number_format($total * 5) . " Drive for " . number_format($total) . " cycles. Skillsofts updated.";
     $player = current_player();
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }

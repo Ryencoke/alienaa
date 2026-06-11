@@ -82,10 +82,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $totalXp += $xp;
         $runResult[] = ['name' => $n['item_name'], 'qty' => $qty, 'rarity' => $rarity, 'slot' => $slot, 'xp' => $xp];
       }
-      $pdo->commit();
-
+      // Cooldown is committed atomically with the loot — a crash between the two
+      // can no longer leave loot granted with no cooldown set.
       $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')
           ->execute([$cdKey, (string)(time() + FOUNDRY_CD)]);
+      $pdo->commit();
       $cdLeft = FOUNDRY_CD;
       $player = current_player();
 

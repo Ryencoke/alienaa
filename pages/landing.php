@@ -71,6 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $act === 'signup_verify') {
   else {
     try {
       db()->prepare('INSERT INTO players (username, pass_hash, avatar, email) VALUES (?,?,?,?)')->execute([$row['username'], $row['pass_hash'], (int)$row['avatar'], $email]);
+      session_regenerate_id(true); // same fixation guard as the login path
       $_SESSION['pid'] = (int)db()->lastInsertId();
       try { db()->prepare('DELETE FROM pending_signups WHERE email=?')->execute([$email]); } catch (Throwable $e) {}
       if (!headers_sent()) header('Location: index.php?p=home');

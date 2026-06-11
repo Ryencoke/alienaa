@@ -39,8 +39,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'buy')
   try {
     if (!$item) throw new RuntimeException('Item not found.');
     $price = $item[4];
-    if ((int)$player['creds_pocket'] < $price) throw new RuntimeException('Not enough creds. Need ' . number_format($price) . ' &#9670;');
-    $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ?')->execute([$price, $pid]);
+    $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
+    $u->execute([$price, $pid, $price]);
+    if ($u->rowCount() !== 1) throw new RuntimeException('Not enough creds. Need ' . number_format($price) . ' &#9670;');
     $effect = $item[5]; $amount = (int)$item[6];
     if ($effect) {
       // Apply stat up to its max

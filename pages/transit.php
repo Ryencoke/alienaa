@@ -48,9 +48,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$node) throw new RuntimeException('No such dig site.');
       if (($skillPts[$node['skill_code']] ?? 0) < $node['skill_req'])
         throw new RuntimeException("Locked — needs {$skillName[$node['skill_code']]} {$node['skill_req']}.");
+      // Drive cost per dig (scales with site tier) — keeps tunnel mining in line
+      // with the Sump and Foundry instead of being free infinite farming.
+      $driveCost = 5 + (int)$node['skill_req'];
+      $dc = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');
+      $dc->execute([$driveCost, $pid, $driveCost]);
+      if ($dc->rowCount() !== 1) throw new RuntimeException("Not enough Drive — a dig here costs {$driveCost} Drive.");
       $yield = random_int((int)$node['yield_min'], (int)$node['yield_max']);
       $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty = qty + VALUES(qty)')->execute([$pid, $node['item_id'], $yield]);
-      $msg = "Extracted <b style=\"color:var(--accent)\">{$yield}&times; {$node['item_name']}</b> from the tunnels.";
+      $msg = "Extracted <b style=\"color:var(--accent)\">{$yield}&times; {$node['item_name']}</b> from the tunnels. (&minus;{$driveCost} Drive)";
       $msgType = 'ok';
     }
   } catch (Throwable $ex) {
@@ -157,6 +163,7 @@ $msgType = $msgType ?? 'ok';
       <div style="font-size:11px;color:var(--muted);margin-top:1px"><?= e($m['descr']) ?></div>
       <div style="margin-top:4px;display:flex;gap:10px;font-size:11px">
         <span>Yields: <b style="color:var(--accent)"><?= (int)$m['yield_min'] ?>–<?= (int)$m['yield_max'] ?> <?= e($m['item_name']) ?></b></span>
+        <span style="color:var(--muted)">Cost: <b style="color:#e8a33d"><?= 5 + (int)$m['skill_req'] ?> Drive</b></span>
         <span style="color:var(--muted)">Req: <b style="color:<?= $unlocked ? 'var(--text)' : 'var(--neon2)' ?>"><?= e($skillName[$m['skill_code']] ?? $m['skill_code']) ?> <?= (int)$m['skill_req'] ?></b> (you: <?= (int)$have ?>)</span>
       </div>
     </div>

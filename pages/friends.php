@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_SERVER['HTTP_X_REQUESTED_W
   try {
     if ($act === 'add') {
       $fid = (int)($_POST['friend_id'] ?? 0);
-      if ($fid === $pid) throw new RuntimeException("Can't friend yourself.");
+      if ($fid === (int)$pid) throw new RuntimeException("Can't friend yourself.");
       $chk = $pdo->prepare('SELECT username FROM players WHERE id = ?'); $chk->execute([$fid]);
       $tgt = $chk->fetch(); if (!$tgt) throw new RuntimeException('Player not found.');
       $pdo->prepare('INSERT IGNORE INTO friends (player_id, friend_id) VALUES (?,?)')->execute([$pid, $fid]);
@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   try {
     if ($act === 'add') {
       $fid = (int)($_POST['friend_id'] ?? 0);
-      if ($fid === $pid) throw new RuntimeException("Can't friend yourself.");
+      if ($fid === (int)$pid) throw new RuntimeException("Can't friend yourself.");
       $chk = $pdo->prepare('SELECT username FROM players WHERE id = ?'); $chk->execute([$fid]);
       $tgt = $chk->fetch(); if (!$tgt) throw new RuntimeException('Player not found.');
       $pdo->prepare('INSERT IGNORE INTO friends (player_id, friend_id) VALUES (?,?)')->execute([$pid, $fid]);
