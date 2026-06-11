@@ -167,7 +167,6 @@ $battleResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $act = $_POST['action'] ?? '';
   try {
-    if ($_pvpIsMerchant) throw new RuntimeException('Commerce Accord active — combat is locked until ' . $_pvpMerchantUntil . '.');
     if ($act === 'spend_stat') {
       $stat = $_POST['stat'] ?? '';
       if (!in_array($stat, ['str_pts','spd_pts','end_pts'], true)) throw new RuntimeException('Invalid stat.');
@@ -177,6 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $msg = 'Stat point spent!';
 
     } elseif ($act === 'challenge') {
+      if ($_pvpIsMerchant) throw new RuntimeException('Commerce Accord active — combat is locked until ' . $_pvpMerchantUntil . '.');
       $target = trim($_POST['target'] ?? '');
       if ($target === '') throw new RuntimeException('Enter a ghost\'s handle.');
       $q = $pdo->prepare('SELECT * FROM players WHERE username=?'); $q->execute([$target]); $defPlayer = $q->fetch();
@@ -515,7 +515,7 @@ if (!empty($arenaLatest) && !$battleResult): ?>
       <div style="width:<?= min(100, (int)round($val/25*100)) ?>%;height:100%;background:<?= $color ?>;border-radius:3px"></div>
     </div>
     <?php if ((int)$myStats['unspent'] > 0): ?>
-    <form method="post" action="index.php?p=pvp&tab=stats" style="margin:0">
+    <form method="post" style="margin:0">
       <input type="hidden" name="action" value="spend_stat">
       <input type="hidden" name="stat" value="<?= $key ?>">
       <button type="submit" style="font-size:12px;padding:5px 14px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.25);color:var(--accent)">+ Spend</button>

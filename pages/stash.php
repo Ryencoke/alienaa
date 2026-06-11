@@ -100,7 +100,7 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
   </div>
   <div style="font-size:12px;color:var(--muted)"><span style="color:var(--neon2)">+<?= $gearAtk ?> ATK</span> &nbsp; <span style="color:var(--accent)">+<?= $gearDef ?> DEF</span> &mdash; total gear bonus</div>
   <?php else: ?>
-  <p class="muted" style="font-size:13px">No gear equipped. <a href="index.php?p=weaponcraft">Visit the Fabrication Lab</a> to craft and equip weapons &amp; armor.</p>
+  <p class="muted" style="font-size:13px">No gear equipped.</p>
   <?php endif; ?>
 </div>
 

@@ -2,6 +2,17 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-10 BATCH-17 ---
+
+PVP STAT SPENDING BUGFIX
+-------------------------
+- [pvp.php] CRITICAL FIX: Merchant accord check (if $_pvpIsMerchant throw) was at the top of the POST handler,
+  blocking ALL POST actions including spend_stat. Moved inside the 'challenge' block only — stat spending
+  now works regardless of accord status.
+- [pvp.php] Removed action="index.php?p=pvp&tab=stats" from spend_stat forms. AJAX nav handles the POST
+  via window.location.href (already correct when navigated to stats tab), preventing full page reloads and
+  form-skip caused by the action attribute in the AJAX nav interceptor (line 593: if(form.getAttribute('action')) return).
+
 --- SESSION: 2026-06-10 BATCH-16 ---
 
 GENDER / JOURNAL / NOTIFICATIONS / PVP FIX

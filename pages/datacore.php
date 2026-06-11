@@ -131,7 +131,7 @@ $skills = $rows->fetchAll();
       var prev=document.getElementById('sk-prev-'+id);
       if(prev) prev.style.width=pct+'%';
       var cost=document.getElementById('sk-cost-'+id);
-      if(cost) cost.textContent=(v*5)+' Drive';
+      if(cost) cost.textContent=v>0?'+'+v+' pts — '+(v*5)+' Drive':'0 pts';
       var lv=document.getElementById('sk-lv-'+id);
       if(lv && max>0){ var newLv=Math.min(10,Math.floor((pts+v)/(max/10))+1); lv.textContent=newLv; }
       t+=v;
