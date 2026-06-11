@@ -2,6 +2,39 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-51 ---
+
+FIRST IMPRESSIONS — LANDING + LOGIN + REGISTER POLISH
+------------------------------------------------------
+[landing.php]
+- ANIMATED HERO SKYLINE: the headline now floats over a living night
+  city — twinkling stars, two skyline layers with flickering teal/pink
+  windows, breathing neon haze from off-screen signs, a passing aircar
+  streak, and a soft veil + bottom fade keeping the text crisp.
+- Hero elements (eyebrow, title, sub, CTAs, stats) enter with a smooth
+  staggered rise on load; the live stat counters COUNT UP from zero.
+- Nav gains a pulsing "(n) online" live pill beside the logo.
+- Feature cards now each have their own accent color (top edge lights
+  up on hover) and reveal with a stagger as you scroll; ghost cards
+  scroll-reveal too and their avatars lift on hover.
+- Signup modal pops in with a spring scale animation. Footer gets a
+  copyright year.
+
+[login.php + register.php]
+- SYNTHWAVE BACKDROP: both auth pages now sit on an animated full-screen
+  grid horizon — stars, a breathing teal/pink horizon glow, a distant
+  flickering skyline, and a perspective grid floor scrolling toward you.
+- New SPRAWL-9 brand mark above the card ("Grid Access Terminal" /
+  "New Ghost Registration") with a subtle neon flicker, plus a
+  "← Back to the Sprawl" escape link.
+- Auth cards: frosted glass, gradient hairline on top, rise-in entrance,
+  glowing input focus rings. The login card SHAKES on bad credentials.
+- register.php: passkey gets a show/hide toggle and a live 4-segment
+  STRENGTH METER with label; the handle field validates live (✓/✗);
+  gender radios become proper selectable chips; success state pops in.
+- Zero logic changes — all queries, validation, and session handling
+  are untouched on all three pages.
+
 --- SESSION: 2026-06-11 BATCH-50 ---
 
 HIDEOUT (home.php) + PROFILES (profile.php) — POLISH

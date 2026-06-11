@@ -221,10 +221,50 @@ try {
   font-size:11px;color:var(--muted);
 }
 
+/* ── Hero backdrop + entrances ── */
+.land-hero-wrap{position:relative;overflow:hidden}
+#land-sky{position:absolute;inset:0;width:100%;height:100%;display:block}
+.land-hero{position:relative;z-index:1}
+@keyframes landUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+.land-eyebrow{animation:landUp .6s cubic-bezier(.2,.8,.3,1) both}
+.land-title{animation:landUp .6s cubic-bezier(.2,.8,.3,1) .08s both}
+.land-sub{animation:landUp .6s cubic-bezier(.2,.8,.3,1) .16s both}
+.land-cta-row{animation:landUp .6s cubic-bezier(.2,.8,.3,1) .24s both}
+.land-stats{animation:landUp .6s cubic-bezier(.2,.8,.3,1) .32s both;backdrop-filter:blur(3px)}
+.land-stat{transition:background .15s}
+.land-stat:hover{background:rgba(255,255,255,.03)}
+
+/* live-online pill in nav */
+.land-live{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);
+  letter-spacing:.6px;text-transform:uppercase}
+.land-live .dot{width:7px;height:7px;border-radius:50%;background:#3bcf63;
+  box-shadow:0 0 8px #3bcf63;animation:landDot 1.6s ease-in-out infinite}
+@keyframes landDot{50%{opacity:.35}}
+@media(max-width:620px){.land-live{display:none}}
+
+/* scroll reveal */
+.land-reveal{opacity:0;transform:translateY(14px);
+  transition:opacity .55s ease,transform .55s cubic-bezier(.2,.8,.3,1),border-color .2s,background .2s,box-shadow .2s}
+.land-reveal.vis{opacity:1;transform:none}
+
+/* per-feature accents */
+.land-feat-card{position:relative;overflow:hidden}
+.land-feat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:var(--fc,var(--accent));opacity:0;transition:opacity .2s}
+.land-feat-card:hover::before{opacity:.85}
+.land-feat-card:hover{border-color:var(--fc,rgba(25,240,199,.3));box-shadow:0 6px 18px rgba(0,0,0,.3)}
+.land-feat-name{color:var(--fc,var(--accent))}
+
+/* ghost cards */
+.land-ghost-card svg{transition:transform .25s cubic-bezier(.2,.8,.3,1)}
+.land-ghost-card:hover svg{transform:translateY(-4px) scale(1.06)}
+
 /* Modal */
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;
   align-items:center;justify-content:center;backdrop-filter:blur(4px)}
 .modal-bg.show{display:flex}
+@keyframes modalIn{from{opacity:0;transform:scale(.94) translateY(10px)}}
+.modal-bg.show .modal{animation:modalIn .22s cubic-bezier(.2,.9,.3,1.15)}
 .modal{background:var(--panel);border:1px solid var(--line);border-radius:12px;
   padding:28px;width:100%;max-width:380px;position:relative;
   box-shadow:0 0 60px rgba(0,0,0,.6),0 0 0 1px rgba(25,240,199,.1)}
@@ -236,7 +276,10 @@ try {
 <div class="land-bg">
 <!-- ── Nav ──────────────────────────────────────────── -->
 <nav class="land-nav">
-  <div class="land-logo-txt">SPRAWL-9</div>
+  <div style="display:flex;align-items:center;gap:16px">
+    <div class="land-logo-txt">SPRAWL-9</div>
+    <span class="land-live"><span class="dot"></span><span><?= number_format($onlineNow) ?> online</span></span>
+  </div>
   <form class="land-nav-login" method="post" action="index.php?p=login">
     <input type="text" name="email" placeholder="email or handle" autocomplete="email">
     <input type="password" name="password" placeholder="passkey" autocomplete="current-password">
@@ -245,6 +288,8 @@ try {
 </nav>
 
 <!-- ── Hero ─────────────────────────────────────────── -->
+<div class="land-hero-wrap">
+<canvas id="land-sky"></canvas>
 <div class="land-hero">
   <div class="land-eyebrow">&#9889; Free to Play &bull; Browser-Based &bull; No Download</div>
   <h1 class="land-title">Jack into the<br><span>Neon Underground</span></h1>
@@ -257,18 +302,19 @@ try {
   <!-- Live Stats -->
   <div class="land-stats">
     <div class="land-stat">
-      <span class="land-stat-num" id="ls-total"><?= number_format($totalPlayers) ?></span>
+      <span class="land-stat-num" id="ls-total" data-n="<?= (int)$totalPlayers ?>"><?= number_format($totalPlayers) ?></span>
       <div class="land-stat-lbl">Ghosts Registered</div>
     </div>
     <div class="land-stat">
-      <span class="land-stat-num" style="color:var(--neon2)" id="ls-online"><?= number_format($onlineNow) ?></span>
+      <span class="land-stat-num" style="color:var(--neon2)" id="ls-online" data-n="<?= (int)$onlineNow ?>"><?= number_format($onlineNow) ?></span>
       <div class="land-stat-lbl">Online Now</div>
     </div>
     <div class="land-stat">
-      <span class="land-stat-num" style="color:#e8a33d" id="ls-combat"><?= number_format($totalCombat) ?></span>
+      <span class="land-stat-num" style="color:#e8a33d" id="ls-combat" data-n="<?= (int)$totalCombat ?>"><?= number_format($totalCombat) ?></span>
       <div class="land-stat-lbl">Fights Logged</div>
     </div>
   </div>
+</div>
 </div>
 
 <!-- ── Features ─────────────────────────────────────── -->
@@ -284,8 +330,10 @@ try {
       ['&#128313;','Syndicates &amp; Guilds','Join or create a Syndicate. Climb ranks, donate to the collective, run private boards, and level up your faction.'],
       ['&#127748;','Black Market','Post anything for auction. Live bidding, outbid refunds, and a ruthless auctioneer fee. Every sale is final.'],
       ['&#128241;','Subsistence Terminal','New to the Grid? Claim 500 free credits every day for your first 30 days. The Sprawl gives new ghosts a fighting chance.'],
-    ]; foreach ($feats as [$icon,$name,$desc]): ?>
-    <div class="land-feat-card">
+    ];
+    $featCols = ['#19f0c7','#ff2d95','#e8d44d','#4d9be8','#3bcf63','#b48cff','#e8a33d','#ff5c5c'];
+    foreach ($feats as $fi => [$icon,$name,$desc]): ?>
+    <div class="land-feat-card land-reveal" style="--fc:<?= $featCols[$fi % count($featCols)] ?>" data-rd="<?= ($fi % 3) * 70 ?>">
       <div class="land-feat-icon"><?= $icon ?></div>
       <div class="land-feat-name"><?= $name ?></div>
       <div class="land-feat-desc"><?= $desc ?></div>
@@ -300,14 +348,14 @@ try {
   <p class="muted" style="font-size:13px;margin-bottom:28px">Both start the same. The choice is aesthetic — pick the one that feels like you.</p>
 </div>
 <div class="land-ghost-row">
-  <div class="land-ghost-card" onclick="openSignup(1)">
+  <div class="land-ghost-card land-reveal" onclick="openSignup(1)">
     <div class="land-ghost-badge" style="background:rgba(25,240,199,.12);border:1px solid rgba(25,240,199,.3);color:var(--accent)">DRIFTER</div>
     <?= avatar_svg('var(--accent)') ?>
     <div class="cap">THE DRIFTER</div>
     <div class="sub">A vagrant operative, no allegiances, no limits.</div>
     <div style="margin-top:16px;padding:8px 20px;border:1px solid rgba(25,240,199,.3);border-radius:5px;font-size:12px;color:var(--accent)">Jack In &rarr;</div>
   </div>
-  <div class="land-ghost-card alt" onclick="openSignup(2)">
+  <div class="land-ghost-card alt land-reveal" onclick="openSignup(2)" data-rd="90">
     <div class="land-ghost-badge" style="background:rgba(255,45,149,.12);border:1px solid rgba(255,45,149,.3);color:var(--neon2)">NETGHOST</div>
     <?= avatar_svg('var(--neon2)') ?>
     <div class="cap">THE NETGHOST</div>
@@ -317,7 +365,7 @@ try {
 </div>
 
 <div class="land-footer">
-  Sprawl-9 &mdash; A cyberpunk text MMO &bull; Free to play &bull; <a href="index.php?p=login">Already have a ghost? Log in</a>
+  Sprawl-9 &copy; <?= date('Y') ?> &mdash; A cyberpunk text MMO &bull; Free to play &bull; <a href="index.php?p=login">Already have a ghost? Log in</a>
 </div>
 </div>
 
@@ -387,4 +435,130 @@ document.getElementById('signupModal').addEventListener('click', function(e){ if
 document.querySelectorAll('a[href="#features"]').forEach(function(a){
   a.addEventListener('click',function(e){ e.preventDefault(); document.getElementById('features').scrollIntoView({behavior:'smooth'}); });
 });
+
+/* ── Live stat count-up ── */
+document.querySelectorAll('.land-stat-num[data-n]').forEach(function(el){
+  var target=parseInt(el.getAttribute('data-n'),10)||0, t0=null;
+  if(target<=0) return;
+  function step(t){
+    if(!t0) t0=t;
+    var p=Math.min(1,(t-t0)/1300); p=1-Math.pow(1-p,3);
+    el.textContent=Math.round(target*p).toLocaleString();
+    if(p<1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+});
+
+/* ── Scroll reveal ── */
+(function(){
+  var rv=document.querySelectorAll('.land-reveal');
+  if(!('IntersectionObserver' in window)){ rv.forEach(function(el){ el.classList.add('vis'); }); return; }
+  var io=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(!en.isIntersecting) return;
+      var el=en.target;
+      el.style.transitionDelay=(el.getAttribute('data-rd')||0)+'ms';
+      el.classList.add('vis');
+      setTimeout(function(){ el.style.transitionDelay=''; },800);
+      io.unobserve(el);
+    });
+  },{threshold:.12});
+  rv.forEach(function(el){ io.observe(el); });
+})();
+
+/* ── Hero skyline backdrop ── */
+(function(){
+'use strict';
+var cv=document.getElementById('land-sky');
+if(!cv) return;
+var c=cv.getContext('2d'), wrap=cv.parentNode;
+var W,H,dpr,towers=[],backTowers=[],stars=[];
+function rnd(i){ var x=Math.sin(i*127.17)*43758.5453; return x-Math.floor(x); }
+function build(){
+  dpr=Math.min(2,window.devicePixelRatio||1);
+  W=wrap.clientWidth; H=wrap.clientHeight;
+  cv.width=W*dpr; cv.height=H*dpr;
+  c.setTransform(dpr,0,0,dpr,0,0);
+  backTowers=[]; towers=[];
+  var x=-30,i=0;
+  while(x<W+60){ var bw=34+rnd(i+200)*70, bh=H*0.12+rnd(i+260)*H*0.22;
+    backTowers.push({x:x,w:bw,h:bh}); x+=bw+6+rnd(i+220)*20; i++; }
+  x=-20; i=0;
+  while(x<W+40){ var tw=26+rnd(i)*56, th=H*0.10+rnd(i+99)*H*0.30;
+    towers.push({x:x,w:tw,h:th,seed:i}); x+=tw+5+rnd(i+7)*18; i++; }
+  stars=[];
+  for(var s=0;s<110;s++) stars.push({x:rnd(s+500)*W, y:rnd(s+800)*H*0.5, r:.5+rnd(s+300)*1.1, p:rnd(s)*6.28});
+}
+build();
+var rsT; window.addEventListener('resize',function(){ clearTimeout(rsT); rsT=setTimeout(build,150); });
+
+function loop(t){
+  if(!document.body.contains(cv)) return;
+  requestAnimationFrame(loop);
+  c.clearRect(0,0,W,H);
+  var g=c.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#07070f'); g.addColorStop(.7,'#0b0a18'); g.addColorStop(1,'#0a0a12');
+  c.fillStyle=g; c.fillRect(0,0,W,H);
+
+  // stars
+  stars.forEach(function(s){
+    var a=.25+.3*Math.sin(t/900+s.p);
+    if(a<=0) return;
+    c.fillStyle='rgba(220,240,255,'+a.toFixed(2)+')';
+    c.fillRect(s.x,s.y,s.r,s.r);
+  });
+
+  // neon haze pulses (off-screen signs)
+  var h1=c.createRadialGradient(W*0.18,H*0.92,0,W*0.18,H*0.92,H*0.7);
+  h1.addColorStop(0,'rgba(25,240,199,'+(0.05+0.02*Math.sin(t/1700)).toFixed(3)+')'); h1.addColorStop(1,'rgba(0,0,0,0)');
+  c.fillStyle=h1; c.fillRect(0,0,W,H);
+  var h2=c.createRadialGradient(W*0.84,H*0.95,0,W*0.84,H*0.95,H*0.65);
+  h2.addColorStop(0,'rgba(255,45,149,'+(0.045+0.02*Math.sin(t/2100+2)).toFixed(3)+')'); h2.addColorStop(1,'rgba(0,0,0,0)');
+  c.fillStyle=h2; c.fillRect(0,0,W,H);
+
+  // aircar streak gliding across, repeats every ~9s
+  var carP=(t%9000)/9000;
+  if(carP<.45){
+    var cx2=-60+(W+120)*(carP/.45), cy2=H*0.30+Math.sin(carP*9)*8;
+    var cg=c.createLinearGradient(cx2-46,cy2,cx2,cy2);
+    cg.addColorStop(0,'rgba(255,90,90,0)'); cg.addColorStop(1,'rgba(255,90,90,.5)');
+    c.strokeStyle=cg; c.lineWidth=1.6;
+    c.beginPath(); c.moveTo(cx2-46,cy2+1); c.lineTo(cx2,cy2); c.stroke();
+    c.fillStyle='rgba(255,160,160,.9)'; c.fillRect(cx2-1,cy2-1,2.6,2.6);
+  }
+
+  // back skyline (hazier, taller)
+  c.fillStyle='#0a0a15';
+  backTowers.forEach(function(b){ c.fillRect(b.x,H-b.h,b.w,b.h); });
+
+  // front skyline with flickering windows
+  towers.forEach(function(tw){
+    c.fillStyle='#0d0d19';
+    c.fillRect(tw.x,H-tw.h,tw.w,tw.h);
+    var cols=Math.max(1,Math.floor(tw.w/11)), rows=Math.max(2,Math.floor(tw.h/15));
+    for(var r2=0;r2<rows;r2++){
+      for(var cl=0;cl<cols;cl++){
+        var k=tw.seed*31+r2*7+cl*13;
+        if(rnd(k)<.62) continue;
+        var fl=rnd(k+50)>.85 ? (0.5+0.5*Math.sin(t/600+k)) : 1;
+        var a=(0.16+rnd(k+9)*0.2)*fl;
+        if(a<=0.02) continue;
+        c.fillStyle=(rnd(k+77)>.82)?'rgba(255,45,149,'+a.toFixed(2)+')':'rgba(25,240,199,'+a.toFixed(2)+')';
+        c.fillRect(tw.x+4+cl*11, H-tw.h+6+r2*15, 4, 6);
+      }
+    }
+  });
+
+  // soft veil behind the headline so text stays crisp
+  var v=c.createRadialGradient(W/2,H*0.36,40,W/2,H*0.36,Math.max(W,H)*0.55);
+  v.addColorStop(0,'rgba(7,7,15,.38)'); v.addColorStop(1,'rgba(7,7,15,0)');
+  c.fillStyle=v; c.fillRect(0,0,W,H);
+
+  // fade into the page background at the bottom edge
+  var f=c.createLinearGradient(0,H-80,0,H);
+  f.addColorStop(0,'rgba(10,10,18,0)'); f.addColorStop(1,'#0a0a12');
+  c.fillStyle=f; c.fillRect(0,H-80,W,80);
+}
+requestAnimationFrame(loop);
+})();
 </script>
