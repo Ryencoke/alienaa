@@ -80,6 +80,7 @@ function bj_render_card(array $c, bool $hidden = false): string {
 }
 
 // ── POST handling ────────────────────────────────────────────────────────────
+$fxEvent = null; // reveal/celebration event handed to the client after a play
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action    = $_POST['action'] ?? '';
   $activeTab = $_POST['_tab']   ?? 'dice';
@@ -103,6 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $net = $payout - $bet;
       if ($net > 0) $msg = "Rolled {$sum} — you called ".ucfirst($choice).". Won +".number_format($net)." creds!";
       else          { $msg = "Rolled {$sum} (".ucfirst($band).") — you called ".ucfirst($choice).". The Daemon feeds."; $msgType = 'err'; }
+      $fxEvent = ['g'=>'dice','won'=>$net>0,'net'=>$net,'big'=>($mult>=5&&$net>0)];
     }
 
     elseif ($action === 'slots') {
@@ -125,6 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       elseif  ($mult >= 5)  { $msg = "Three of a kind! +".number_format($net)." creds!"; }
       elseif  ($mult === 1) { $msg = "Pair — push. Bet returned."; }
       else                  { $msg = "No match. The reels eat your ".number_format($bet)."."; $msgType = 'err'; }
+      $fxEvent = ['g'=>'slots','mult'=>$mult,'net'=>$net,'jackpot'=>$mult>=25,'big'=>$mult>=5];
     }
 
     // ── Blackjack ──
@@ -155,8 +158,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $msg = "&#127881; Blackjack! +".number_format($win)." creds!";
         }
         $activeTab = 'blackjack';
+        $fxEvent = ['g'=>'bj','ev'=>'deal','result'=>($pv===21&&$dv===21)?'push':($dv===21?'lose':'bigwin')];
       } else {
         $msg = 'Cards dealt. Hit or Stand?'; $activeTab = 'blackjack';
+        $fxEvent = ['g'=>'bj','ev'=>'deal','result'=>null];
       }
       $player = current_player();
     }
@@ -170,8 +175,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $bj['phase'] = 'done';
         settle($pid, 'blackjack', $bj['bet'], 'Bust ('.implode(' ', array_map(fn($c)=>$c['r'].$c['s'], $bj['phand'])).')', 0);
         $msg = "Bust! You drew to {$pv}. The Daemon wins."; $msgType = 'err';
+        $fxEvent = ['g'=>'bj','ev'=>'hit','bust'=>true];
       } else {
         $msg = "Hit — your hand is now {$pv}.";
+        $fxEvent = ['g'=>'bj','ev'=>'hit','bust'=>false];
       }
       $_SESSION['daemon_bj'] = $bj; $activeTab = 'blackjack'; $player = current_player();
     }
@@ -202,6 +209,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         settle($pid, 'blackjack', $bet, "Push {$pv} | P:{$pCards} D:{$dCards}", $bet);
         $msg = "Push — {$pv} each. Bet returned.";
       }
+      $fxEvent = ['g'=>'bj','ev'=>'stand',
+        'result'=>($dv>21||$pv>$dv)?'win':($pv<$dv?'lose':'push'),
+        'net'=>($dv>21||$pv>$dv)?$bet:($pv<$dv?-$bet:0)];
       $_SESSION['daemon_bj'] = $bj; $activeTab = 'blackjack'; $player = current_player();
     }
 
@@ -220,6 +230,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $deck = vp_deck();
       $_SESSION['daemon_vp'] = ['hand'=>array_slice($deck,0,5),'deck'=>array_slice($deck,5),'bet'=>$bet,'phase'=>'hold'];
       $msg = 'Cards dealt — select which to hold, then Draw.'; $activeTab = 'vp';
+      $fxEvent = ['g'=>'vp','ev'=>'deal'];
       $player = current_player();
     }
 
@@ -236,6 +247,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($net > 0)      $msg = "&#9654; {$hName}! Won +".number_format($net)." creds!";
       elseif ($net === 0) $msg = "{$hName} — push. Bet returned.";
       else               { $msg = "{$hName}. The Daemon takes your ".number_format($bet)."."; $msgType = 'err'; }
+      $fxEvent = ['g'=>'vp','ev'=>'draw','mult'=>$mult,'net'=>$net,'name'=>$hName,'jackpot'=>$mult>=25,'big'=>$mult>=6];
       $_SESSION['daemon_vp'] = ['hand'=>$hand,'bet'=>$bet,'phase'=>'done','name'=>$hName,'mult'=>$mult,'net'=>$net];
       $activeTab = 'vp'; $player = current_player();
     }
@@ -247,6 +259,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } catch (Throwable $ex) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $msg = $ex->getMessage(); $msgType = 'err';
+    $fxEvent = null; // failed plays get no reveal/celebration
   }
 }
 
@@ -285,15 +298,44 @@ $bjBet       = $bj['bet'] ?? $defaultBet;
 $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#127921;', 'video_poker'=>'&#9830;'];
 ?>
 
-<div class="panel daemon-header">
-  <div>
-    <h2>&#127920; The Lucky Daemon</h2>
-    <p class="muted" style="margin:0;font-size:12px">The house always wins. The house is also on fire.</p>
-  </div>
-  <div class="daemon-balance">
-    <div class="daemon-balance-label">Pocket</div>
-    <div class="daemon-balance-val"><?= number_format($player['creds_pocket']) ?></div>
-    <div class="daemon-balance-unit">creds</div>
+<style>
+#dmn-canvas{display:block;width:100%;height:112px;border-radius:9px 9px 0 0}
+#dmn-head h2{text-shadow:0 0 16px rgba(255,45,149,.5)}
+@keyframes dmnDealIn{0%{opacity:0;transform:translateY(-14px) rotateY(85deg)}100%{opacity:1;transform:none}}
+.bj-hand .bj-card,.vp-card-wrap .bj-card{animation:dmnDealIn .3s ease-out backwards}
+.felt{position:relative}
+.felt::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;box-shadow:inset 0 0 40px rgba(0,0,0,.45)}
+.daemon-go-btn{transition:transform .08s,box-shadow .15s}
+.daemon-go-btn:hover{box-shadow:0 0 14px rgba(25,240,199,.25)}
+.daemon-go-btn:active{transform:scale(.97)}
+.dice-box{transition:transform .12s}
+.dice-box.rolling{animation:dmnDiceShake .12s linear infinite}
+@keyframes dmnDiceShake{0%{transform:translate(0,0) rotate(0)}25%{transform:translate(2px,-2px) rotate(4deg)}50%{transform:translate(-2px,1px) rotate(-3deg)}75%{transform:translate(1px,2px) rotate(2deg)}}
+.dice-box.landed{animation:dmnDiceLand .3s cubic-bezier(.2,1.8,.4,1)}
+@keyframes dmnDiceLand{0%{transform:scale(1.35)}100%{transform:scale(1)}}
+.reel-box.rolling{animation:dmnReelBlur .09s linear infinite}
+@keyframes dmnReelBlur{0%{transform:translateY(-2px);filter:blur(1px)}100%{transform:translateY(2px);filter:blur(1.5px)}}
+.reel-box.landed{animation:dmnDiceLand .25s cubic-bezier(.2,1.8,.4,1)}
+.hist-row{transition:background .12s}
+.hist-row:hover{background:rgba(255,255,255,.025)}
+@keyframes dmnWinPulse{0%{box-shadow:inset 0 0 0 rgba(59,207,99,0)}30%{box-shadow:inset 0 0 60px rgba(59,207,99,.25)}100%{box-shadow:inset 0 0 0 rgba(59,207,99,0)}}
+.felt.winflash{animation:dmnWinPulse 1.1s ease-out}
+@keyframes dmnLosePulse{0%{box-shadow:inset 0 0 0 rgba(255,45,149,0)}30%{box-shadow:inset 0 0 50px rgba(255,45,149,.18)}100%{box-shadow:inset 0 0 0 rgba(255,45,149,0)}}
+.felt.loseflash{animation:dmnLosePulse 1s ease-out}
+</style>
+
+<div class="panel" id="dmn-head" style="padding:0;overflow:hidden">
+  <div style="position:relative">
+    <canvas id="dmn-canvas"></canvas>
+    <div style="position:absolute;left:16px;bottom:12px;pointer-events:none">
+      <h2 style="margin:0">&#127920; The Lucky Daemon</h2>
+      <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">The house always wins. The house is also on fire.</p>
+    </div>
+    <div style="position:absolute;right:14px;bottom:12px;text-align:right">
+      <div class="muted" style="font-size:10px;text-shadow:0 1px 4px #000">POCKET</div>
+      <div style="font-size:19px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent);text-shadow:0 1px 6px #000"><?= number_format($player['creds_pocket']) ?> <span style="font-size:11px;font-weight:400">cr</span></div>
+    </div>
+    <button id="dmn-mute" onclick="toggleDmnSound()" title="Toggle sound" style="position:absolute;top:8px;right:10px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
   </div>
 </div>
 
@@ -652,7 +694,86 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
 </div>
 
 <script>
+/* Casino FX kit — bound once; overlays live on document.body and survive AJAX swaps. */
 (function(){
+  if(window._dmnFxBound) return;
+  window._dmnFxBound=true;
+
+  var css=document.createElement('style');
+  css.textContent=
+    '#dmnjp{position:fixed;inset:0;z-index:10001;pointer-events:none;opacity:0;transition:opacity .2s;overflow:hidden}'
+    +'#dmnjp.show{opacity:1}'
+    +'#dmnjp .jp-txt{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%) scale(.4);text-align:center;'
+    +'font-family:Orbitron,monospace;font-weight:900;font-size:38px;color:#e8d44d;letter-spacing:.1em;'
+    +'text-shadow:0 0 24px #e8d44d,0 0 70px rgba(232,212,77,.7);animation:dmnJpIn .5s cubic-bezier(.2,1.7,.4,1) forwards}'
+    +'@keyframes dmnJpIn{to{transform:translate(-50%,-50%) scale(1)}}'
+    +'#dmnjp .jp-sub{display:block;font-size:16px;color:#fff;letter-spacing:.06em;margin-top:8px;text-shadow:0 0 14px rgba(255,255,255,.6)}'
+    +'.dmn-coin{position:absolute;top:-24px;width:14px;height:14px;border-radius:50%;'
+    +'background:radial-gradient(circle at 35% 30%,#fff2b0,#e8d44d 55%,#9a8420);box-shadow:0 0 8px rgba(232,212,77,.6);'
+    +'animation:dmnCoinFall linear forwards}'
+    +'@keyframes dmnCoinFall{to{transform:translateY(110vh) rotate(720deg)}}';
+  document.head.appendChild(css);
+
+  var ac=null, muted=localStorage.getItem('daemonMuted')==='1';
+  function tone(freq,dur,type,vol,slide){
+    if(muted) return;
+    try{
+      ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+      var o=ac.createOscillator(),g=ac.createGain();
+      o.type=type||'sine'; o.frequency.value=freq;
+      if(slide) o.frequency.exponentialRampToValueAtTime(slide,ac.currentTime+dur);
+      g.gain.value=vol||.05;
+      g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime+dur);
+    }catch(e){}
+  }
+  window.toggleDmnSound=function(){
+    muted=!muted; localStorage.setItem('daemonMuted',muted?'1':'0');
+    var b=document.getElementById('dmn-mute'); if(b) b.innerHTML=muted?'&#128263;':'&#128266;';
+    if(!muted) tone(660,.08,'sine',.05);
+  };
+
+  window.daemonFX={
+    tone:tone,
+    tick:function(){ tone(1100+Math.random()*500,.025,'square',.02); },
+    flip:function(){ tone(700+Math.random()*250,.04,'square',.025); },
+    win:function(){ tone(523,.1,'sine',.05); setTimeout(function(){tone(659,.1,'sine',.05);},90); setTimeout(function(){tone(784,.18,'sine',.05);},180); },
+    bigwin:function(){ tone(523,.1,'sine',.05); setTimeout(function(){tone(659,.1,'sine',.05);},80); setTimeout(function(){tone(784,.1,'sine',.05);},160); setTimeout(function(){tone(1047,.24,'sine',.055);},240); },
+    lose:function(){ tone(220,.22,'sine',.045,110); },
+    push:function(){ tone(440,.1,'sine',.04); },
+    thud:function(){ tone(110,.12,'square',.05); },
+    jackpot:function(label,sub){
+      var old=document.getElementById('dmnjp'); if(old) old.remove();
+      var o=document.createElement('div'); o.id='dmnjp';
+      o.innerHTML='<div class="jp-txt">'+(label||'JACKPOT')+(sub?'<span class="jp-sub">'+sub+'</span>':'')+'</div>';
+      for(var i=0;i<44;i++){
+        var coin=document.createElement('div'); coin.className='dmn-coin';
+        coin.style.left=(Math.random()*100)+'%';
+        coin.style.animationDuration=(1.3+Math.random()*1.4)+'s';
+        coin.style.animationDelay=(Math.random()*0.9)+'s';
+        coin.style.width=coin.style.height=(9+Math.random()*9)+'px';
+        o.appendChild(coin);
+      }
+      document.body.appendChild(o);
+      requestAnimationFrame(function(){o.classList.add('show');});
+      var n=[523,659,784,1047,1319];
+      n.forEach(function(f,i){ setTimeout(function(){tone(f,.16,'sine',.055);},i*110); });
+      setTimeout(function(){tone(1568,.4,'sine',.05);},n.length*110);
+      setTimeout(function(){o.classList.remove('show');setTimeout(function(){o.remove();},250);},2900);
+    }
+  };
+})();
+</script>
+
+<script>window._dmnEvent = <?= json_encode($fxEvent) ?>;</script>
+
+<script>
+(function(){
+  /* Mute button icon (button re-renders on every swap; pref persists) */
+  var mb=document.getElementById('dmn-mute');
+  if(mb) mb.innerHTML=localStorage.getItem('daemonMuted')==='1'?'&#128263;':'&#128266;';
+
   /* Tab switching */
   var tabs  = document.querySelectorAll('.daemon-tab');
   var panes = document.querySelectorAll('.game-pane');
@@ -663,6 +784,71 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
       panes.forEach(function(p){ p.classList.toggle('active', p.id==='pane-'+t); });
     });
   });
+
+  /* ── Marquee header: chasing bulbs, falling suits, daemon glow ── */
+  var mc=document.getElementById('dmn-canvas');
+  if(mc){
+    var c=mc.getContext('2d');
+    var MW=560, MH=112;
+    var dpr=Math.min(2,window.devicePixelRatio||1);
+    mc.width=MW*dpr; mc.height=MH*dpr;
+    c.scale(dpr,dpr);
+    var SUITS=['♠','♥','♦','♣','7'];
+    var SCOLS=['#dde2f0','#ff5555','#ff5555','#dde2f0','#e8d44d'];
+    var fall=[];
+    for(var i=0;i<14;i++){ var k=Math.floor(Math.random()*5);
+      fall.push({x:Math.random()*MW,y:Math.random()*MH,v:.2+Math.random()*.4,s:10+Math.random()*9,k:k,r:Math.random()*Math.PI,vr:(Math.random()-.5)*.02}); }
+    // bulb positions around the border
+    var bulbs=[];
+    var step=22;
+    for(var bx=12;bx<MW-6;bx+=step) bulbs.push([bx,8]);
+    for(var by2=8+step;by2<MH-6;by2+=step) bulbs.push([MW-12,by2]);
+    for(var bx2=MW-12-step;bx2>6;bx2-=step) bulbs.push([bx2,MH-8]);
+    for(var by3=MH-8-step;by3>8;by3-=step) bulbs.push([12,by3]);
+
+    function mLoop(t){
+      if(!document.body.contains(mc)) return;
+      requestAnimationFrame(mLoop);
+      c.clearRect(0,0,MW,MH);
+      var bg=c.createLinearGradient(0,0,0,MH);
+      bg.addColorStop(0,'#0d0712'); bg.addColorStop(1,'#120a16');
+      c.fillStyle=bg; c.fillRect(0,0,MW,MH);
+
+      // falling suit glyphs
+      for(var fi=0;fi<fall.length;fi++){
+        var F=fall[fi];
+        F.y+=F.v; F.r+=F.vr;
+        if(F.y>MH+12){ F.y=-12; F.x=Math.random()*MW; }
+        c.save(); c.translate(F.x,F.y); c.rotate(F.r);
+        c.globalAlpha=.16;
+        c.fillStyle=SCOLS[F.k];
+        c.font='700 '+F.s+'px monospace'; c.textAlign='center'; c.textBaseline='middle';
+        c.fillText(SUITS[F.k],0,0);
+        c.restore();
+      }
+      c.globalAlpha=1;
+
+      // daemon sigil glow (center-right)
+      var dg=.6+.4*Math.sin(t/600);
+      c.shadowColor='#ff2d95'; c.shadowBlur=18*dg;
+      c.fillStyle='rgba(255,45,149,'+(0.75*dg+0.2)+')';
+      c.font='700 38px monospace'; c.textAlign='center'; c.textBaseline='middle';
+      c.fillText('👹',MW-86,46);
+      c.shadowBlur=0;
+
+      // chasing marquee bulbs
+      var phase=Math.floor(t/110);
+      for(var bi=0;bi<bulbs.length;bi++){
+        var on=((bi+phase)%3)===0;
+        var col=on?'#e8d44d':'rgba(232,212,77,.16)';
+        c.shadowColor='#e8d44d'; c.shadowBlur=on?7:0;
+        c.fillStyle=col;
+        c.beginPath(); c.arc(bulbs[bi][0],bulbs[bi][1],2.6,0,Math.PI*2); c.fill();
+      }
+      c.shadowBlur=0;
+    }
+    requestAnimationFrame(mLoop);
+  }
 
   /* Quick-bet chips */
   document.querySelectorAll('.bet-chip:not(.hist-filter)').forEach(function(chip){
@@ -707,14 +893,120 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
     });
   });
 
-  /* Slots spin animation */
+  /* Slots spin animation (pre-submit feedback) */
   var sf = document.getElementById('slots-form');
   if (sf) {
     sf.addEventListener('submit', function(){
-      document.querySelectorAll('.reel-box').forEach(function(r){ r.classList.add('spinning'); r.classList.remove('idle'); });
+      document.querySelectorAll('.reel-box').forEach(function(r){ r.classList.add('rolling'); r.classList.remove('idle'); });
       var btn = document.getElementById('spin-btn');
       if (btn){ btn.disabled = true; btn.textContent = 'Spinning...'; }
     });
+  }
+
+  /* ── Result reveals (server result is already in the DOM; we re-perform it) ── */
+  var FX=window.daemonFX||null;
+  var ev=window._dmnEvent||null;
+  window._dmnEvent=null; // consume once — tab clicks shouldn't replay it
+  if(!FX||!ev) { staggerCards(0); return; }
+
+  function staggerCards(sound){
+    var di=0;
+    document.querySelectorAll('.bj-hand .bj-card, .vp-card-wrap .bj-card').forEach(function(card){
+      card.style.animationDelay=(di*110)+'ms';
+      if(sound) setTimeout(FX?FX.flip:function(){},di*110);
+      di++;
+    });
+    return di;
+  }
+
+  function celebrate(kind,net,feltSel){
+    var felt=document.querySelector(feltSel);
+    if(kind==='jackpot'){ FX.jackpot('JACKPOT','+'+Number(net).toLocaleString('en-US')+' cr'); if(felt) felt.classList.add('winflash'); }
+    else if(kind==='bigwin'){ FX.bigwin(); if(felt) felt.classList.add('winflash'); }
+    else if(kind==='win'){ FX.win(); if(felt) felt.classList.add('winflash'); }
+    else if(kind==='push'){ FX.push(); }
+    else if(kind==='lose'){ FX.lose(); if(felt) felt.classList.add('loseflash'); }
+  }
+  function hideResultUntil(pane,ms){
+    var res=document.querySelector(pane+' .daemon-result');
+    if(!res) return;
+    res.style.opacity='0';
+    setTimeout(function(){ res.style.transition='opacity .3s'; res.style.opacity='1'; },ms);
+  }
+
+  if(ev.g==='dice'){
+    var boxes=document.querySelectorAll('#pane-dice .dice-box');
+    var sum=document.querySelector('#pane-dice .dice-sum');
+    if(boxes.length===2){
+      var faces=['⚀','⚁','⚂','⚃','⚄','⚅'];
+      var finals=[boxes[0].innerHTML,boxes[1].innerHTML];
+      var finalCls=[boxes[0].className,boxes[1].className];
+      if(sum) sum.style.visibility='hidden';
+      hideResultUntil('#pane-dice',1150);
+      boxes.forEach(function(b){ b.className='dice-box idle rolling'; });
+      var n=0;
+      var iv=setInterval(function(){
+        n++;
+        boxes.forEach(function(b){ b.innerHTML=faces[Math.floor(Math.random()*6)]; });
+        FX.tick();
+        if(n>=9){
+          clearInterval(iv);
+          boxes[0].innerHTML=finals[0]; boxes[0].className=finalCls[0]+' landed';
+          boxes[1].innerHTML=finals[1]; boxes[1].className=finalCls[1]+' landed';
+          FX.thud();
+          if(sum) sum.style.visibility='';
+          celebrate(ev.big?'bigwin':(ev.won?'win':'lose'),ev.net,'#pane-dice .felt');
+        }
+      },100);
+    }
+  }
+  else if(ev.g==='slots'){
+    var reels=document.querySelectorAll('#pane-slots .reel-box');
+    if(reels.length===3){
+      var syms=['🍒','🔔','💎','⚡','7️⃣'];
+      var rFinals=[],rCls=[];
+      reels.forEach(function(r){ rFinals.push(r.innerHTML); rCls.push(r.className); r.className='reel-box idle rolling'; });
+      hideResultUntil('#pane-slots',1500);
+      var stopped=0;
+      var spinIv=setInterval(function(){
+        reels.forEach(function(r,i){ if(i>=stopped) r.innerHTML=syms[Math.floor(Math.random()*5)]; });
+        FX.tick();
+      },90);
+      [550,950,1350].forEach(function(ms,i){
+        setTimeout(function(){
+          reels[i].innerHTML=rFinals[i]; reels[i].className=rCls[i]+' landed';
+          FX.thud();
+          stopped++;
+          if(stopped===3){
+            clearInterval(spinIv);
+            if(ev.jackpot) celebrate('jackpot',ev.net,'#pane-slots .felt');
+            else if(ev.big) celebrate('bigwin',ev.net,'#pane-slots .felt');
+            else if(ev.mult===1) celebrate('push',0,null);
+            else celebrate('lose',ev.net,'#pane-slots .felt');
+          }
+        },ms);
+      });
+    }
+  }
+  else if(ev.g==='bj'){
+    var dealt=staggerCards(1);
+    var doneAt=dealt*110+200;
+    if(ev.ev==='deal'&&ev.result==='bigwin') setTimeout(function(){ celebrate('bigwin',0,'#pane-blackjack .felt'); },doneAt);
+    else if(ev.ev==='deal'&&ev.result==='push') setTimeout(function(){ celebrate('push',0,null); },doneAt);
+    else if(ev.ev==='deal'&&ev.result==='lose') setTimeout(function(){ celebrate('lose',0,'#pane-blackjack .felt'); },doneAt);
+    else if(ev.ev==='hit') setTimeout(function(){ if(ev.bust) celebrate('lose',0,'#pane-blackjack .felt'); },doneAt);
+    else if(ev.ev==='stand') setTimeout(function(){ celebrate(ev.result==='win'?'win':(ev.result==='push'?'push':'lose'),ev.net,'#pane-blackjack .felt'); },doneAt);
+  }
+  else if(ev.g==='vp'){
+    var vdealt=staggerCards(1);
+    var vDoneAt=vdealt*110+200;
+    if(ev.ev==='draw') setTimeout(function(){
+      if(ev.jackpot) celebrate('jackpot',ev.net,'#pane-vp .felt');
+      else if(ev.big) celebrate('bigwin',ev.net,'#pane-vp .felt');
+      else if(ev.net>0) celebrate('win',ev.net,'#pane-vp .felt');
+      else if(ev.net===0) celebrate('push',0,null);
+      else celebrate('lose',ev.net,'#pane-vp .felt');
+    },vDoneAt);
   }
 })();
 </script>

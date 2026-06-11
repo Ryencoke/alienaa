@@ -2,6 +2,35 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-37 ---
+
+THE LUCKY DAEMON (daemon.php) — INTERACTIVE OVERHAUL
+------------------------------------------------------
+[daemon.php]
+- RESULT REVEALS: game results are no longer just printed — the page replays
+  them. The server attaches a small fx event (game, outcome, net, jackpot
+  flags) to each successful play; the client consumes it once after the swap:
+  · DICE: both dice shake and cycle random faces with ratchet ticks for ~1s,
+    then land with a bounce + thud before the result line fades in.
+  · SLOTS: reels blur-spin and stop LEFT TO RIGHT (550/950/1350ms) with a
+    thud per reel; the result stays hidden until the last reel lands.
+  · BLACKJACK / VIDEO POKER: cards deal in one at a time (110ms stagger,
+    flip-in animation + flip tick per card) on every deal, hit, stand, and
+    draw.
+- CELEBRATIONS: wins flash the felt green with an ascending chime; big wins
+  (3-of-a-kind, naturals, 6x+ poker hands) get the long fanfare; pushes
+  blip; losses flicker the felt red with a descending womp. JACKPOTS (7-7-7,
+  25x+ poker) rain ~44 gold coins down the whole screen under a giant
+  Orbitron "JACKPOT +N cr" with a five-note fanfare. Failed plays (errors)
+  produce no event, so nothing celebrates incorrectly.
+- MARQUEE HEADER: canvas with chasing marquee bulbs around the border
+  (three-phase chase), card suits and lucky 7s drifting down behind, and a
+  pulsing daemon sigil. Pocket balance overlay + persisted mute toggle.
+- Felt panels get an inset vignette; dice/reels/history rows/go-buttons get
+  hover and press feedback.
+- Game/settlement logic untouched (verified zero bet/settle/SQL lines
+  changed) — only fx-event capture lines added per branch.
+
 --- SESSION: 2026-06-11 BATCH-36 ---
 
 THE BLACK MARKET (auction.php) — INTERACTIVE OVERHAUL
