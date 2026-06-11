@@ -104,14 +104,19 @@ function lib_rarity_color($r) {
 function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
 ?>
 
-<div class="panel">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <div>
+<style>
+#lib-canvas{display:block;width:100%;height:100px;border-radius:9px 9px 0 0}
+#lib-head h2{text-shadow:0 0 14px rgba(25,240,199,.35)}
+</style>
+<div class="panel" id="lib-head" style="padding:0;overflow:hidden">
+  <div style="position:relative">
+    <canvas id="lib-canvas"></canvas>
+    <div style="position:absolute;left:16px;bottom:10px;pointer-events:none">
       <h2 style="margin:0">&#128218; The Library</h2>
-      <p class="muted" style="margin:4px 0 0">All items, weapons, armor, and skills available in The Sprawl.</p>
+      <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">All items, weapons, armor, and skills available in The Sprawl.</p>
     </div>
   </div>
-  <div class="tabs" style="margin:14px -14px -14px;border-top:1px solid var(--line)">
+  <div class="tabs" style="margin:0;border-top:1px solid var(--line)">
     <a class="tab <?= $tab==='weapons'?'is-active':'' ?>"     href="index.php?p=library&tab=weapons">&#9876; Weapons</a>
     <a class="tab <?= $tab==='armor'?'is-active':'' ?>"       href="index.php?p=library&tab=armor">&#128737; Armor</a>
     <a class="tab <?= $tab==='consumables'?'is-active':'' ?>" href="index.php?p=library&tab=consumables">&#128138; Consumables</a>
@@ -392,5 +397,64 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
     detail.style.display = open ? 'none' : 'block';
     if (arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
   });
+})();
+</script>
+
+<script>
+(function(){
+'use strict';
+/* ── Data archive header: server racks of glowing slabs + drifting glyphs ── */
+var lc=document.getElementById('lib-canvas');
+if(!lc) return;
+var c=lc.getContext('2d');
+var LW=560, LH=100;
+var dpr=Math.min(2,window.devicePixelRatio||1);
+lc.width=LW*dpr; lc.height=LH*dpr;
+c.scale(dpr,dpr);
+var GLYPHS='アイウエオ0123456789◆◈※'.split('');
+var floats=[];
+for(var i=0;i<14;i++) floats.push({x:Math.random()*LW,y:Math.random()*LH,v:.12+Math.random()*.25,g:GLYPHS[Math.floor(Math.random()*GLYPHS.length)],p:Math.random()*9});
+
+function lLoop(t){
+  if(!document.body.contains(lc)) return;
+  requestAnimationFrame(lLoop);
+  c.clearRect(0,0,LW,LH);
+  var bg=c.createLinearGradient(0,0,0,LH);
+  bg.addColorStop(0,'#090a10'); bg.addColorStop(1,'#0d0e16');
+  c.fillStyle=bg; c.fillRect(0,0,LW,LH);
+
+  // archive racks: columns of glowing data slabs
+  for(var rx=0;rx<8;rx++){
+    var colx=30+rx*68;
+    c.fillStyle='#10101c';
+    c.fillRect(colx,12,44,LH-22);
+    c.strokeStyle='rgba(255,255,255,.07)';
+    c.strokeRect(colx+.5,12.5,44,LH-22);
+    for(var sy=0;sy<6;sy++){
+      var lit=((t/900+rx*1.7+sy*1.1)%6)<3.8;
+      var hue=(rx+sy)%3;
+      var col=hue===0?'25,240,199':(hue===1?'232,212,77':'255,45,149');
+      c.fillStyle='rgba('+col+','+(lit?(0.20+0.12*Math.sin(t/700+rx+sy)):0.05)+')';
+      c.fillRect(colx+4,17+sy*12,36,8);
+    }
+  }
+
+  // drifting index glyphs
+  c.font='10px monospace'; c.textAlign='center';
+  for(var fi=0;fi<floats.length;fi++){
+    var F=floats[fi];
+    F.y-=F.v;
+    if(F.y<-6){ F.y=LH+6; F.x=Math.random()*LW; F.g=GLYPHS[Math.floor(Math.random()*GLYPHS.length)]; }
+    c.fillStyle='rgba(25,240,199,'+(0.12+0.10*Math.sin(t/600+F.p))+')';
+    c.fillText(F.g,F.x,F.y);
+  }
+
+  // reading-lamp sweep
+  var lx2=((t/34)%(LW+240))-120;
+  var lg2=c.createLinearGradient(lx2-70,0,lx2+70,0);
+  lg2.addColorStop(0,'rgba(232,212,77,0)'); lg2.addColorStop(.5,'rgba(232,212,77,.05)'); lg2.addColorStop(1,'rgba(232,212,77,0)');
+  c.fillStyle=lg2; c.fillRect(0,0,LW,LH);
+}
+requestAnimationFrame(lLoop);
 })();
 </script>

@@ -2,6 +2,46 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-46 ---
+
+FOUNDRY / COMBAT SIM / LIBRARY / MESSAGES — INTERACTIVE PASS
+--------------------------------------------------------------
+[foundry.php]
+- FACTORY FLOOR HEADER: canvas — back-wall pipework, venting steam, a
+  robotic welder arm that periodically throws spark showers with a weld
+  glow, and a moving conveyor belt carrying crates across the frame.
+- Scrap Run results now POP IN one crate at a time (springy stagger) with
+  a thunk per crate and a fanfare if any crate rolled JACKPOT (chime
+  otherwise). Crafting plays a body-level ceremony: a spinning gear under
+  a weld-spark shower stamps "FABRICATED — N× item" with weld + chime SFX.
+- Recipe cards get hover lift; crate buttons get press feedback; the
+  duplicated/strpos-based flash logic replaced with proper flash-ok/err.
+
+[sim.php]
+- FIREWALL HEADER: canvas of pulsing firewall grid blocks with occasional
+  breach glitches, patrolling drone silhouettes (bobbing, direction-aware),
+  and a sweeping scan beam. ATK/DEF/HP readout overlay + mute.
+- FIGHT CEREMONY: engaging plays a body-level clash — your ghost and the
+  drone trade four lunging blows with hit flashes and thuds, then the loser
+  grays out and keels over: "TARGET NEUTRALIZED — enemy, +N cr · +X XP"
+  (with a level-up fanfare when applicable) or "FLATLINED — dealt N, took
+  N". Driven by the real server outcome (fx event pattern).
+- Combat log table rows get hover highlight. Combat math/SQL unchanged.
+
+[library.php]
+- DATA ARCHIVE HEADER: canvas of server racks stacked with glowing data
+  slabs cycling in three colors, drifting katakana/index glyphs, and a
+  warm reading-lamp sweep. Existing search/sort/rarity filters untouched.
+
+[messages.php]
+- COMMS HEADER: canvas with a live triple-sine waveform, gold data packets
+  riding the wave, and a satellite dish emitting signal rings.
+- Conversation list gains a client-side filter box; unread badges now
+  pulse gently.
+- TRANSMIT FX: sending a message (inbox compose or thread reply) flies a
+  &#128232; across the screen with a rising whoosh — skipped for empty
+  sends. Works in both views (kit emitted before the thread early-return).
+
 --- SESSION: 2026-06-11 BATCH-45 ---
 
 LOADING DOCKS (transit.php) + CITY HALL — INTERACTIVE OVERHAUL

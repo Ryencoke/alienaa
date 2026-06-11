@@ -31,6 +31,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send'
 }
 
 $flash = $msg ? '<div class="flash flash-ok">'.e($msg).'</div>' : '';
+?>
+<script>
+/* Comms FX — bound once; transmit overlay on document.body survives AJAX swaps. */
+(function(){
+  if(window._pmFxBound) return;
+  window._pmFxBound=true;
+  var css=document.createElement('style');
+  css.textContent=
+    '#pmfx{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);z-index:10001;pointer-events:none;'
+    +'font-size:30px;opacity:0;filter:drop-shadow(0 0 10px rgba(25,240,199,.6))}'
+    +'@keyframes pmFly{0%{opacity:0;transform:translate(-50%,-50%) translateX(-40px) rotate(10deg) scale(.7)}'
+    +'25%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) translateX(120px) translateY(-50px) rotate(-12deg) scale(1)}}';
+  document.head.appendChild(css);
+  var ac=null;
+  function tone(freq,dur,vol,slide){
+    try{
+      ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+      var o=ac.createOscillator(),g=ac.createGain();
+      o.type='sine'; o.frequency.value=freq;
+      if(slide) o.frequency.exponentialRampToValueAtTime(slide,ac.currentTime+dur);
+      g.gain.value=vol||.04;
+      g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime+dur);
+    }catch(e){}
+  }
+  document.addEventListener('submit',function(ev){
+    var f=ev.target;
+    if(!f||!f.getAttribute||f.getAttribute('data-pmfx')!=='send') return;
+    var ta=f.querySelector('textarea[name=body]');
+    if(ta&&!ta.value.trim()) return; // empty messages get a server error, no whoosh
+    var old=document.getElementById('pmfx'); if(old) old.remove();
+    var o=document.createElement('div'); o.id='pmfx';
+    o.textContent='\u{1F4E8}';
+    o.style.animation='pmFly .8s ease-out forwards';
+    document.body.appendChild(o);
+    tone(500,.25,.04,1400);
+    setTimeout(function(){ if(o.parentNode) o.remove(); },900);
+  },true);
+})();
+</script>
+<?php
 
 /* ---------- conversation thread ---------- */
 if ($with) {
@@ -82,7 +124,7 @@ if ($with) {
       <?php endforeach; ?>
     </div>
     <div style="border-top:1px solid var(--line);padding:10px 14px;background:var(--panel2)">
-      <form method="post" style="margin:0">
+      <form method="post" style="margin:0" data-pmfx="send">
         <input type="hidden" name="action" value="send">
         <input type="hidden" name="to_id" value="<?= (int)$with ?>">
         <div style="display:flex;gap:8px;align-items:flex-end">
@@ -123,10 +165,28 @@ if ($convos) {
   foreach ($pdo->query("SELECT id, username, role, chat_color FROM players WHERE id IN ($ids)") as $r) $names[(int)$r['id']] = $r;
 }
 ?>
+<style>
+#pm-canvas{display:block;width:100%;height:96px;border-radius:9px 9px 0 0}
+#pm-head h2{text-shadow:0 0 14px rgba(25,240,199,.35)}
+@keyframes pmBadge{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}
+.convo-badge{animation:pmBadge 1.6s ease-in-out infinite}
+#pm-filter{background:var(--panel2);border:1px solid var(--line);border-radius:16px;color:var(--text);padding:5px 12px;font-size:12px;width:170px;transition:border-color .15s}
+#pm-filter:focus{border-color:var(--accent);outline:none;box-shadow:0 0 8px rgba(25,240,199,.15)}
+</style>
+
+<div class="panel" id="pm-head" style="padding:0;overflow:hidden">
+  <div style="position:relative">
+    <canvas id="pm-canvas"></canvas>
+    <div style="position:absolute;left:16px;bottom:10px;pointer-events:none">
+      <h2 style="margin:0">&#128225; Comms</h2>
+      <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">Private transmissions, ghost to ghost. Encrypted. Mostly.</p>
+    </div>
+  </div>
+  <div style="padding:0 14px"><?= $flash ?></div>
+</div>
+
 <div class="panel">
-  <h2>Messages</h2>
-  <?= $flash ?>
-  <h3>New Message</h3>
+  <h3 style="margin-top:0">New Message</h3>
   <?php if (!empty($msgFriends)): ?>
   <div style="margin-bottom:10px">
     <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Friends</div>
@@ -137,7 +197,7 @@ if ($convos) {
     </div>
   </div>
   <?php endif; ?>
-  <form method="post">
+  <form method="post" data-pmfx="send">
     <input type="hidden" name="action" value="send">
     <div class="field">
       <span>To (handle or player ID)</span>
@@ -186,8 +246,9 @@ if ($convos) {
 </script>
 
 <div class="panel" style="padding:0;overflow:hidden">
-  <div style="padding:12px 16px;border-bottom:1px solid var(--line)">
+  <div style="padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <h3 style="margin:0;font-size:13px">Conversations</h3>
+    <input type="text" id="pm-filter" placeholder="&#128269; filter..." autocomplete="off" data-no-counter>
   </div>
   <?php if ($convos): ?>
   <div class="convo-list">
@@ -218,3 +279,82 @@ if ($convos) {
     <div style="text-align:center;padding:30px;color:var(--muted)">No messages yet. Send a message to a player from their profile.</div>
   <?php endif; ?>
 </div>
+
+<script>
+(function(){
+'use strict';
+/* ── Comms header: waveform, dish, packet stream ── */
+var pc=document.getElementById('pm-canvas');
+if(pc){
+  var c=pc.getContext('2d');
+  var PW=560, PH=96;
+  var dpr=Math.min(2,window.devicePixelRatio||1);
+  pc.width=PW*dpr; pc.height=PH*dpr;
+  c.scale(dpr,dpr);
+  var packets=[];
+  var rings=[];
+
+  function pLoop(t){
+    if(!document.body.contains(pc)) return;
+    requestAnimationFrame(pLoop);
+    c.clearRect(0,0,PW,PH);
+    var bg=c.createLinearGradient(0,0,0,PH);
+    bg.addColorStop(0,'#090a11'); bg.addColorStop(1,'#0d0e17');
+    c.fillStyle=bg; c.fillRect(0,0,PW,PH);
+
+    // live waveform across the middle
+    c.strokeStyle='rgba(25,240,199,.4)'; c.lineWidth=1.4;
+    c.beginPath();
+    for(var x=0;x<=PW;x+=4){
+      var y=PH*0.55
+        + Math.sin(x/26+t/300)*6
+        + Math.sin(x/9+t/160)*2.5
+        + Math.sin(x/61+t/700)*4;
+      x?c.lineTo(x,y):c.moveTo(x,y);
+    }
+    c.stroke();
+    c.lineWidth=1;
+
+    // satellite dish (right) with signal rings
+    var dx2=PW-66, dy2=30;
+    c.strokeStyle='rgba(255,255,255,.3)';
+    c.beginPath(); c.arc(dx2,dy2,13,Math.PI*0.25,Math.PI*1.25); c.stroke();
+    c.beginPath(); c.moveTo(dx2,dy2); c.lineTo(dx2-9,dy2+9); c.stroke();
+    c.beginPath(); c.moveTo(dx2-4,dy2+14); c.lineTo(dx2-14,dy2+14); c.stroke();
+    if(Math.random()<.02) rings.push({r:5,a:.5});
+    for(var ri=rings.length-1;ri>=0;ri--){
+      var R=rings[ri];
+      R.r+=.45; R.a-=.005;
+      if(R.a<=0){ rings.splice(ri,1); continue; }
+      c.strokeStyle='rgba(25,240,199,'+R.a+')';
+      c.beginPath(); c.arc(dx2+6,dy2-6,R.r,Math.PI*1.4,Math.PI*1.95); c.stroke();
+    }
+
+    // packet stream dots riding the waveform
+    if(Math.random()<.06) packets.push({x:-6});
+    for(var pi=packets.length-1;pi>=0;pi--){
+      var P=packets[pi];
+      P.x+=2.4;
+      if(P.x>PW+6){ packets.splice(pi,1); continue; }
+      var py=PH*0.55+Math.sin(P.x/26+t/300)*6+Math.sin(P.x/9+t/160)*2.5+Math.sin(P.x/61+t/700)*4;
+      c.fillStyle='rgba(232,212,77,.8)';
+      c.shadowColor='#e8d44d'; c.shadowBlur=6;
+      c.fillRect(P.x-1.5,py-1.5,3,3);
+      c.shadowBlur=0;
+    }
+  }
+  requestAnimationFrame(pLoop);
+}
+
+/* ── conversation filter ── */
+var filt=document.getElementById('pm-filter');
+if(filt){
+  filt.addEventListener('input',function(){
+    var q=filt.value.trim().toLowerCase();
+    document.querySelectorAll('.convo-row').forEach(function(row){
+      row.style.display=!q||row.textContent.toLowerCase().indexOf(q)!==-1?'':'none';
+    });
+  });
+}
+})();
+</script>

@@ -84,6 +84,7 @@ $_simMerchantUntil = $player['merchant_until'] ?? null;
 $_simIsMerchant = !empty($_simMerchantUntil) && $_simMerchantUntil >= date('Y-m-d');
 
 /* ---------- action handling ---------- */
+$fxEvent = null; // ceremony payload for the client
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = $_POST['action'] ?? '';
   try {
@@ -140,6 +141,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = 'Flatlined by <b>' . e($e['name']) . '</b> &mdash; dealt '
              . $dealt . ', took ' . $taken . ' damage. Patch up before re-engaging.';
       }
+      $fxEvent = ['t'=>'fight','win'=>$outcome === 'win','enemy'=>$e['name'],
+                  'creds'=>$credsWon,'xp'=>$xpWon,'dealt'=>$dealt,'taken'=>$taken,'levelup'=>$lv];
     }
     elseif ($action === 'heal') {
       $pk = $pdo->query("SELECT id FROM items WHERE code = 'patch_kit'")->fetchColumn();
@@ -157,6 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } catch (Throwable $ex) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $msg = $ex->getMessage();
+    $fxEvent = null;
   }
   $player = current_player();
 }
@@ -197,10 +201,27 @@ $flatlined = (int)$player['integrity'] <= 0;
 <?php if ($_simIsMerchant): ?>
 <div class="flash flash-err">&#9878; Commerce Accord active — combat is locked until <?= e($_simMerchantUntil) ?>.</div>
 <?php endif; ?>
+<style>
+#sim-canvas{display:block;width:100%;height:104px;border-radius:9px 9px 0 0}
+#sim-head h2{text-shadow:0 0 14px rgba(255,45,149,.4)}
+#sim-log-table tbody tr{transition:background .12s}
+#sim-log-table tbody tr:hover{background:rgba(255,255,255,.03)}
+</style>
+
 <!-- Header -->
-<div class="panel">
-  <h2>&#128737; Combat Sim <span style="color:var(--muted);font-size:13px;font-weight:400;font-family:inherit">&mdash; The Firewall</span></h2>
-  <p class="muted" style="text-align:center;margin-bottom:0">Jack into the Sim and fight for rep. Drones today, other ghosts tomorrow.</p>
+<div class="panel" id="sim-head" style="padding:0;overflow:hidden">
+  <div style="position:relative">
+    <canvas id="sim-canvas"></canvas>
+    <div style="position:absolute;left:16px;bottom:10px;pointer-events:none">
+      <h2 style="margin:0">&#128737; Combat Sim</h2>
+      <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">The Firewall. Jack in and fight for rep — drones today, other ghosts tomorrow.</p>
+    </div>
+    <div style="position:absolute;right:14px;bottom:10px;text-align:right;font-size:11px;color:var(--muted)">
+      <div>ATK <b style="font-family:'Orbitron',sans-serif;color:var(--neon2)"><?= (int)$pAtk ?></b> &nbsp; DEF <b style="font-family:'Orbitron',sans-serif;color:var(--accent)"><?= (int)$pDef ?></b></div>
+      <div style="margin-top:2px">HP <b style="font-family:'Orbitron',sans-serif;color:<?= $flatlined ? 'var(--neon2)' : '#3bcf63' ?>"><?= (int)$player['integrity'] ?></b><span style="opacity:.6">/<?= (int)$player['integrity_max'] ?></span></div>
+    </div>
+    <button id="sim-mute" onclick="toggleSimSound()" title="Toggle sound" style="position:absolute;top:8px;right:10px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
+  </div>
 </div>
 
 <!-- Fight result -->
@@ -225,7 +246,7 @@ $flatlined = (int)$player['integrity'] <= 0;
     <span style="font-size:11px;color:var(--muted);padding:2px 8px;border:1px solid var(--line);border-radius:10px"><?= ucfirst($stac) ?> Stance</span>
   </div>
   <div style="overflow-x:auto">
-  <table style="width:100%;border-collapse:collapse;font-size:12px">
+  <table id="sim-log-table" style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="border-bottom:1px solid var(--line)">
       <th style="text-align:center;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase">#</th>
       <th style="text-align:center;padding:5px 8px;color:var(--neon2);font-size:10px;text-transform:uppercase">You Deal</th>
@@ -451,5 +472,184 @@ $flatlined = (int)$player['integrity'] <= 0;
     });
     if(r.checked) r.dispatchEvent(new Event('change'));
   });
+})();
+</script>
+
+<script>window._simFx = <?= json_encode($fxEvent) ?>;</script>
+
+<script>
+/* Combat Sim FX kit — bound once; overlays on document.body survive AJAX swaps. */
+(function(){
+  if(window._simFxBound) return;
+  window._simFxBound=true;
+
+  var css=document.createElement('style');
+  css.textContent=
+    '#simfx{position:fixed;inset:0;z-index:10001;display:flex;align-items:center;justify-content:center;'
+    +'background:rgba(5,3,8,.6);backdrop-filter:blur(2px);opacity:0;transition:opacity .18s;pointer-events:none}'
+    +'#simfx.show{opacity:1}'
+    +'.smfx-stage{position:relative;width:240px;height:110px}'
+    +'.smfx-you,.smfx-foe{position:absolute;top:24px;font-size:36px;transition:transform .12s,filter .3s,opacity .3s}'
+    +'.smfx-you{left:24px;filter:drop-shadow(0 0 10px rgba(25,240,199,.6))}'
+    +'.smfx-foe{right:24px;filter:drop-shadow(0 0 10px rgba(255,45,149,.6))}'
+    +'.smfx-you.lunge{transform:translateX(26px)}'
+    +'.smfx-foe.lunge{transform:translateX(-26px)}'
+    +'.smfx-flash{animation:smfxFlash .2s ease-out}'
+    +'@keyframes smfxFlash{0%{filter:brightness(3)}100%{}}'
+    +'.smfx-ko{filter:grayscale(1) brightness(.45)!important;opacity:.55;transform:rotate(12deg) translateY(6px)!important}'
+    +'.smfx-label{position:absolute;left:50%;top:102%;transform:translateX(-50%);white-space:nowrap;text-align:center;'
+    +'font-size:14px;font-weight:900;letter-spacing:.12em;color:var(--smfx-col);text-shadow:0 0 12px var(--smfx-col);'
+    +'opacity:0;transition:opacity .25s}'
+    +'.smfx-label.show{opacity:1}'
+    +'.smfx-sub{display:block;font-size:10px;font-weight:600;color:var(--text);opacity:.75;margin-top:3px;letter-spacing:.03em}';
+  document.head.appendChild(css);
+
+  var ac=null, muted=localStorage.getItem('simMuted')==='1';
+  function tone(freq,dur,type,vol,slide){
+    if(muted) return;
+    try{
+      ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+      var o=ac.createOscillator(),g=ac.createGain();
+      o.type=type||'sine'; o.frequency.value=freq;
+      if(slide) o.frequency.exponentialRampToValueAtTime(slide,ac.currentTime+dur);
+      g.gain.value=vol||.05;
+      g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime+dur);
+    }catch(e){}
+  }
+  window.toggleSimSound=function(){
+    muted=!muted; localStorage.setItem('simMuted',muted?'1':'0');
+    var b=document.getElementById('sim-mute'); if(b) b.innerHTML=muted?'&#128263;':'&#128266;';
+    if(!muted) tone(660,.08,'sine',.05);
+  };
+  window.simFX={
+    tone:tone,
+    hit:function(){ tone(120,.08,'square',.05); tone(900,.04,'sine',.03); },
+    win:function(){ [523,659,784].forEach(function(f,i){ setTimeout(function(){tone(f,.13,'sine',.05);},i*100); }); },
+    lose:function(){ tone(330,.28,'sine',.05,130); setTimeout(function(){tone(100,.35,'sine',.05);},240); },
+    levelup:function(){ [659,784,1047,1319].forEach(function(f,i){ setTimeout(function(){tone(f,.14,'sine',.055);},i*100); }); }
+  };
+
+  window.simFightOverlay=function(ev){
+    var old=document.getElementById('simfx'); if(old) old.remove();
+    var o=document.createElement('div'); o.id='simfx';
+    o.style.setProperty('--smfx-col',ev.win?'#3bcf63':'#ff2d95');
+    o.innerHTML='<div class="smfx-stage">'
+      +'<span class="smfx-you">&#129464;</span>'
+      +'<span class="smfx-foe">&#129302;</span>'
+      +'<div class="smfx-label"></div>'
+      +'</div>';
+    document.body.appendChild(o);
+    requestAnimationFrame(function(){o.classList.add('show');});
+    var you=o.querySelector('.smfx-you'), foe=o.querySelector('.smfx-foe'), label=o.querySelector('.smfx-label');
+    // exchange of blows
+    var step=0;
+    var iv=setInterval(function(){
+      step++;
+      var attacker=step%2===1?you:foe, victim=step%2===1?foe:you;
+      attacker.classList.add('lunge');
+      window.simFX.hit();
+      setTimeout(function(){ attacker.classList.remove('lunge');
+        victim.classList.remove('smfx-flash'); void victim.offsetWidth; victim.classList.add('smfx-flash');
+      },110);
+      if(step>=4){
+        clearInterval(iv);
+        setTimeout(function(){
+          (ev.win?foe:you).classList.add('smfx-ko');
+          if(ev.win){
+            window.simFX.win();
+            label.innerHTML='TARGET NEUTRALIZED<span class="smfx-sub">'+ev.enemy+' — +'+Number(ev.creds).toLocaleString('en-US')+' cr · +'+ev.xp+' XP'+(ev.levelup?' · LEVEL UP!':'')+'</span>';
+            if(ev.levelup) setTimeout(window.simFX.levelup,400);
+          } else {
+            window.simFX.lose();
+            label.innerHTML='FLATLINED<span class="smfx-sub">'+ev.enemy+' — dealt '+ev.dealt+', took '+ev.taken+'</span>';
+          }
+          label.classList.add('show');
+        },200);
+      }
+    },260);
+    setTimeout(function(){o.classList.remove('show');setTimeout(function(){o.remove();},220);},2600);
+  };
+})();
+</script>
+
+<script>
+(function(){
+'use strict';
+var mb=document.getElementById('sim-mute');
+if(mb) mb.innerHTML=localStorage.getItem('simMuted')==='1'?'&#128263;':'&#128266;';
+
+/* ── Firewall header: grid wall, patrol drones, scan beam ── */
+var sc=document.getElementById('sim-canvas');
+if(sc){
+  var c=sc.getContext('2d');
+  var SW=560, SH=104;
+  var dpr=Math.min(2,window.devicePixelRatio||1);
+  sc.width=SW*dpr; sc.height=SH*dpr;
+  c.scale(dpr,dpr);
+  var drones=[];
+  for(var i=0;i<5;i++) drones.push({x:Math.random()*SW,y:18+Math.random()*60,v:(.25+Math.random()*.4)*(Math.random()<.5?-1:1),p:Math.random()*9});
+  var glitch=0;
+
+  function sLoop(t){
+    if(!document.body.contains(sc)) return;
+    requestAnimationFrame(sLoop);
+    c.clearRect(0,0,SW,SH);
+    var bg=c.createLinearGradient(0,0,0,SH);
+    bg.addColorStop(0,'#0a070e'); bg.addColorStop(1,'#0f0a14');
+    c.fillStyle=bg; c.fillRect(0,0,SW,SH);
+
+    // firewall grid blocks
+    for(var gy=0;gy<4;gy++){
+      for(var gx=0;gx<14;gx++){
+        var bx=gx*42+((gy%2)?21:0), by=10+gy*24;
+        var on=((t/1100+gx*1.3+gy*2.1)%7)<5.4;
+        c.fillStyle=on?'rgba(255,45,149,.10)':'rgba(255,45,149,.03)';
+        c.fillRect(bx,by,36,18);
+        c.strokeStyle='rgba(255,45,149,.14)';
+        c.strokeRect(bx+.5,by+.5,36,18);
+      }
+    }
+    // occasional breach glitch
+    if(Math.random()<.012) glitch=4;
+    if(glitch>0){
+      glitch--;
+      var gy2=10+Math.floor(Math.random()*4)*24;
+      c.fillStyle='rgba(255,255,255,.12)';
+      c.fillRect(Math.random()*SW,gy2,36,18);
+    }
+
+    // patrol drones
+    for(var di=0;di<drones.length;di++){
+      var D=drones[di];
+      D.x+=D.v;
+      if(D.x<-12) D.x=SW+12; if(D.x>SW+12) D.x=-12;
+      var bob=Math.sin(t/350+D.p)*2;
+      c.save(); c.translate(D.x,D.y+bob);
+      if(D.v<0) c.scale(-1,1);
+      c.fillStyle='#1c1626';
+      c.beginPath(); c.moveTo(-8,0); c.lineTo(6,-5); c.lineTo(6,5); c.closePath(); c.fill();
+      c.strokeStyle='rgba(255,45,149,.5)'; c.stroke();
+      c.fillStyle='rgba(255,45,149,'+(0.5+0.4*Math.sin(t/200+D.p))+')';
+      c.beginPath(); c.arc(2,0,1.6,0,Math.PI*2); c.fill();
+      c.restore();
+    }
+
+    // sweeping scan beam
+    var sx2=((t/22)%(SW+200))-100;
+    var beam=c.createLinearGradient(sx2-50,0,sx2+50,0);
+    beam.addColorStop(0,'rgba(25,240,199,0)'); beam.addColorStop(.5,'rgba(25,240,199,.05)'); beam.addColorStop(1,'rgba(25,240,199,0)');
+    c.fillStyle=beam; c.fillRect(0,0,SW,SH);
+
+    // floor line
+    c.fillStyle='rgba(255,45,149,.08)'; c.fillRect(0,SH-6,SW,6);
+  }
+  requestAnimationFrame(sLoop);
+}
+
+/* ── fight ceremony (consume once) ── */
+var ev=window._simFx||null; window._simFx=null;
+if(ev&&ev.t==='fight'&&window.simFightOverlay) window.simFightOverlay(ev);
 })();
 </script>

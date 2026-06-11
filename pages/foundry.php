@@ -2,7 +2,9 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
+$msgErr = false;
 $runResult = null;
+$craftedFx = null; // ceremony payload after a successful craft
 
 // Ensure skill rows exist
 $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points)
@@ -122,11 +124,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->commit();
 
       $msg = "Fabricated {$rec['out_qty']} &times; {$rec['out_name']}.";
+      $craftedFx = ['qty'=>(int)$rec['out_qty'],'item'=>$rec['out_name']];
     }
 
   } catch (Throwable $ex) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    $msg = $ex->getMessage();
+    $msg = $ex->getMessage(); $msgErr = true;
   }
 }
 
@@ -155,11 +158,27 @@ $rarityStyle = [
 ];
 ?>
 
+<style>
+#fd-canvas{display:block;width:100%;height:112px;border-radius:9px 9px 0 0}
+#fd-head h2{text-shadow:0 0 14px rgba(232,163,61,.4)}
+.crate-face:active{transform:scale(.95)}
+@keyframes fdCrateIn{0%{opacity:0;transform:translateY(12px) scale(.8)}60%{transform:translateY(-2px) scale(1.04)}100%{opacity:1;transform:none}}
+.fd-result{animation:fdCrateIn .4s cubic-bezier(.2,1.4,.4,1) backwards}
+.fd-recipe{transition:transform .12s,box-shadow .15s}
+.fd-recipe:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.3)}
+</style>
+
 <!-- Header -->
-<div class="panel">
-  <h2>&#9881; Foundry Sector <span style="color:var(--muted);font-size:13px;font-weight:400;font-family:inherit">&mdash; Fabrication Bay</span></h2>
-  <p class="muted" style="text-align:center;margin-bottom:10px">Pull raw stock from the Sprawl's wreckage, then bolt it into something worth creds.</p>
-  <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
+<div class="panel" id="fd-head" style="padding:0;overflow:hidden">
+  <div style="position:relative">
+    <canvas id="fd-canvas"></canvas>
+    <div style="position:absolute;left:16px;bottom:10px;pointer-events:none">
+      <h2 style="margin:0">&#9881; Foundry Sector</h2>
+      <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">Pull raw stock from the Sprawl's wreckage, then bolt it into something worth creds.</p>
+    </div>
+    <button id="fd-mute" onclick="toggleFdSound()" title="Toggle sound" style="position:absolute;top:8px;right:10px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:10px 14px">
     <span style="background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.2);border-radius:20px;padding:4px 14px;font-size:12px">
       &#128295; Scavenging: <b style="color:var(--accent)"><?= number_format($skillPts['scav'] ?? 0) ?></b>
     </span>
@@ -174,9 +193,8 @@ $rarityStyle = [
 </div>
 
 <!-- Flash -->
-<?php if ($msg && !$runResult): ?><div class="flash flash-ok"><?= $msg ?></div><?php endif; ?>
-<?php if ($msg && !$runResult && stripos($msg,'locked') !== false || (!$runResult && $msg && strpos($msg,'Missing') !== false)): ?>
-  <div class="flash flash-err"><?= e($msg) ?></div>
+<?php if ($msg && !$runResult): ?>
+<div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>"><?= $msgErr ? e($msg) : $msg ?></div>
 <?php endif; ?>
 
 <!-- ===================== SCRAP RUN MINIGAME ===================== -->
@@ -194,10 +212,10 @@ $rarityStyle = [
     </div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:14px">
-    <?php foreach ($runResult as $result):
+    <?php $fdRi = 0; foreach ($runResult as $result):
       $rs = $rarityStyle[$result['rarity']] ?? $rarityStyle['common'];
     ?>
-    <div style="background:<?= $rs['bg'] ?>;border:2px solid <?= $rs['border'] ?>;border-radius:8px;padding:14px;text-align:center;position:relative">
+    <div class="fd-result" style="animation-delay:<?= ($fdRi++) * 180 ?>ms;background:<?= $rs['bg'] ?>;border:2px solid <?= $rs['border'] ?>;border-radius:8px;padding:14px;text-align:center;position:relative">
       <?php if ($rs['label']): ?>
         <div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:<?= $rs['border'] ?>;color:<?= $rs['color'] ?>;border-radius:20px;padding:1px 10px;font-size:10px;font-family:'Orbitron',sans-serif;font-weight:700;letter-spacing:.5px;white-space:nowrap"><?= $rs['label'] ?></div>
       <?php endif; ?>
@@ -294,11 +312,6 @@ $rarityStyle = [
 <div class="panel">
   <h3 style="margin-top:0">&#9965; Fabrication Bay</h3>
   <p class="muted" style="font-size:13px;margin-bottom:14px">Combine raw materials into gear and components. Check your <a href="index.php?p=stash">stash</a> for current counts.</p>
-  <?php if ($msg && !$runResult && strpos($msg, 'Fabricated') !== false): ?>
-    <div class="flash flash-ok"><?= $msg ?></div>
-  <?php elseif ($msg && !$runResult && strpos($msg, 'Not enough') !== false): ?>
-    <div class="flash flash-err"><?= e($msg) ?></div>
-  <?php endif; ?>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px">
   <?php foreach ($recipes as $rc):
     $have    = $skillPts[$rc['skill_code']] ?? 0;
@@ -308,7 +321,7 @@ $rarityStyle = [
     foreach ($ings as $ing) { if (($invMap[(int)$ing['item_id']] ?? 0) < (int)$ing['qty']) $canAfford = false; }
     $craftable = $unlocked && $canAfford;
   ?>
-  <div style="background:var(--panel2);border:1px solid <?= $craftable ? 'rgba(25,240,199,.25)' : 'var(--line)' ?>;border-radius:7px;padding:12px;opacity:<?= $unlocked ? '1' : '.55' ?>">
+  <div class="fd-recipe" style="background:var(--panel2);border:1px solid <?= $craftable ? 'rgba(25,240,199,.25)' : 'var(--line)' ?>;border-radius:7px;padding:12px;opacity:<?= $unlocked ? '1' : '.55' ?>">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
       <div>
         <div style="font-weight:bold;font-size:13px;color:<?= $craftable ? 'var(--accent)' : 'var(--muted)' ?>"><?= e($rc['out_name']) ?><?= $rc['out_qty'] > 1 ? ' <span style="color:var(--neon2)">×'.(int)$rc['out_qty'].'</span>' : '' ?></div>
@@ -344,7 +357,7 @@ $rarityStyle = [
       <?php elseif (!$canAfford): ?>
         <span style="color:var(--neon2);font-size:12px">Missing materials</span>
       <?php else: ?>
-        <form method="post" style="margin:0">
+        <form method="post" style="margin:0" data-fdfx="craft" data-fd-item="<?= e($rc['out_name']) ?>" data-fd-qty="<?= (int)$rc['out_qty'] ?>">
           <input type="hidden" name="action" value="craft">
           <input type="hidden" name="recipe" value="<?= e($rc['code']) ?>">
           <button type="submit" style="background:rgba(25,240,199,.1);border-color:rgba(25,240,199,.3);color:var(--accent)">&#9881; Craft</button>
@@ -355,3 +368,194 @@ $rarityStyle = [
   <?php endforeach; ?>
   </div>
 </div>
+
+<?php $fdHasJackpot = $runResult ? in_array('jackpot', array_column($runResult, 'rarity'), true) : false; ?>
+<script>window._fdCrates = <?= json_encode($runResult ? ['n'=>count($runResult), 'jackpot'=>$fdHasJackpot] : null) ?>;</script>
+
+<script>
+/* Foundry FX kit — bound once; overlays on document.body survive AJAX swaps. */
+(function(){
+  if(window._fdFxBound) return;
+  window._fdFxBound=true;
+
+  var css=document.createElement('style');
+  css.textContent=
+    '#fdfx{position:fixed;inset:0;z-index:10001;display:flex;align-items:center;justify-content:center;'
+    +'background:rgba(6,5,3,.55);backdrop-filter:blur(2px);opacity:0;transition:opacity .18s;pointer-events:none}'
+    +'#fdfx.show{opacity:1}'
+    +'.fdfx-stage{position:relative;width:160px;height:120px;text-align:center}'
+    +'.fdfx-gear{font-size:46px;display:inline-block;animation:fdfxSpin 1.1s linear infinite;'
+    +'filter:drop-shadow(0 0 14px rgba(25,240,199,.5))}'
+    +'@keyframes fdfxSpin{to{transform:rotate(360deg)}}'
+    +'.fdfx-label{position:absolute;left:50%;top:100%;transform:translateX(-50%);white-space:nowrap;'
+    +'font-size:13px;font-weight:900;letter-spacing:.1em;color:var(--accent);text-shadow:0 0 12px rgba(25,240,199,.6);'
+    +'opacity:0;animation:fdfxLbl .3s .75s forwards}'
+    +'@keyframes fdfxLbl{to{opacity:1}}'
+    +'.fdfx-sub{display:block;font-size:10px;font-weight:600;color:var(--text);opacity:.75;margin-top:3px}';
+  document.head.appendChild(css);
+
+  var ac=null, muted=localStorage.getItem('foundryMuted')==='1';
+  function tone(freq,dur,type,vol,slide){
+    if(muted) return;
+    try{
+      ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+      var o=ac.createOscillator(),g=ac.createGain();
+      o.type=type||'sine'; o.frequency.value=freq;
+      if(slide) o.frequency.exponentialRampToValueAtTime(slide,ac.currentTime+dur);
+      g.gain.value=vol||.05;
+      g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime+dur);
+    }catch(e){}
+  }
+  window.toggleFdSound=function(){
+    muted=!muted; localStorage.setItem('foundryMuted',muted?'1':'0');
+    var b=document.getElementById('fd-mute'); if(b) b.innerHTML=muted?'&#128263;':'&#128266;';
+    if(!muted) tone(660,.08,'sine',.05);
+  };
+  window.fdFX={
+    tone:tone,
+    crate:function(){ tone(150,.09,'square',.05); },
+    chime:function(){ tone(523,.09,'sine',.05); setTimeout(function(){tone(784,.14,'sine',.05);},80); },
+    fanfare:function(){ [523,659,784,1047].forEach(function(f,i){ setTimeout(function(){tone(f,.15,'sine',.055);},i*110); }); },
+    weld:function(){ tone(180,.25,'sawtooth',.04,120); setTimeout(function(){tone(1800,.04,'sine',.025);},80); }
+  };
+
+  window.fdCraftOverlay=function(qty,item){
+    var old=document.getElementById('fdfx'); if(old) old.remove();
+    var o=document.createElement('div'); o.id='fdfx';
+    o.innerHTML='<div class="fdfx-stage"><span class="fdfx-gear">&#9881;</span>'
+      +'<div class="fdfx-label">FABRICATED<span class="fdfx-sub">'+qty+'× '+item+'</span></div></div>';
+    document.body.appendChild(o);
+    requestAnimationFrame(function(){o.classList.add('show');});
+    window.fdFX.weld();
+    setTimeout(window.fdFX.weld,350);
+    var stage=o.querySelector('.fdfx-stage');
+    var sparkIv=setInterval(function(){
+      for(var i=0;i<4;i++){
+        var s=document.createElement('div');
+        s.style.cssText='position:absolute;left:50%;top:40px;width:3px;height:3px;border-radius:50%;background:'+(Math.random()<.4?'#fff3d0':'#ffb347')+';box-shadow:0 0 6px #ff7a18';
+        stage.appendChild(s);
+        var a=Math.random()*Math.PI*2, sp=24+Math.random()*40;
+        s.animate([{transform:'translate(0,0)',opacity:1},{transform:'translate('+(Math.cos(a)*sp)+'px,'+(Math.sin(a)*sp+18)+'px)',opacity:0}],
+          {duration:380+Math.random()*220,easing:'cubic-bezier(.1,.6,.4,1)'});
+        setTimeout(function(el){return function(){el.remove();};}(s),650);
+      }
+    },140);
+    setTimeout(function(){ clearInterval(sparkIv); window.fdFX.chime(); },850);
+    setTimeout(function(){o.classList.remove('show');setTimeout(function(){o.remove();},220);},1900);
+  };
+
+  document.addEventListener('submit',function(ev){
+    var f=ev.target;
+    if(!f||!f.getAttribute||f.getAttribute('data-fdfx')!=='craft') return;
+    window.fdCraftOverlay(f.getAttribute('data-fd-qty')||'1', f.getAttribute('data-fd-item')||'');
+  },true);
+})();
+</script>
+
+<script>
+(function(){
+'use strict';
+var mb=document.getElementById('fd-mute');
+if(mb) mb.innerHTML=localStorage.getItem('foundryMuted')==='1'?'&#128263;':'&#128266;';
+
+/* Factory floor header */
+var fc=document.getElementById('fd-canvas');
+if(fc){
+  var c=fc.getContext('2d');
+  var FW=560, FH=112;
+  var dpr=Math.min(2,window.devicePixelRatio||1);
+  fc.width=FW*dpr; fc.height=FH*dpr;
+  c.scale(dpr,dpr);
+  var crates=[]; for(var i=0;i<5;i++) crates.push({x:i*140+Math.random()*60});
+  var sparks=[], nextWeld=900, steam=[];
+
+  function fLoop(t){
+    if(!document.body.contains(fc)) return;
+    requestAnimationFrame(fLoop);
+    c.clearRect(0,0,FW,FH);
+    var bg=c.createLinearGradient(0,0,0,FH);
+    bg.addColorStop(0,'#0c0a0e'); bg.addColorStop(1,'#100d12');
+    c.fillStyle=bg; c.fillRect(0,0,FW,FH);
+
+    // back wall pipes
+    c.strokeStyle='rgba(255,255,255,.06)';
+    [18,30].forEach(function(py){ c.beginPath(); c.moveTo(0,py); c.lineTo(FW,py); c.stroke(); });
+    for(var v=70;v<FW;v+=120){ c.beginPath(); c.moveTo(v,18); c.lineTo(v,30); c.stroke(); }
+
+    // steam vents
+    if(Math.random()<.06) steam.push({x:90+Math.random()*340,y:FH-34,r:5,a:.13});
+    for(var si2=steam.length-1;si2>=0;si2--){
+      var S2=steam[si2];
+      S2.y-=.35; S2.r+=.12; S2.a-=.0016;
+      if(S2.a<=0){ steam.splice(si2,1); continue; }
+      var sg=c.createRadialGradient(S2.x,S2.y,1,S2.x,S2.y,S2.r);
+      sg.addColorStop(0,'rgba(200,200,220,'+S2.a+')'); sg.addColorStop(1,'rgba(200,200,220,0)');
+      c.fillStyle=sg; c.beginPath(); c.arc(S2.x,S2.y,S2.r,0,Math.PI*2); c.fill();
+    }
+
+    // robotic welder arm (left)
+    var wob=Math.sin(t/800)*.1;
+    c.save(); c.translate(86,26);
+    c.strokeStyle='#2a2a3e'; c.lineWidth=6; c.lineCap='round';
+    c.beginPath(); c.moveTo(0,0); c.lineTo(26,22+wob*30); c.stroke();
+    c.lineWidth=4;
+    c.beginPath(); c.moveTo(26,22+wob*30); c.lineTo(40,46+wob*16); c.stroke();
+    c.restore();
+    c.lineWidth=1; c.lineCap='butt';
+
+    // weld flash + sparks at the arm tip
+    if(t>nextWeld){
+      nextWeld=t+1400+Math.random()*2600;
+      for(var i2=0;i2<9;i2++){
+        var a=Math.random()*Math.PI, sp=.8+Math.random()*1.8;
+        sparks.push({x:126,y:72,vx:Math.cos(a)*sp,vy:-Math.abs(Math.sin(a))*sp,life:1});
+      }
+    }
+    for(var pi=sparks.length-1;pi>=0;pi--){
+      var P=sparks[pi];
+      P.x+=P.vx; P.y+=P.vy; P.vy+=.07; P.life-=.03;
+      if(P.life<=0){ sparks.splice(pi,1); continue; }
+      c.globalAlpha=Math.max(0,P.life);
+      c.fillStyle=Math.random()<.4?'#fff3d0':'#ffb347';
+      c.fillRect(P.x,P.y,1.8,1.8);
+    }
+    c.globalAlpha=1;
+    if(sparks.length){
+      c.fillStyle='rgba(255,180,80,.25)';
+      c.beginPath(); c.arc(126,72,5+Math.random()*3,0,Math.PI*2); c.fill();
+    }
+
+    // conveyor belt
+    c.fillStyle='#15131c'; c.fillRect(0,FH-30,FW,16);
+    c.strokeStyle='rgba(255,255,255,.12)';
+    c.strokeRect(-1,FH-30.5,FW+2,16);
+    var beltOff=(t/24)%18;
+    c.strokeStyle='rgba(255,255,255,.07)';
+    for(var bx=-18+beltOff;bx<FW;bx+=18){ c.beginPath(); c.moveTo(bx,FH-30); c.lineTo(bx-8,FH-14); c.stroke(); }
+    // crates riding the belt
+    for(var ci=0;ci<crates.length;ci++){
+      var K=crates[ci];
+      K.x+=.55; if(K.x>FW+30) K.x=-40;
+      c.fillStyle='#241d14';
+      c.fillRect(K.x,FH-48,26,18);
+      c.strokeStyle='rgba(232,163,61,.5)'; c.strokeRect(K.x+.5,FH-47.5,25,17);
+      c.beginPath(); c.moveTo(K.x,FH-48); c.lineTo(K.x+26,FH-30); c.moveTo(K.x+26,FH-48); c.lineTo(K.x,FH-30); c.stroke();
+    }
+    // floor
+    c.fillStyle='#0a090d'; c.fillRect(0,FH-14,FW,14);
+    c.fillStyle='rgba(232,163,61,.12)'; c.fillRect(0,FH-14,FW,1.5);
+  }
+  requestAnimationFrame(fLoop);
+}
+
+/* crate-result reveal sounds (consume once) */
+var crateFx=window._fdCrates||null; window._fdCrates=null;
+if(crateFx&&window.fdFX){
+  for(var ci2=0;ci2<crateFx.n;ci2++) setTimeout(window.fdFX.crate, 180*ci2+200);
+  if(crateFx.jackpot) setTimeout(window.fdFX.fanfare, 180*crateFx.n+350);
+  else setTimeout(window.fdFX.chime, 180*crateFx.n+300);
+}
+})();
+</script>
