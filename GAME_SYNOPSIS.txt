@@ -73,6 +73,7 @@ trade.php         → Secure Trade Post: escrow trades (items+credits+shards), d
 pvp.php           → Combat Arena: PvP fights using str/spd/end stats
 training.php      → Neural Training: spend Drive to gain STR/SPD/END; 30min cooldown
 datacore.php      → Skillsoft Lab: spend Drive on skills (combat, stealth, hack, etc.)
+mining.php        → The Sump: interactive cave crawler; proc-gen 5-depth mines; WASD/click movement; fog of war; ore harvesting costs Drive; Drone Ops skill gates depth access
 guilds.php        → Syndicates: create/join guilds, board, stockpile, log, applications
 boards.php        → Public message boards (topics + replies)
 tickets.php       → Support ticket system

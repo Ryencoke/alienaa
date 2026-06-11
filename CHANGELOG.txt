@@ -2,6 +2,25 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-27 ---
+
+MINING.PHP — COMPLETE INTERACTIVE REWRITE
+------------------------------------------
+[mining.php]
+- Complete replacement of button-click mine mechanic with an interactive cave crawler game.
+- Canvas-based 17×17 viewport renderer (player always centered), fog of war reveals
+  radius-4 circle around player as they explore.
+- Mine generation: server-side procedural cellular automata cave generator. 5 depth levels
+  (16×16 to 24×24 grid), each requiring a higher Drone Ops skill level (0/2/4/6/8).
+- Movement: WASD/arrow keys or click canvas to move. Click ore tile to mine it. E key
+  mines nearest adjacent ore. Exit shaft (↑) appears at farthest point from spawn.
+- Drive cost: per ore type × depth multiplier (1.0×–3.0×). Ore extracted grants XP.
+- Rewards on exit: all collected ore added to player_ore table (same as before).
+  Result screen shows extracted haul before returning to lobby.
+- Preserved: existing ore types (scrap/copper/iron/titanium/nanocarbon/quantum/void),
+  player_ore table, Drone Ops skill gating.
+- Removed: 30-minute cooldown (Drive cost + movement acts as natural limiter).
+
 --- SESSION: 2026-06-11 BATCH-26 ---
 
 BUG FIXES — VIDEO POKER, HOME LAYOUT, LOGIN REDIRECT
