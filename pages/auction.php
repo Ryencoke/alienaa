@@ -315,7 +315,7 @@ if ($tab === 'myhistory') {
           <input type="hidden" name="action" value="bid">
           <input type="hidden" name="listing_id" value="<?= (int)$row['id'] ?>">
           <input type="number" name="bid_amount" min="<?= $minBid ?>" value="<?= $minBid ?>" class="au-bidinput" style="width:74px;padding:4px 5px;font-size:11px">
-          <button type="submit" style="padding:4px 9px;font-size:11px;background:rgba(255,45,149,.1);border-color:rgba(255,45,149,.35);color:var(--neon2)">&#9889; Bid</button>
+          <button type="submit" style="padding:4px 9px;font-size:11px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">&#9889; Bid</button>
           <span style="display:flex;gap:3px;flex-basis:100%;margin-top:3px">
             <button type="button" class="au-quick" data-q="min" data-min="<?= $minBid ?>">min</button>
             <button type="button" class="au-quick" data-q="pct" data-base="<?= $topBid ?>" data-pct="5">+5%</button>

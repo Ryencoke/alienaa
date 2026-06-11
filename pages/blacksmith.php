@@ -172,7 +172,7 @@ $pocket  = (int)$player['creds_pocket'];
     <form method="post" id="bs-buy-form" style="margin:0">
       <input type="hidden" name="action" value="buy">
       <input type="hidden" name="item_code" id="bs-buy-code">
-      <button type="submit" id="bs-buy-btn">&#9874; Forge It</button>
+      <button type="submit" id="bs-buy-btn" style="background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">&#9874; Forge It</button>
     </form>
   </div>
 </div>
@@ -352,7 +352,9 @@ if(grid&&detail){
       form.removeAttribute('data-forgefx');
     } else {
       btn.innerHTML='&#9874; Forge It'; btn.disabled=false; btn.style.opacity='1';
-      btn.style.borderColor=tcol+'88'; btn.style.color=tcol;
+      btn.style.background='rgba(25,240,199,.08)';
+      btn.style.borderColor='rgba(25,240,199,.35)';
+      btn.style.color='var(--accent)';
     }
     detail.style.display='block';
     detail.scrollIntoView({behavior:'smooth',block:'nearest'});

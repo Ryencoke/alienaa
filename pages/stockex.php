@@ -313,7 +313,7 @@ foreach ($stocks as $s) {
           <input type="hidden" name="action" value="buy">
           <input type="hidden" name="stock_id" value="<?= (int)$s['id'] ?>">
           <input type="number" name="qty" value="1" min="1" class="sx-qty" data-price="<?= (int)$s['price'] ?>" style="width:48px;padding:3px 5px;font-size:11px">
-          <button type="submit" style="padding:4px 10px;font-size:11px;color:#3bcf63;border-color:rgba(59,207,99,.3);background:rgba(59,207,99,.08)">Buy</button>
+          <button type="submit" style="padding:4px 10px;font-size:11px;color:var(--accent);border-color:rgba(25,240,199,.35);background:rgba(25,240,199,.08)">Buy</button>
           <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$s['price'] + max(1, (int)ceil($s['price'] * 0.01))) ?> cr w/fee</span>
         </form>
       </div>

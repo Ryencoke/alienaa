@@ -148,7 +148,7 @@ $nUtility = count($CATALOG) - $nRestore;
           data-store-label="<?= $effect && $amount>0 ? '+'.$amount.' '.$fx['label'] : 'Added to stash' ?>">
       <input type="hidden" name="action" value="buy">
       <input type="hidden" name="item_id" value="<?= e($iid) ?>">
-      <button type="submit" <?= $broke ? 'disabled style="opacity:.4"' : 'style="border-color:'.$fx['col'].'66;color:'.$fx['col'].'"' ?>>Buy</button>
+      <button type="submit" <?= $broke ? 'disabled style="opacity:.4"' : 'style="background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)"' ?>>Buy</button>
     </form>
   </div>
 </div>

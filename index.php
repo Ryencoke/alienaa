@@ -49,6 +49,30 @@ if ($player) {
   // Auto-release expired sentences
   try { db()->prepare("UPDATE jail_records SET status='released' WHERE player_id=? AND release_at<=NOW() AND status='active'")->execute([$player['id']]); } catch (Throwable $e) {}
 }
+
+// Game AJAX gateway — pages with in-page JSON endpoints (mining, vats, exchange)
+// must run BEFORE any HTML is emitted, or their JSON arrives prefixed with the
+// page layout and the client sees "Network error".
+if ($player && $_SERVER['REQUEST_METHOD'] === 'POST'
+    && (!empty($_POST['mine_ajax']) || !empty($_POST['vat_ajax']) || !empty($_POST['exch_ajax']))) {
+  $__ajaxStaff = in_array($player['role'] ?? 'member', ['chatmod','moderator','admin','manager'], true);
+  if ($jailRecord && !$__ajaxStaff) {
+    header('Content-Type: application/json');
+    echo json_encode(['ok' => false, 'err' => 'Account suspended.']);
+    exit;
+  }
+  $__ajaxFile = __DIR__ . "/pages/{$p}.php";
+  if (preg_match('/^[a-z]+$/', $p) && file_exists($__ajaxFile)) {
+    try { require $__ajaxFile; } catch (Throwable $e) {
+      header('Content-Type: application/json');
+      echo json_encode(['ok' => false, 'err' => 'Server error.']);
+    }
+  }
+  // The page's AJAX branch exits on its own; reaching here means it didn't match.
+  if (!headers_sent()) header('Content-Type: application/json');
+  echo json_encode(['ok' => false, 'err' => 'Bad request.']);
+  exit;
+}
 $isStaff = $player && in_array($player['role'] ?? 'member', ['chatmod','moderator','admin','manager'], true);
 // Sidebar stat preferences
 $sbBars = null;

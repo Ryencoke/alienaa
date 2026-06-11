@@ -376,7 +376,7 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
     <?php if ($owned): ?>
       <button disabled style="width:100%;opacity:.4;font-size:12px">Already Owned</button>
     <?php else: ?>
-      <form method="post" style="margin:0"><input type="hidden" name="action" value="buy"><input type="hidden" name="type_id" value="<?= $tid ?>"><button type="submit" style="width:100%;font-size:12px" <?= (int)$player['creds_pocket'] < $atype['price'] ? 'disabled style="opacity:.4"' : '' ?>>Purchase</button></form>
+      <form method="post" style="margin:0"><input type="hidden" name="action" value="buy"><input type="hidden" name="type_id" value="<?= $tid ?>"><button type="submit" style="width:100%;font-size:12px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)" <?= (int)$player['creds_pocket'] < $atype['price'] ? 'disabled' : '' ?>>Purchase</button></form>
     <?php endif; ?>
   </div>
   <?php endforeach; ?>
@@ -401,7 +401,7 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
     <?php $lCur = $l['market_currency'] ?? 'credits'; $lAfford = $lCur === 'shards' ? (int)$player['shards'] >= $l['market_price'] : (int)$player['creds_pocket'] >= $l['market_price']; ?>
     <div style="display:flex;gap:10px;align-items:center">
       <div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:<?= $lCur==='shards'?'#e8d44d':'var(--accent)' ?>"><?= number_format($l['market_price']) ?> <?= $lCur==='shards'?'&#9670;':'cr' ?></div>
-      <form method="post" style="margin:0"><input type="hidden" name="action" value="market_buy"><input type="hidden" name="apt_id" value="<?= (int)$l['id'] ?>"><button type="submit" style="font-size:12px" <?= !$lAfford ? 'disabled style="opacity:.4"' : '' ?>>Buy</button></form>
+      <form method="post" style="margin:0"><input type="hidden" name="action" value="market_buy"><input type="hidden" name="apt_id" value="<?= (int)$l['id'] ?>"><button type="submit" style="font-size:12px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)" <?= !$lAfford ? 'disabled' : '' ?>>Buy</button></form>
     </div>
   </div>
   <?php endforeach; ?>

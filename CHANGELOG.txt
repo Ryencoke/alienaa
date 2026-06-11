@@ -2,6 +2,31 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-42 ---
+
+FIX: GAME AJAX "NETWORK ERROR" + UNIFIED BUY BUTTON COLOR
+-----------------------------------------------------------
+[index.php]
+- CRITICAL FIX: mining, vats, and the Exchange vault kept hitting "Network
+  error" on every action. Root cause (present since the BATCH-27 mining
+  rewrite): their JSON endpoints live inside the page files, which index.php
+  only requires AFTER printing the entire page layout — so every AJAX
+  response was "<!DOCTYPE html>...{json}" and JSON parsing failed.
+  New game-AJAX gateway: POSTs carrying mine_ajax / vat_ajax / exch_ajax are
+  routed to the page file BEFORE any HTML output (with a jail check that
+  returns a clean JSON error for suspended accounts). Mining digs/moves,
+  vat planting/harvesting, and vault cracks now return pure JSON.
+
+[generalstore.php, blacksmith.php, stockex.php, auction.php, lounge.php,
+ apartments.php]
+- UNIFIED BUY COLOR: all purchase buttons now share one standard style —
+  accent teal (rgba accent bg/border + accent text) — instead of per-page
+  colors: Supply Node "Buy" (was effect-colored), Forge "⚒ Forge It" (was
+  rarity-colored), Stock Exchange "Buy" (was green), Black Market "⚡ Bid"
+  (was magenta), Lounge Chem Bar "Buy" (was amber), Apartments "Purchase" /
+  market "Buy" (were default grey). Sell buttons stay red, bank-action and
+  premium-subscription buttons keep their semantic colors.
+
 --- SESSION: 2026-06-11 BATCH-41 ---
 
 STOCK EXCHANGE (stockex.php) — TRADING FLOOR OVERHAUL

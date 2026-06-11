@@ -106,7 +106,7 @@ try {
       <form method="post" style="margin:0;flex:none">
         <input type="hidden" name="action" value="buy_stim">
         <input type="hidden" name="stim" value="<?= $key ?>">
-        <button type="submit" style="font-size:11px;padding:5px 12px;background:rgba(232,163,61,.08);border-color:rgba(232,163,61,.3);color:#e8a33d">Buy</button>
+        <button type="submit" style="font-size:11px;padding:5px 12px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">Buy</button>
       </form>
     </div>
     <?php endforeach; ?>
