@@ -326,6 +326,43 @@ function scene_header_js(): string {
         P.forEach(function(q){ q.x-=q.v*.5; if(q.x<-3){q.x=W+3;q.y=Math.random()*H;}
           c.fillStyle=hexA(AC,.12); c.fillRect(q.x,q.y,1.5,1.5); });
       }
+      else if(theme==='desk'){
+        // service counter windows with status lamps + a printing ticket stub
+        for(var w3=0;w3<4;w3++){
+          var wx3=36+w3*92;
+          c.fillStyle='#101020'; c.fillRect(wx3,22,68,52);
+          c.strokeStyle='rgba(255,255,255,.1)'; c.strokeRect(wx3+.5,22.5,68,52);
+          c.fillStyle='rgba(255,255,255,.04)'; c.fillRect(wx3+6,30,56,24);
+          var open2=((t/1600+w3*1.9)%5)<3.4;
+          c.fillStyle=open2?hexA('#3bcf63',.8):hexA('#ff2d95',.7);
+          c.shadowColor=open2?'#3bcf63':'#ff2d95'; c.shadowBlur=6;
+          c.beginPath(); c.arc(wx3+60,29,2.6,0,Math.PI*2); c.fill();
+          c.shadowBlur=0;
+          c.font='700 7px monospace'; c.textAlign='center';
+          c.fillStyle='rgba(255,255,255,.3)';
+          c.fillText(open2?'OPEN':'BUSY',wx3+34,68);
+        }
+        // ticket stub spooling out of a dispenser (right)
+        var dx3=W-96, cyc=(t%3000)/3000;
+        c.fillStyle='#181828'; c.fillRect(dx3-20,24,40,16);
+        c.strokeStyle=hexA(AC,.45); c.strokeRect(dx3-20.5,24.5,40,16);
+        var stubLen=Math.min(26,cyc*38);
+        if(stubLen>2){
+          c.fillStyle=hexA(AC,.25);
+          c.fillRect(dx3-11,40,22,stubLen);
+          c.strokeStyle=hexA(AC,.5);
+          c.strokeRect(dx3-11.5,40.5,22,stubLen);
+          c.setLineDash([2,2]);
+          c.beginPath(); c.moveTo(dx3-11,40+stubLen-3); c.lineTo(dx3+11,40+stubLen-3); c.stroke();
+          c.setLineDash([]);
+        }
+        // queue dots shuffling forward
+        for(var q3=0;q3<6;q3++){
+          var qx=W-200+q3*16-((t/120)%16);
+          c.fillStyle='rgba(255,255,255,'+(0.10+0.07*Math.sin(t/400+q3))+')';
+          c.beginPath(); c.arc(qx,H-14,3,0,Math.PI*2); c.fill();
+        }
+      }
       else if(theme==='ink'){
         // ruled datapad lines + blinking cursor + drifting letters
         c.strokeStyle='rgba(255,255,255,.05)';

@@ -2,6 +2,34 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-48 ---
+
+THE SPRAWL MAP (city.php) + CUSTOMER SERVICE (tickets.php)
+------------------------------------------------------------
+[city.php]
+- LIVING SKYLINE: the static SVG cityscape is now a full animated canvas —
+  two depth layers of procedural buildings with per-window stable flicker,
+  a central arcology tower (teal-trimmed, mixed neon windows, pulsing
+  antenna beacon), flying traffic streaking both directions with colored
+  light trails, rooftop warning lamps, horizon glow, street fog, and the
+  glowing THE SPRAWL // SECTOR 9 neon title (theme-aware colors).
+- District grid rebuilt data-driven: 13 districts each with an icon,
+  identity color, and flavor line — colored top edge, icon glow + hover
+  lift, staggered entrance, and links that slide + arrow on hover.
+  (Also fixed the header text: it said eleven districts; there are 13.)
+
+[tickets.php]
+- NEW 'desk' THEME in the shared scene engine: service-counter windows
+  with OPEN/BUSY status lamps, a ticket stub printing from a dispenser on
+  a loop, and a queue of dots shuffling forward. Applied as the Customer
+  Service header with a live open-ticket count chip.
+- STATUS FILTER CHIPS: All / Open / Pending / Waiting / Closed filter the
+  ticket list client-side (works for both player and staff lists), with an
+  empty-state notice. Ticket rows get hover highlight.
+- "+ New Ticket" button restyled to the standard accent and moved next to
+  the filters; error messages now render as flash-err (previously success
+  style).
+
 --- SESSION: 2026-06-11 BATCH-47 ---
 
 FINAL SWEEP — ANIMATED HEADERS FOR ALL REMAINING PAGES

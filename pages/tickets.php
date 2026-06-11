@@ -92,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare("UPDATE tickets SET status='closed', updated_at=NOW() WHERE id=?")->execute([$tid]);
       $msg = 'Ticket closed.';
     }
-  } catch (Throwable $ex) { $msg = $ex->getMessage(); }
+  } catch (Throwable $ex) { $msg = $ex->getMessage(); $msgErr = true; }
 }
 
 $view = (int)($_GET['tid'] ?? 0);
@@ -105,7 +105,7 @@ if ($view) {
 ?>
 
 <?php if ($msg): ?>
-<div style="background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.25);border-radius:6px;padding:10px 14px;font-size:13px;margin-bottom:8px"><?= e($msg) ?></div>
+<div class="flash <?= ($msgErr ?? false) ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>
 <?php endif; ?>
 
 <?php if ($view && isset($ticket)): // ── SINGLE TICKET VIEW ──
@@ -208,17 +208,30 @@ if ($view) {
   &#128276; <b><?= (int)$newTicketCount ?> new ticket<?= $newTicketCount !== 1 ? 's' : '' ?></b> submitted since your last visit.
 </div>
 <?php endif; ?>
-<div class="panel" style="padding:0;overflow:hidden">
-  <div style="height:3px;background:linear-gradient(90deg,var(--accent),var(--neon2),transparent)"></div>
-  <div style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-    <div>
-      <h2 style="margin:0 0 2px">&#127381; Customer Service</h2>
-      <p class="muted" style="margin:0;font-size:12px">Submit issues, report problems, or request help from the team.</p>
-    </div>
-    <?php if (!$isStaff): ?>
-    <button onclick="document.getElementById('new-ticket-form').style.display = document.getElementById('new-ticket-form').style.display==='none'?'block':'none'" style="font-size:12px">&#43; New Ticket</button>
-    <?php endif; ?>
-  </div>
+<?php
+$tkOpen = 0;
+foreach ($tickets as $tCount) { if ($tCount['status'] !== 'closed') $tkOpen++; }
+?>
+<style>
+.tk-row{transition:background .12s}
+.tk-row:hover{background:rgba(25,240,199,.03)}
+.tk-chip{padding:5px 13px;border-radius:16px;font-size:11px;cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--muted);transition:border-color .15s,color .15s;user-select:none}
+.tk-chip.on{border-color:var(--accent);background:rgba(25,240,199,.1);color:var(--accent)}
+</style>
+<?= scene_header('tk-canvas', '&#127915;', 'Customer Service',
+      'Submit issues, report problems, or request help from the team.', 'desk', '#19f0c7',
+      '<span style="font-size:11px;color:var(--muted)"><b style="font-family:\'Orbitron\',sans-serif;color:' . ($tkOpen > 0 ? 'var(--accent)' : 'var(--muted)') . '">' . $tkOpen . '</b> OPEN TICKET' . ($tkOpen !== 1 ? 'S' : '') . '</span>') ?>
+<?= scene_header_js() ?>
+
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+  <span class="tk-chip on" data-tk="all">All</span>
+  <span class="tk-chip" data-tk="open">Open</span>
+  <span class="tk-chip" data-tk="pending">Pending</span>
+  <span class="tk-chip" data-tk="waiting">Waiting</span>
+  <span class="tk-chip" data-tk="closed">Closed</span>
+  <?php if (!$isStaff): ?>
+  <button onclick="document.getElementById('new-ticket-form').style.display = document.getElementById('new-ticket-form').style.display==='none'?'block':'none'" style="font-size:12px;margin-left:auto;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">&#43; New Ticket</button>
+  <?php endif; ?>
 </div>
 
 <div id="new-ticket-form" style="display:none">
@@ -253,7 +266,7 @@ if ($view) {
   <?php foreach ($tickets as $t):
     $st = $STATUSES[$t['status']] ?? $STATUSES['open'];
   ?>
-  <div style="display:grid;grid-template-columns:50px 1fr 100px 100px 90px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center;font-size:12px">
+  <div class="tk-row" data-status="<?= e($t['status']) ?>" style="display:grid;grid-template-columns:50px 1fr 100px 100px 90px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center;font-size:12px">
     <span style="color:var(--muted)">#<?= (int)$t['id'] ?></span>
     <span><a href="index.php?p=tickets&tid=<?= (int)$t['id'] ?>" style="color:var(--text);font-weight:700"><?= e($t['subject']) ?></a></span>
     <?php if ($isStaff): ?>
@@ -265,6 +278,26 @@ if ($view) {
     <span style="color:var(--muted);padding-left:8px"><?= e(date('M j', strtotime($t['updated_at']))) ?></span>
   </div>
   <?php endforeach; ?>
+  <p id="tk-nores" class="muted" style="display:none;text-align:center;padding:20px 0">No tickets with that status.</p>
 </div>
 <?php endif; ?>
+
+<script>
+(function(){
+  document.querySelectorAll('.tk-chip').forEach(function(chip){
+    chip.addEventListener('click',function(){
+      document.querySelectorAll('.tk-chip').forEach(function(ch){ch.classList.remove('on');});
+      chip.classList.add('on');
+      var f=chip.dataset.tk, shown=0;
+      document.querySelectorAll('.tk-row').forEach(function(row){
+        var hit=f==='all'||row.dataset.status===f;
+        row.style.display=hit?'':'none';
+        if(hit) shown++;
+      });
+      var nr=document.getElementById('tk-nores');
+      if(nr) nr.style.display=shown?'none':'';
+    });
+  });
+})();
+</script>
 <?php endif; ?>
