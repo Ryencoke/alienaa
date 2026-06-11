@@ -148,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $rDriveNs = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE (sub_until IS NULL OR sub_until < CURDATE()) AND cycles < 500")->fetchColumn();
       $rDriveSb = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE sub_until >= CURDATE() AND cycles < 1500")->fetchColumn();
       // Run daily reset for all players
-      $pdo->exec("UPDATE players SET integrity = integrity_max, signal = signal_max,
+      $pdo->exec("UPDATE players SET integrity = integrity_max, `signal` = signal_max,
         cycles = LEAST(CASE WHEN sub_until >= CURDATE() THEN 1500 ELSE 500 END, cycles + 250)");
       // Skillsoft decay (same as lazy per-player reset)
       try { $pdo->exec("UPDATE player_skills SET points = CASE

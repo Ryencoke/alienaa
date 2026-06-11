@@ -66,16 +66,14 @@ try {
   }
 } catch (Throwable $e) { $myStats = ['pid'=>$pid,'str_pts'=>5,'spd_pts'=>5,'end_pts'=>5,'unspent'=>0]; }
 
-// Level-up: grant unspent points for levels gained. Training gains are excluded
-// so they don't falsely consume level-up allocation points.
+// Sync unspent from settings — settings['attr_points:{pid}'] is the canonical unspent counter
+// (grant_xp increments it; spend_stat decrements both here and in settings)
 try {
-  $trainingGains  = (int)($myStats['training_gains'] ?? 0);
-  $allocatedPts   = max(0, (int)$myStats['str_pts'] + (int)$myStats['spd_pts'] + (int)$myStats['end_pts'] - $trainingGains);
-  $earnedPoints   = 15 + max(0, (int)$player['level'] - 1); // base 15 + 1 per level above 1
-  $newUnspent     = max(0, $earnedPoints - $allocatedPts);
-  if ($newUnspent !== (int)$myStats['unspent']) {
-    $pdo->prepare('UPDATE player_stats SET unspent=? WHERE pid=?')->execute([$newUnspent, $pid]);
-    $myStats['unspent'] = $newUnspent;
+  $aq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]);
+  $settingsUnspent = (int)($aq->fetchColumn() ?: 0);
+  if ($settingsUnspent !== (int)$myStats['unspent']) {
+    $pdo->prepare('UPDATE player_stats SET unspent=? WHERE pid=?')->execute([$settingsUnspent, $pid]);
+    $myStats['unspent'] = $settingsUnspent;
   }
 } catch (Throwable $e) {}
 
@@ -174,12 +172,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ((int)$player['signal_max'] >= 50) throw new RuntimeException('Signal is already at maximum capacity (50).');
         $pdo->prepare('UPDATE players SET signal_max = LEAST(50, signal_max + 1) WHERE id=?')->execute([$pid]);
         $pdo->prepare('UPDATE player_stats SET unspent = unspent - 1 WHERE pid=?')->execute([$pid]);
+        $pdo->prepare('UPDATE settings SET v = GREATEST(0, CAST(v AS SIGNED) - 1) WHERE k=?')->execute(["attr_points:{$pid}"]);
         $qs->execute([$pid]); $myStats = $qs->fetch(); $player = current_player();
         $msg = 'Signal bandwidth upgraded!';
       } else {
         if (!in_array($stat, ['str_pts','spd_pts','end_pts'], true)) throw new RuntimeException('Invalid stat.');
         if ((int)$myStats['unspent'] < 1) throw new RuntimeException('No unspent stat points.');
         $pdo->prepare("UPDATE player_stats SET {$stat} = {$stat} + 1, unspent = unspent - 1 WHERE pid=?")->execute([$pid]);
+        $pdo->prepare('UPDATE settings SET v = GREATEST(0, CAST(v AS SIGNED) - 1) WHERE k=?')->execute(["attr_points:{$pid}"]);
         $qs->execute([$pid]); $myStats = $qs->fetch();
         $msg = 'Stat point spent!';
       }
@@ -253,7 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mortalityDelta = -2; // fighting a neutral player = slight evil shift
       }
       try { $pdo->prepare('UPDATE players SET mortality = GREATEST(-200, LEAST(200, mortality + ?)) WHERE id=?')->execute([$mortalityDelta, $winnerId2]); } catch (Throwable $ex) {}
-      $pdo->prepare('UPDATE players SET signal = GREATEST(0, signal - 1) WHERE id=?')->execute([$pid]);
+      $pdo->prepare('UPDATE players SET `signal` = GREATEST(0, `signal` - 1) WHERE id=?')->execute([$pid]);
 
       $player = current_player();
 

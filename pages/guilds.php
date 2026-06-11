@@ -309,21 +309,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $donateQty    = max(1, min(99, (int)($_POST['donate_qty'] ?? 1)));
       $notes = mb_substr(trim($_POST['notes'] ?? ''),0,200);
       if (!$donateItemId) throw new RuntimeException('Select an item to donate.');
-      // Verify player has enough in inventory
-      $iq = $pdo->prepare('SELECT i.name, pi.qty FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.item_id=? AND pi.qty>0');
+      // Verify player has enough in inventory; pull slot and stats
+      $iq = $pdo->prepare('SELECT i.name, i.slot, i.atk, i.def, pi.qty FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.item_id=? AND pi.qty>0');
       $iq->execute([$pid, $donateItemId]); $irow = $iq->fetch();
       if (!$irow) throw new RuntimeException('Item not found in inventory.');
       if ($irow['qty'] < $donateQty) throw new RuntimeException('Not enough in inventory (you have '.$irow['qty'].').');
       $iname = $irow['name'];
+      // Auto-route weapons/armor to Armoury; everything else to Stockpile
+      $gearType = in_array($irow['slot'] ?? '', ['weapon','armor'], true) ? $irow['slot'] : 'item';
+      $atkBonus = $gearType === 'weapon' ? (int)($irow['atk'] ?? 0) : 0;
+      $defBonus = $gearType === 'armor'  ? (int)($irow['def'] ?? 0) : 0;
       // Deduct from inventory
       if ($irow['qty'] - $donateQty <= 0) $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=?')->execute([$pid, $donateItemId]);
       else $pdo->prepare('UPDATE player_items SET qty=qty-? WHERE player_id=? AND item_id=?')->execute([$donateQty, $pid, $donateItemId]);
       // Create one stockpile entry per item donated
+      $dest = $gearType === 'item' ? 'stockpile' : 'armoury';
       for ($di=0; $di<$donateQty; $di++) {
-        $pdo->prepare('INSERT INTO syndicate_stockpile (syndicate_id,item_name,gear_type,atk_bonus,def_bonus,notes,added_by) VALUES (?,?,?,?,?,?,?)')->execute([$mySyn['syndicate_id'],$iname,'item',0,0,$notes,$pid]);
+        $pdo->prepare('INSERT INTO syndicate_stockpile (syndicate_id,item_name,gear_type,atk_bonus,def_bonus,notes,added_by) VALUES (?,?,?,?,?,?,?)')->execute([$mySyn['syndicate_id'],$iname,$gearType,$atkBonus,$defBonus,$notes,$pid]);
       }
-      syn_log($pdo,$mySyn['syndicate_id'],null,$pid,'stockpile_add','Donated '.$donateQty.'× "'.$iname.'" to stockpile');
-      $msg = 'Donated ' . $donateQty . '× "' . $iname . '" to the stockpile.';
+      syn_log($pdo,$mySyn['syndicate_id'],null,$pid,'stockpile_add','Donated '.$donateQty.'× "'.$iname.'" to '.$dest);
+      $msg = 'Donated ' . $donateQty . '× "' . $iname . '" to the ' . $dest . '.';
 
     } elseif ($act === 'stockpile_remove') {
       if (!$mySyn || !syn_can($myRank,'manage_stockpile')) throw new RuntimeException('No permission.');
@@ -381,7 +386,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $tab = $_GET['tab'] ?? '';
 $boardTid = (int)($_GET['tid'] ?? 0); // board: topic detail view
-$validTabs = $mySyn ? ['home','board','members','staff','stockpile','log'] : ['search','create'];
+$validTabs = $mySyn ? ['home','board','members','staff','stockpile','armoury','treasury','log'] : ['search','create'];
 if (!in_array($tab, $validTabs, true)) $tab = $mySyn ? 'home' : 'search';
 
 // Pending applications count for badge
@@ -417,7 +422,7 @@ if ($mySyn && syn_can($myRank, 'manage_members')) {
   <?php
   $membersLabel = '&#128101; Members' . ($pendingApps ? ' <span style="background:var(--neon2);color:#000;border-radius:10px;padding:1px 6px;font-size:9px;font-weight:700">'.$pendingApps.'</span>' : '');
   $tabDefs = $mySyn
-    ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','chat'=>'&#128172; Chat','members'=>$membersLabel,'staff'=>'&#128737; Staff','stockpile'=>'&#9874; Stockpile','log'=>'&#128196; Log']
+    ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','chat'=>'&#128172; Chat','members'=>$membersLabel,'staff'=>'&#128737; Staff','stockpile'=>'&#9874; Stockpile','armoury'=>'&#9876; Armoury','treasury'=>'&#128178; Treasury','log'=>'&#128196; Log']
     : ['search'=>'&#128269; Find Syndicate','create'=>'&#43; Create'];
   foreach ($tabDefs as $tk=>$tl):
     $show = isset($tabDefs[$tk]);
@@ -474,36 +479,6 @@ if ($tab === 'home' && $mySyn):
 <?php if (!empty($mySyn['description'])): ?>
 <div class="panel"><p style="margin:0;font-size:13px;color:var(--muted)"><?= e($mySyn['description']) ?></p></div>
 <?php endif; ?>
-
-<!-- Treasury -->
-<div class="panel">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-    <h3 style="margin:0;font-size:13px">&#128178; Treasury</h3>
-    <span style="font-size:12px;color:#3bcf63;font-weight:700"><?= number_format((int)$mySyn['bank']) ?> cr</span>
-  </div>
-  <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Donate pocket credits to the guild fund. Donations earn XP for the Syndicate.</p>
-  <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-    <input type="hidden" name="action" value="donate">
-    <div class="field" style="flex:1;min-width:160px;margin:0">
-      <span>Amount <span class="muted" style="font-size:11px">Pocket: <?= number_format((int)$player['creds_pocket']) ?> cr</span></span>
-      <div class="num-wrap"><input type="number" name="amount" id="donAmt" min="1" max="<?= (int)$player['creds_pocket'] ?>" placeholder="0"><button type="button" class="fill-max" onclick="document.getElementById('donAmt').value=<?= (int)$player['creds_pocket'] ?>">Max</button></div>
-    </div>
-    <button type="submit" style="font-size:12px" <?= (int)$player['creds_pocket']<1?'disabled':'' ?>>Donate</button>
-  </form>
-  <?php if (syn_can($myRank,'manage_bank') && (int)$mySyn['bank'] > 0): ?>
-  <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
-    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Vault Keeper controls — withdraw from treasury:</div>
-    <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-      <input type="hidden" name="action" value="bank_withdraw">
-      <div class="field" style="flex:1;min-width:160px;margin:0">
-        <span>Withdraw <span class="muted" style="font-size:11px">Bank: <?= number_format((int)$mySyn['bank']) ?> cr</span></span>
-        <div class="num-wrap"><input type="number" name="amount" id="wdAmt" min="1" max="<?= (int)$mySyn['bank'] ?>" placeholder="0"><button type="button" class="fill-max" onclick="document.getElementById('wdAmt').value=<?= (int)$mySyn['bank'] ?>">Max</button></div>
-      </div>
-      <button type="submit" style="font-size:12px;background:rgba(255,45,149,.06);border-color:rgba(255,45,149,.25);color:var(--neon2)">Withdraw</button>
-    </form>
-  </div>
-  <?php endif; ?>
-</div>
 
 <!-- Recent log -->
 <?php if (!empty($recentLog)): ?>
@@ -833,18 +808,18 @@ elseif ($tab === 'staff' && $mySyn):
 
 <?php // ══ STOCKPILE ══════════════════════════════════════
 elseif ($tab === 'stockpile' && $mySyn):
+  // General items only (gear_type='item')
   $stockpile = [];
-  try { $sq = $pdo->prepare('SELECT sp.*,p.username AS added_by_name FROM syndicate_stockpile sp LEFT JOIN players p ON p.id=sp.added_by WHERE sp.syndicate_id=? ORDER BY sp.gear_type,sp.item_name'); $sq->execute([$mySyn['syndicate_id']]); $stockpile = $sq->fetchAll(); } catch (Throwable $e) {}
+  try { $sq = $pdo->prepare("SELECT sp.*,p.username AS added_by_name FROM syndicate_stockpile sp LEFT JOIN players p ON p.id=sp.added_by WHERE sp.syndicate_id=? AND sp.gear_type='item' ORDER BY sp.item_name"); $sq->execute([$mySyn['syndicate_id']]); $stockpile = $sq->fetchAll(); } catch (Throwable $e) {}
   $activeLoans = [];
-  try { $lq = $pdo->prepare('SELECT sl.*,sp.item_name,pl.username AS borrower_name FROM syndicate_loans sl JOIN syndicate_stockpile sp ON sp.id=sl.stockpile_id JOIN players pl ON pl.id=sl.player_id WHERE sl.syndicate_id=? AND sl.returned_at IS NULL ORDER BY sl.loaned_at DESC'); $lq->execute([$mySyn['syndicate_id']]); $activeLoans = $lq->fetchAll(); } catch (Throwable $e) {}
+  try { $lq = $pdo->prepare("SELECT sl.*,sp.item_name,pl.username AS borrower_name FROM syndicate_loans sl JOIN syndicate_stockpile sp ON sp.id=sl.stockpile_id JOIN players pl ON pl.id=sl.player_id WHERE sl.syndicate_id=? AND sl.returned_at IS NULL AND sp.gear_type='item' ORDER BY sl.loaned_at DESC"); $lq->execute([$mySyn['syndicate_id']]); $activeLoans = $lq->fetchAll(); } catch (Throwable $e) {}
   $canManageStock = syn_can($myRank,'manage_stockpile');
   $canLoan = syn_can($myRank,'loan_items');
-  // Members for loan dropdown
   $synMembers = [];
   if ($canLoan) { try { $mq = $pdo->prepare('SELECT sm.player_id,p.username FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? ORDER BY p.username'); $mq->execute([$mySyn['syndicate_id']]); $synMembers = $mq->fetchAll(); } catch (Throwable $e) {} }
-  // Player inventory for donation dropdown
+  // Player inventory — exclude weapons/armor (those go to Armoury)
   $playerInvStock = [];
-  try { $piq = $pdo->prepare('SELECT pi.item_id,pi.qty,i.name,i.category FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.qty>0 ORDER BY i.category,i.name'); $piq->execute([$pid]); $playerInvStock = $piq->fetchAll(); } catch (Throwable $e) {}
+  try { $piq = $pdo->prepare("SELECT pi.item_id,pi.qty,i.name,i.category FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.qty>0 AND (i.slot IS NULL OR i.slot NOT IN ('weapon','armor')) ORDER BY i.category,i.name"); $piq->execute([$pid]); $playerInvStock = $piq->fetchAll(); } catch (Throwable $e) {}
 ?>
 
 <?php if (!$leaderIsSubbed): ?>
@@ -854,8 +829,9 @@ elseif ($tab === 'stockpile' && $mySyn):
 <?php if ($canManageStock): ?>
 <div class="panel">
   <h3 style="margin-top:0;font-size:13px">&#9874; Donate to Stockpile</h3>
+  <p class="muted" style="font-size:12px;margin-top:-4px">General items only. Weapons &amp; armor go to the <a href="index.php?p=guilds&tab=armoury" style="color:var(--accent)">Armoury &rarr;</a></p>
   <?php if (empty($playerInvStock)): ?>
-  <p class="muted" style="font-size:12px">Your inventory is empty — nothing to donate.</p>
+  <p class="muted" style="font-size:12px">No donatable items in inventory.</p>
   <?php else: ?>
   <form method="post" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
     <input type="hidden" name="action" value="stockpile_add">
@@ -876,7 +852,7 @@ elseif ($tab === 'stockpile' && $mySyn):
 <!-- Stockpile list -->
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
-    <div style="font-size:13px;font-weight:700">Stockpile Items</div>
+    <div style="font-size:13px;font-weight:700">&#9874; General Stockpile</div>
     <span class="muted" style="font-size:11px"><?= count($stockpile) ?> items</span>
   </div>
   <?php if (empty($stockpile)): ?>
@@ -920,6 +896,149 @@ elseif ($tab === 'stockpile' && $mySyn):
     <?php endif; ?>
   </div>
   <?php endforeach; ?>
+</div>
+<?php endif; ?>
+
+
+<?php // ══ ARMOURY ════════════════════════════════════════
+elseif ($tab === 'armoury' && $mySyn):
+  $armoury = [];
+  try { $sq = $pdo->prepare("SELECT sp.*,p.username AS added_by_name FROM syndicate_stockpile sp LEFT JOIN players p ON p.id=sp.added_by WHERE sp.syndicate_id=? AND sp.gear_type IN ('weapon','armor') ORDER BY sp.gear_type,sp.item_name"); $sq->execute([$mySyn['syndicate_id']]); $armoury = $sq->fetchAll(); } catch (Throwable $e) {}
+  $armouryLoans = [];
+  try { $lq = $pdo->prepare("SELECT sl.*,sp.item_name,sp.gear_type,sp.atk_bonus,sp.def_bonus,pl.username AS borrower_name FROM syndicate_loans sl JOIN syndicate_stockpile sp ON sp.id=sl.stockpile_id JOIN players pl ON pl.id=sl.player_id WHERE sl.syndicate_id=? AND sl.returned_at IS NULL AND sp.gear_type IN ('weapon','armor') ORDER BY sl.loaned_at DESC"); $lq->execute([$mySyn['syndicate_id']]); $armouryLoans = $lq->fetchAll(); } catch (Throwable $e) {}
+  $canManageStock = syn_can($myRank,'manage_stockpile');
+  $canLoan = syn_can($myRank,'loan_items');
+  $synMembers = [];
+  if ($canLoan) { try { $mq = $pdo->prepare('SELECT sm.player_id,p.username FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? ORDER BY p.username'); $mq->execute([$mySyn['syndicate_id']]); $synMembers = $mq->fetchAll(); } catch (Throwable $e) {} }
+  // Player inventory — weapons and armor only
+  $playerArmouryInv = [];
+  try { $piq = $pdo->prepare("SELECT pi.item_id,pi.qty,i.name,i.slot,i.atk,i.def FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.qty>0 AND i.slot IN ('weapon','armor') ORDER BY i.slot,i.name"); $piq->execute([$pid]); $playerArmouryInv = $piq->fetchAll(); } catch (Throwable $e) {}
+?>
+
+<?php if (!$leaderIsSubbed): ?>
+<div class="flash flash-err">&#9733; Leader subscription expired — armoury contributions are locked for non-subscribers.</div>
+<?php endif; ?>
+
+<!-- Donate weapon/armor -->
+<?php if ($canManageStock): ?>
+<div class="panel">
+  <h3 style="margin-top:0;font-size:13px">&#9876; Donate to Armoury</h3>
+  <p class="muted" style="font-size:12px;margin-top:-4px">Weapons and armor from your inventory. Stats are stored automatically.</p>
+  <?php if (empty($playerArmouryInv)): ?>
+  <p class="muted" style="font-size:12px">No weapons or armor in your inventory.</p>
+  <?php else: ?>
+  <form method="post" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
+    <input type="hidden" name="action" value="stockpile_add">
+    <div class="field" style="flex:1;min-width:180px"><span>Item</span>
+      <select name="donate_item_id">
+        <option value="">-- Select from inventory --</option>
+        <?php foreach ($playerArmouryInv as $pi):
+          $bonus = $pi['slot']==='weapon' ? '+'.((int)$pi['atk']).' ATK' : '+'.((int)$pi['def']).' DEF';
+        ?><option value="<?= (int)$pi['item_id'] ?>"><?= e($pi['name']) ?> (<?= $bonus ?>) &times;<?= (int)$pi['qty'] ?></option><?php endforeach; ?>
+      </select>
+    </div>
+    <div class="field" style="width:80px"><span>Qty</span><input type="number" name="donate_qty" value="1" min="1" max="99"></div>
+    <div class="field" style="flex:1;min-width:160px"><span>Notes</span><input type="text" name="notes" maxlength="200" placeholder="Optional notes" data-no-counter></div>
+    <div><button type="submit" style="font-size:12px">Donate</button></div>
+  </form>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
+
+<!-- Armoury list -->
+<div class="panel" style="padding:0;overflow:hidden">
+  <div style="padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+    <div style="font-size:13px;font-weight:700">&#9876; Armoury Inventory</div>
+    <span class="muted" style="font-size:11px"><?= count($armoury) ?> items</span>
+  </div>
+  <?php if (empty($armoury)): ?>
+  <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No weapons or armor stored yet.</div>
+  <?php else:
+    $lastType = null;
+    foreach ($armoury as $si):
+      if ($si['gear_type'] !== $lastType):
+        $lastType = $si['gear_type'];
+        $typeLabel = $lastType === 'weapon' ? '&#9876; Weapons' : '&#128737; Armor';
+  ?>
+  <div style="padding:6px 14px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:rgba(0,0,0,.2)"><?= $typeLabel ?></div>
+  <?php endif; ?>
+  <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div style="flex:1;min-width:120px">
+      <div style="font-weight:700;font-size:13px"><?= e($si['item_name']) ?></div>
+      <div style="font-size:11px;color:var(--muted)">
+        <?php if ($si['gear_type']==='weapon' && $si['atk_bonus']>0): ?><span style="color:var(--neon2)">+<?= (int)$si['atk_bonus'] ?> ATK</span><?php endif; ?>
+        <?php if ($si['gear_type']==='armor'  && $si['def_bonus']>0): ?><span style="color:var(--accent)">+<?= (int)$si['def_bonus'] ?> DEF</span><?php endif; ?>
+        <?php if ($si['notes']): ?> &middot; <?= e($si['notes']) ?><?php endif; ?>
+      </div>
+    </div>
+    <span style="font-size:11px;font-weight:700;color:<?= $si['available']?'#3bcf63':'#e8a33d' ?>"><?= $si['available']?'Available':'On Loan' ?></span>
+    <?php if ($canLoan && $si['available'] && !empty($synMembers)): ?>
+    <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
+      <input type="hidden" name="action" value="loan_item">
+      <input type="hidden" name="item_id" value="<?= (int)$si['id'] ?>">
+      <select name="borrower_id" style="font-size:11px;padding:2px 6px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px">
+        <?php foreach ($synMembers as $sm): ?><option value="<?= (int)$sm['player_id'] ?>"><?= e($sm['username']) ?></option><?php endforeach; ?>
+      </select>
+      <button type="submit" style="font-size:10px;padding:3px 8px">Loan</button>
+    </form>
+    <?php endif; ?>
+    <?php if ($canManageStock && $si['available']): ?>
+    <form method="post" style="margin:0"><input type="hidden" name="action" value="stockpile_remove"><input type="hidden" name="item_id" value="<?= (int)$si['id'] ?>"><button type="submit" style="font-size:10px;padding:3px 8px;background:rgba(226,59,59,.1);border-color:rgba(226,59,59,.3);color:#e23b3b" onclick="return confirm('Remove this item?')">Remove</button></form>
+    <?php endif; ?>
+  </div>
+  <?php endforeach; endif; ?>
+</div>
+
+<!-- Active armoury loans -->
+<?php if (!empty($armouryLoans)): ?>
+<div class="panel" style="padding:0;overflow:hidden">
+  <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700">Active Loans</div>
+  <?php foreach ($armouryLoans as $ln): ?>
+  <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div style="flex:1;min-width:120px">
+      <div style="font-weight:700;font-size:13px"><?= e($ln['item_name']) ?>
+        <?php if ($ln['atk_bonus']>0): ?><span style="font-size:11px;color:var(--neon2);font-weight:400"> +<?= (int)$ln['atk_bonus'] ?> ATK</span><?php endif; ?>
+        <?php if ($ln['def_bonus']>0): ?><span style="font-size:11px;color:var(--accent);font-weight:400"> +<?= (int)$ln['def_bonus'] ?> DEF</span><?php endif; ?>
+      </div>
+      <div style="font-size:11px;color:var(--muted)">Loaned to <b style="color:var(--accent)"><?= e($ln['borrower_name']) ?></b> &middot; <?= e(date('M j',strtotime($ln['loaned_at']))) ?></div>
+    </div>
+    <?php if ($canLoan || (int)$ln['player_id']===$pid): ?>
+    <form method="post" style="margin:0"><input type="hidden" name="action" value="return_item"><input type="hidden" name="loan_id" value="<?= (int)$ln['id'] ?>"><button type="submit" style="font-size:11px;padding:4px 12px" onclick="return confirm('Return this item to armoury?')">&#9100; Return</button></form>
+    <?php endif; ?>
+  </div>
+  <?php endforeach; ?>
+</div>
+<?php endif; ?>
+
+
+<?php // ══ TREASURY ═══════════════════════════════════════
+elseif ($tab === 'treasury' && $mySyn): ?>
+<div class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    <h3 style="margin:0;font-size:13px">&#128178; Syndicate Treasury</h3>
+    <span style="font-size:15px;color:#3bcf63;font-weight:700;font-family:'Orbitron',sans-serif"><?= number_format((int)$mySyn['bank']) ?> <span style="font-size:11px;font-family:inherit;color:var(--muted)">cr</span></span>
+  </div>
+  <p style="font-size:12px;color:var(--muted);margin:0 0 14px">Donate pocket credits to the guild fund. Donations earn XP for the Syndicate.</p>
+  <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+    <input type="hidden" name="action" value="donate">
+    <div class="field" style="flex:1;min-width:160px;margin:0">
+      <span>Amount <span class="muted" style="font-size:11px">Pocket: <?= number_format((int)$player['creds_pocket']) ?> cr</span></span>
+      <div class="num-wrap"><input type="number" name="amount" id="donAmt" min="1" max="<?= (int)$player['creds_pocket'] ?>" placeholder="0"><button type="button" class="fill-max" onclick="document.getElementById('donAmt').value=<?= (int)$player['creds_pocket'] ?>">Max</button></div>
+    </div>
+    <button type="submit" style="font-size:12px" <?= (int)$player['creds_pocket']<1?'disabled':'' ?>>Donate</button>
+  </form>
+</div>
+<?php if (syn_can($myRank,'manage_bank') && (int)$mySyn['bank'] > 0): ?>
+<div class="panel" style="border:1px solid rgba(59,207,99,.15)">
+  <h4 style="margin:0 0 10px;font-size:12px;color:#3bcf63">&#128274; Vault Keeper — Withdraw</h4>
+  <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+    <input type="hidden" name="action" value="bank_withdraw">
+    <div class="field" style="flex:1;min-width:160px;margin:0">
+      <span>Withdraw <span class="muted" style="font-size:11px">Balance: <?= number_format((int)$mySyn['bank']) ?> cr</span></span>
+      <div class="num-wrap"><input type="number" name="amount" id="wdAmt" min="1" max="<?= (int)$mySyn['bank'] ?>" placeholder="0"><button type="button" class="fill-max" onclick="document.getElementById('wdAmt').value=<?= (int)$mySyn['bank'] ?>">Max</button></div>
+    </div>
+    <button type="submit" style="font-size:12px;background:rgba(255,45,149,.06);border-color:rgba(255,45,149,.25);color:var(--neon2)">Withdraw</button>
+  </form>
 </div>
 <?php endif; ?>
 

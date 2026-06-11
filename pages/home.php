@@ -63,53 +63,90 @@ try {
   $sgq->execute([$pid]); $myHomeGuild = $sgq->fetch();
 } catch (Throwable $e) {}
 
-// ── Notifications ──
+// ── Notifications — schema ──
+try { $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'); } catch (Throwable $e) {}
+try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN ref_type VARCHAR(20) NULL"); } catch(Throwable $e) {}
+try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN ref_id INT NULL"); } catch(Throwable $e) {}
+try { $pdo->exec("ALTER TABLE player_notifications ADD UNIQUE KEY uq_pn_ref (player_id, ref_type, ref_id)"); } catch(Throwable $e) {}
+
+// ── Dismiss actions ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $__act = $_POST['action'] ?? '';
+  if ($__act === 'dismiss_notif') {
+    $__nid = (int)($_POST['notif_id'] ?? 0);
+    if ($__nid > 0) try { $pdo->prepare("UPDATE player_notifications SET is_read=1 WHERE id=? AND player_id=?")->execute([$__nid, $pid]); } catch(Throwable $e) {}
+  } elseif ($__act === 'dismiss_all_notifs') {
+    try { $pdo->prepare("UPDATE player_notifications SET is_read=1 WHERE player_id=?")->execute([$pid]); } catch(Throwable $e) {}
+  }
+}
+
+// ── Seed persistent notifications from unread messages ──
+try {
+  $mq = $pdo->prepare("SELECT m.id, p.username FROM messages m JOIN players p ON p.id=m.from_id WHERE m.to_id=? AND m.is_read=0 ORDER BY m.created_at DESC LIMIT 20");
+  $mq->execute([$pid]);
+  $ins = $pdo->prepare("INSERT IGNORE INTO player_notifications (player_id, type, body, ref_type, ref_id) VALUES (?, 'message', ?, 'message', ?)");
+  foreach ($mq as $m) $ins->execute([$pid, "New message from " . $m['username'], $m['id']]);
+} catch(Throwable $e) {}
+
+// ── Seed persistent notifications from recent transfers ──
+try {
+  $tq = $pdo->prepare("SELECT t.id, p.username, t.amount FROM tx_log t JOIN players p ON p.id=t.from_id WHERE t.to_id=? AND t.kind='transfer' AND t.created_at >= NOW()-INTERVAL 7 DAY ORDER BY t.created_at DESC LIMIT 10");
+  $tq->execute([$pid]);
+  $ins = $pdo->prepare("INSERT IGNORE INTO player_notifications (player_id, type, body, ref_type, ref_id) VALUES (?, 'transfer', ?, 'tx', ?)");
+  foreach ($tq as $t) $ins->execute([$pid, "+" . number_format((int)$t['amount']) . " credits received from " . $t['username'], $t['id']]);
+} catch(Throwable $e) {}
+
+// ── Fetch all unread notifications ──
 $newsFeed = [];
 try {
-  $q = $pdo->prepare("SELECT 'message' AS type,CONCAT('New message from ',s.username) AS text,m.created_at AS ts FROM messages m JOIN players s ON s.id=m.from_id WHERE m.to_id=? AND m.is_read=0 ORDER BY m.created_at DESC LIMIT 10");
-  $q->execute([$pid]); foreach ($q as $r) $newsFeed[] = $r;
-} catch (Throwable $e) {}
-try {
-  $q = $pdo->prepare("SELECT 'transfer' AS type,CONCAT('+',FORMAT(amount,0),' credits received from ',p.username) AS text,t.created_at AS ts FROM tx_log t JOIN players p ON p.id=t.from_id WHERE t.to_id=? AND t.kind='transfer' ORDER BY t.created_at DESC LIMIT 5");
-  $q->execute([$pid]); foreach ($q as $r) $newsFeed[] = $r;
-} catch (Throwable $e) {}
-try {
-  $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-} catch (Throwable $e) {}
-try {
-  $nq = $pdo->prepare("SELECT type, body AS text, created_at AS ts FROM player_notifications WHERE player_id=? AND is_read=0 ORDER BY created_at DESC LIMIT 10");
-  $nq->execute([$pid]); foreach ($nq as $r) $newsFeed[] = $r;
-  // Mark as read
-  $pdo->prepare("UPDATE player_notifications SET is_read=1 WHERE player_id=? AND is_read=0")->execute([$pid]);
-} catch (Throwable $e) {}
+  $nq = $pdo->prepare("SELECT id, type, body AS text, created_at AS ts FROM player_notifications WHERE player_id=? AND is_read=0 ORDER BY created_at DESC LIMIT 20");
+  $nq->execute([$pid]); $newsFeed = $nq->fetchAll();
+} catch(Throwable $e) {}
 
+// ── Dynamic: unspent attr points (auto-clears when spent, no dismiss) ──
 $attrPoints = 0;
 try { $aq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $aq->execute(["attr_points:{$pid}"]); $attrPoints = (int)($aq->fetchColumn() ?: 0); } catch (Throwable $e) {}
-if ($attrPoints > 0) $newsFeed[] = ['type'=>'levelup','text'=>"You have <b>{$attrPoints} unspent attribute point".($attrPoints!==1?'s':'')."</b> from leveling up! <a href='index.php?p=pvp&tab=stats'>Spend Stats &rarr;</a>",'ts'=>date('Y-m-d H:i:s')];
-usort($newsFeed, fn($a,$b) => strtotime($b['ts']??0) <=> strtotime($a['ts']??0));
+if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','text'=>"You have <b>{$attrPoints} unspent attribute point".($attrPoints!==1?'s':'')."</b> from leveling up! <a href='index.php?p=pvp&tab=stats'>Spend Stats &rarr;</a>",'ts'=>date('Y-m-d H:i:s')]);
 ?>
 
-<!-- ══ NOTIFICATIONS (top) ══════════════════════════════════ -->
-<?php if (!empty($newsFeed)): ?>
+<!-- ══ NOTIFICATIONS ════════════════════════════════════════ -->
 <div class="panel" id="home-news" style="border:1px solid rgba(25,240,199,.2);background:rgba(25,240,199,.03)">
-  <h3 style="margin-top:0;margin-bottom:10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128276; Notifications
-    <span style="float:right;background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700"><?= count($newsFeed) ?></span>
-  </h3>
-  <?php foreach (array_slice($newsFeed,0,8) as $item):
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128276; Notifications<?php if (!empty($newsFeed)): ?> <span style="background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700;margin-left:6px"><?= count($newsFeed) ?></span><?php endif; ?></h3>
+    <?php if (!empty($newsFeed)): ?>
+    <form method="post" style="margin:0">
+      <input type="hidden" name="action" value="dismiss_all_notifs">
+      <button type="submit" style="font-size:10px;padding:2px 8px;background:transparent;border:1px solid var(--line);color:var(--muted);cursor:pointer;border-radius:4px">Clear All</button>
+    </form>
+    <?php endif; ?>
+  </div>
+  <?php if (empty($newsFeed)): ?>
+  <div style="text-align:center;padding:12px 0;color:var(--muted)">
+    <div style="font-size:22px;opacity:.25;margin-bottom:5px">&#128276;</div>
+    <div style="font-size:12px">No new notifications</div>
+  </div>
+  <?php else: foreach ($newsFeed as $item):
     $nicon = ['message'=>'&#9993;','transfer'=>'&#128178;','news'=>'&#128203;','levelup'=>'&#11088;','friend_add'=>'&#128101;','pvp'=>'&#9876;'][$item['type']] ?? '&#8226;';
     $ncol  = ['message'=>'var(--accent)','transfer'=>'#3bcf63','news'=>'#e8d44d','levelup'=>'#e8d44d','friend_add'=>'var(--accent)','pvp'=>'var(--neon2)'][$item['type']] ?? 'var(--muted)';
-    $rawHtml = $item['type']==='levelup';
+    $rawHtml = $item['type'] === 'levelup';
+    $canDismiss = $item['id'] !== null;
   ?>
-  <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)<?= $rawHtml?';background:rgba(232,212,77,.04);margin:-1px -4px;padding:7px 4px;border-radius:4px':'' ?>">
-    <span style="font-size:13px;flex:none;color:<?= $ncol ?>;margin-top:1px"><?= $nicon ?></span>
+  <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+    <span style="font-size:13px;flex:none;color:<?= $ncol ?>;margin-top:2px"><?= $nicon ?></span>
     <div style="flex:1;min-width:0">
       <div style="font-size:12px"><?= $rawHtml ? $item['text'] : e($item['text']) ?></div>
-      <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= !empty($item['ts'])?e(date('M j, g:ia',strtotime($item['ts']))):'' ?></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= !empty($item['ts']) ? e(date('M j, g:ia', strtotime($item['ts']))) : '' ?></div>
     </div>
+    <?php if ($canDismiss): ?>
+    <form method="post" style="margin:0;flex:none;align-self:center">
+      <input type="hidden" name="action" value="dismiss_notif">
+      <input type="hidden" name="notif_id" value="<?= (int)$item['id'] ?>">
+      <button type="submit" style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1;opacity:.6" title="Dismiss">&times;</button>
+    </form>
+    <?php endif; ?>
   </div>
-  <?php endforeach; ?>
+  <?php endforeach; endif; ?>
 </div>
-<?php endif; ?>
 
 <!-- ══ HERO ══════════════════════════════════════════════════ -->
 <div class="panel" style="padding:0;overflow:hidden">

@@ -68,7 +68,7 @@ if ($player && !$isImpersonating) {
     $__drQ    = db()->prepare('SELECT v FROM settings WHERE k=?'); $__drQ->execute([$__drKey]);
     if ($__drQ->fetchColumn() !== $__mtDate) {
       $__driveCap = is_subscribed($player) ? 1500 : 500;
-      db()->prepare('UPDATE players SET integrity = integrity_max, signal = signal_max,
+      db()->prepare('UPDATE players SET integrity = integrity_max, `signal` = signal_max,
         cycles = LEAST(?, cycles + 250) WHERE id = ?')->execute([$__driveCap, $player['id']]);
       // Skillsoft decay: per-skill drain based on current point level
       db()->prepare('UPDATE player_skills SET points = CASE
@@ -139,12 +139,18 @@ endif; ?>
 <?php
   $_hideTopbar = false;
   try { $htq = db()->prepare('SELECT v FROM settings WHERE k=?'); $htq->execute(['hide_topbar:'.$player['id']]); $_hideTopbar = $htq->fetchColumn() === '1'; } catch (Throwable $e) {}
+  $__unreadMsgs = 0;
+  try { $__uq=db()->prepare('SELECT COUNT(*) FROM messages WHERE to_id=? AND is_read=0'); $__uq->execute([$player['id']]); $__unreadMsgs=(int)$__uq->fetchColumn(); } catch(Throwable $e){}
+  $__unreadNotifs = 0;
+  try { $__uq=db()->prepare('SELECT COUNT(*) FROM player_notifications WHERE player_id=? AND is_read=0'); $__uq->execute([$player['id']]); $__unreadNotifs=(int)$__uq->fetchColumn(); } catch(Throwable $e){}
+  $__unreadCount = $__unreadMsgs + $__unreadNotifs;
 ?>
 <nav class="topbar<?= $_hideTopbar ? ' topbar-hidden' : '' ?>" id="topnav">
   <button id="nav-toggle" class="nav-toggle" aria-label="Open menu" title="Menu">&#9776;</button>
   <?php $__nl = nav_links(); foreach (player_sidebar($player) as $__k): if (!isset($__nl[$__k])) continue;
-    $__active = (strpos($__nl[$__k][1], 'p='.$p) !== false); ?>
-  <a href="<?= $__nl[$__k][1] ?>" class="<?= $__active?'active':'' ?>" data-navkey="<?= e($__k) ?>"><?= e($__nl[$__k][0]) ?></a>
+    $__active = (strpos($__nl[$__k][1], 'p='.$p) !== false);
+    $__isMsgLink = ($__k === 'messages' && $__unreadMsgs > 0); ?>
+  <a href="<?= $__nl[$__k][1] ?>" class="<?= $__active?'active':'' ?>" data-navkey="<?= e($__k) ?>"<?= $__isMsgLink ? ' style="font-weight:700"' : '' ?>><?= e($__nl[$__k][0]) ?><?php if ($__isMsgLink): ?> <span style="background:var(--neon2);color:#0a0a12;border-radius:10px;font-size:9px;padding:1px 5px;font-weight:700;vertical-align:middle;margin-left:2px"><?= $__unreadMsgs ?></span><?php endif; ?></a>
   <?php endforeach; ?>
   <?php if ($isStaff): ?><a href="index.php?p=admin" class="<?= $p==='admin'?'active':'' ?>">Admin</a><?php endif; ?>
   <a href="index.php?p=logout">Logout</a>
@@ -190,19 +196,22 @@ try {
         if ($sbBars === null || in_array('cycles', $sbBars, true))    bar('Drive', $player['cycles'], $player['cycles_max'], 'cycles');
       ?>
     </div>
-    <?php
-      $__unreadCount = 0;
-      try { $__uq=db()->prepare('SELECT COUNT(*) FROM messages WHERE to_id=? AND is_read=0'); $__uq->execute([$player['id']]); $__unreadCount+=(int)$__uq->fetchColumn(); } catch(Throwable $e){}
-      try { $__uq=db()->prepare('SELECT COUNT(*) FROM player_notifications WHERE player_id=? AND is_read=0'); $__uq->execute([$player['id']]); $__unreadCount+=(int)$__uq->fetchColumn(); } catch(Throwable $e){}
-    ?>
     <ul class="menu" id="sidemenu">
       <?php $nl = nav_links(); foreach (player_sidebar($player) as $k):
         $isActive = (strpos($nl[$k][1], 'p='.$p) !== false);
-        $hasNotif = ($k === 'home' && $__unreadCount > 0);
+        $hasNotif   = ($k === 'home'     && $__unreadCount > 0);
+        $hasMsgNotif = ($k === 'messages' && $__unreadMsgs > 0);
+        $linkBold = $hasNotif || $hasMsgNotif;
       ?>
         <li data-navkey="<?= e($k) ?>"<?= $isActive ? ' class="active"' : '' ?>>
-          <a href="<?= $nl[$k][1] ?>"<?= $hasNotif ? ' style="font-weight:700"' : '' ?>>
-            <?= e($nl[$k][0]) ?><?php if ($hasNotif): ?> <span style="background:var(--neon2);color:#0a0a12;border-radius:10px;font-size:10px;padding:1px 6px;font-weight:700;vertical-align:middle;margin-left:3px"><?= $__unreadCount ?></span><?php endif; ?>
+          <a href="<?= $nl[$k][1] ?>"<?= $linkBold ? ' style="font-weight:700"' : '' ?>>
+            <?php if ($hasMsgNotif): ?>
+              <?= e($nl[$k][0]) ?> <span style="background:var(--neon2);color:#0a0a12;border-radius:10px;font-size:10px;padding:1px 6px;font-weight:700;vertical-align:middle;margin-left:3px"><?= $__unreadMsgs ?></span>
+            <?php elseif ($hasNotif): ?>
+              <?= e($nl[$k][0]) ?> <span style="background:var(--neon2);color:#0a0a12;border-radius:10px;font-size:10px;padding:1px 6px;font-weight:700;vertical-align:middle;margin-left:3px"><?= $__unreadCount ?></span>
+            <?php else: ?>
+              <?= e($nl[$k][0]) ?>
+            <?php endif; ?>
           </a>
         </li>
       <?php endforeach; ?>
@@ -342,16 +351,8 @@ try {
       load(); setInterval(load,4000);
     })();
     </script>
-    <div class="panel">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <h3 style="margin:0">Online</h3>
-        <div style="display:flex;gap:3px" id="online-tabs">
-          <?php foreach (['friends'=>'Friends','syndicate'=>'Syndicate','staff'=>'Staff'] as $tid=>$tl): ?>
-          <button onclick="switchOnlineTab('<?= $tid ?>')" data-tab="<?= $tid ?>"
-            style="font-size:10px;padding:3px 7px;border-radius:4px;cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--muted)"><?= $tl ?></button>
-          <?php endforeach; ?>
-        </div>
-      </div>
+    <div class="panel" style="padding-bottom:0">
+      <h3 style="margin:0 0 8px">Online</h3>
 
       <?php
         $onlineFriends = $onlineSyndicate = $onlineStaff = [];
@@ -370,7 +371,7 @@ try {
 
         foreach (['friends'=>$onlineFriends,'syndicate'=>$onlineSyndicate,'staff'=>$onlineStaff] as $tid=>$olist):
       ?>
-      <div id="jackedin-<?= $tid ?>" style="display:none">
+      <div id="jackedin-<?= $tid ?>" style="display:none;min-height:32px">
         <?php if (empty($olist)): ?>
           <p class="muted" style="font-size:11px;margin:3px 0">None online.</p>
         <?php else: foreach ($olist as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
@@ -379,6 +380,14 @@ try {
         <?php if ($tid === 'friends'): ?><p style="font-size:10px;margin:6px 0 0"><a href="index.php?p=friends" style="color:var(--muted)">View all friends &rarr;</a></p><?php endif; ?>
       </div>
       <?php endforeach; ?>
+
+      <div id="online-tabs" style="display:flex;margin:10px -14px 0;border-top:1px solid var(--line)">
+        <?php $__otabs = ['friends'=>'Friends','syndicate'=>'Syndicate','staff'=>'Staff']; $__otlast = array_key_last($__otabs);
+        foreach ($__otabs as $tid=>$tl): ?>
+        <button onclick="switchOnlineTab('<?= $tid ?>')" data-tab="<?= $tid ?>"
+          style="flex:1;font-size:10px;padding:7px 4px;cursor:pointer;border:none;<?= $tid !== $__otlast ? 'border-right:1px solid var(--line);' : '' ?>background:var(--panel2);color:var(--muted);letter-spacing:.03em"><?= $tl ?></button>
+        <?php endforeach; ?>
+      </div>
     </div>
     <script>
     (function(){
@@ -388,7 +397,7 @@ try {
         ['friends','syndicate','staff'].forEach(function(t){
           var el=document.getElementById('jackedin-'+t); if(el) el.style.display=(t===tab?'block':'none');
           var btn=document.querySelector('#online-tabs [data-tab="'+t+'"]');
-          if(btn){ btn.style.background=t===tab?'rgba(25,240,199,.1)':'var(--panel2)'; btn.style.color=t===tab?'var(--accent)':'var(--muted)'; btn.style.borderColor=t===tab?'rgba(25,240,199,.3)':'var(--line)'; }
+          if(btn){ btn.style.background=t===tab?'rgba(25,240,199,.08)':'var(--panel2)'; btn.style.color=t===tab?'var(--accent)':'var(--muted)'; btn.style.fontWeight=t===tab?'700':'400'; }
         });
       };
       switchOnlineTab(_activeTab);

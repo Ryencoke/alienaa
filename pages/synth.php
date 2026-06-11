@@ -127,11 +127,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($effect === 'integrity') {
         $pdo->prepare('UPDATE players SET integrity = LEAST(integrity_max, integrity + ?) WHERE id = ?')->execute([$amt, $pid]);
       } elseif ($effect === 'signal') {
-        $pdo->prepare('UPDATE players SET signal = LEAST(signal_max, signal + ?) WHERE id = ?')->execute([$amt, $pid]);
+        $pdo->prepare('UPDATE players SET `signal` = LEAST(signal_max, `signal` + ?) WHERE id = ?')->execute([$amt, $pid]);
       } elseif ($effect === 'cycles') {
         $pdo->prepare('UPDATE players SET cycles = LEAST(cycles_max, cycles + ?) WHERE id = ?')->execute([$amt, $pid]);
       } elseif ($effect === 'crisis') {
-        $pdo->prepare('UPDATE players SET integrity = LEAST(integrity_max, integrity + ?), signal = LEAST(signal_max, signal + 50) WHERE id = ?')->execute([$amt, $pid]);
+        $pdo->prepare('UPDATE players SET integrity = LEAST(integrity_max, integrity + ?), `signal` = LEAST(signal_max, `signal` + 50) WHERE id = ?')->execute([$amt, $pid]);
       } elseif ($effect === 'atk_temp') {
         $expiry = time() + 1800;
         $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["buff:atk:{$pid}", "{$amt}|{$expiry}"]);

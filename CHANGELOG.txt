@@ -2,6 +2,73 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-11 BATCH-24 ---
+
+BUG FIXES — ALLOCATION POINTS + SIGNAL RESERVED WORD
+------------------------------------------------------
+[pvp.php]
+- BUG FIX: Stat allocation points were wiped to 0 on every pvp.php page load.
+  Root cause: recalculation formula used "15 + (level-1)" which never matched reality
+  (grant_xp awards 5 pts per level, not 1). Replaced with a direct sync from
+  settings['attr_points:{pid}'], which IS the canonical unspent counter.
+- BUG FIX: Spending a stat point didn't decrement settings['attr_points:{pid}'],
+  so the sync on next page load immediately restored the wiped count back.
+  spend_stat now decrements both player_stats.unspent AND settings['attr_points:{pid}'].
+  Same fix applied to signal_max spending.
+- BUG FIX: SQLSTATE 1064 syntax error on fight — `signal` is a reserved keyword in
+  MariaDB (SIGNAL SQLSTATE). Fixed: backticks added around `signal` column.
+
+[index.php, admin.php, synth.php]
+- BUG FIX: Same `signal` reserved-word issue fixed in daily reset (index.php, admin.php)
+  and synth item effects (synth.php). All SQL SET signal = ... now use `signal`.
+
+--- SESSION: 2026-06-11 BATCH-23 ---
+
+HOME.PHP — PERSISTENT NOTIFICATIONS + MESSAGES BADGE
+------------------------------------------------------
+[home.php]
+- Notifications panel is now ALWAYS visible, even when empty ("No new notifications" state).
+- Notifications panel moved above Hero/Vitals — first thing seen on dashboard.
+- Notifications no longer auto-clear on page load. User must dismiss explicitly.
+- Added X button per notification (POST dismiss_notif action, AJAX swaps page).
+- Added "Clear All" button in panel header (dismiss_all_notifs action).
+- Messages and transfers are now seeded into player_notifications table with ref dedup
+  (INSERT IGNORE with unique key on player_id+ref_type+ref_id) so they persist until dismissed.
+- Attr-points levelup notification remains dynamic (no DB row, no X — auto-clears when spent).
+- Added ref_type/ref_id columns + unique key migration to player_notifications table.
+
+[index.php]
+- Sidebar "Messages" link shows unread count badge and is bolded when there are unread messages.
+  Clears automatically as messages are read (driven by messages.is_read=0 count).
+- Topbar "Messages" link also shows the unread badge and bolded when unread messages exist.
+- Moved unread count computation to before topbar so both topbar and sidebar share the same values.
+
+--- SESSION: 2026-06-11 BATCH-22 ---
+
+GUILDS.PHP — ARMOURY + TREASURY TABS SPLIT
+--------------------------------------------
+[guilds.php]
+- Stockpile tab now only shows gear_type='item' rows (general items).
+  Donate dropdown excludes weapons/armor (slot IN ('weapon','armor')).
+  Added hint linking to the new Armoury tab.
+- NEW Armoury tab: shows weapons and armor separately with ATK/DEF bonus stats.
+  Grouped by type (Weapons / Armor). Loan/Return/Remove controls work same as Stockpile.
+  Donate dropdown shows only weapons/armor from player inventory with bonus preview.
+- NEW Treasury tab: donate credits form + Vault Keeper withdraw form (manage_bank only).
+  Moved off the Overview tab onto its own dedicated page.
+- Tab list/defs updated: armoury and treasury added to member tab set.
+
+BOARDS.PHP — UNREAD TRACKING
+------------------------------
+[boards.php]
+- NEW: board_reads and topic_reads tracking tables auto-created on page load.
+- Board index: boards with new posts since last visit show bolded name + "NEW" badge.
+  Board icon turns accent color when unread.
+- Board view (topic list): topics with new posts since last visit show bolded title + "NEW" badge.
+  Topic dot highlights accent color when unread. Visiting a board clears its unread state.
+- Topic view (posts): new replies since last visit show accent left-border + "NEW" tag.
+  Visiting a topic marks it as read for future visits.
+
 --- SESSION: 2026-06-11 BATCH-21 ---
 
 SITE-WIDE CONNECTIVITY AUDIT + FIXES

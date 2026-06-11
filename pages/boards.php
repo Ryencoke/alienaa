@@ -61,6 +61,8 @@ try {
   try { $pdo->exec('ALTER TABLE topics     ADD COLUMN views INT NOT NULL DEFAULT 0');              } catch (Throwable $e) {}
   try { $pdo->exec('ALTER TABLE board_cats ADD COLUMN sort TINYINT NOT NULL DEFAULT 0');           } catch (Throwable $e) {}
   try { $pdo->exec('ALTER TABLE boards     ADD COLUMN sort TINYINT NOT NULL DEFAULT 0');           } catch (Throwable $e) {}
+  try { $pdo->exec('CREATE TABLE IF NOT EXISTS board_reads (player_id INT NOT NULL, board_id INT NOT NULL, last_read DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (player_id, board_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'); } catch (Throwable $e) {}
+  try { $pdo->exec('CREATE TABLE IF NOT EXISTS topic_reads (player_id INT NOT NULL, topic_id INT NOT NULL, last_read DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (player_id, topic_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'); } catch (Throwable $e) {}
 
   // Seed default categories and boards if either table is empty
   $catEmpty = (int)$pdo->query('SELECT COUNT(*) FROM board_cats')->fetchColumn() === 0;
@@ -118,21 +120,23 @@ function votebox_html($postId, $score, $myVote = 0) {
 
 // Recursively render a reply and its children.
 if (!function_exists('render_post')) {
-  function render_post($p, $children, $scores, $tid, $depth, $canModB = false, $myVotes = []) {
+  function render_post($p, $children, $scores, $tid, $depth, $canModB = false, $myVotes = [], $topicLastRead = null) {
     $col = chat_color($p['role'], '');
-    echo '<div class="post" style="margin-left:' . ($depth * 22) . 'px">';
+    $isNew = $topicLastRead !== null && $p['created_at'] > $topicLastRead;
+    echo '<div class="post" style="margin-left:' . ($depth * 22) . 'px' . ($isNew ? ';border-left:2px solid var(--accent)' : '') . '">';
     echo votebox_html($p['id'], $scores[$p['id']] ?? 0, $myVotes[$p['id']] ?? 0);
     echo '<div class="postbody"><div class="posthead">';
     echo '<a href="index.php?p=profile&id=' . (int)$p['author_id'] . '" style="color:' . e($col) . ';font-weight:bold">' . e($p['author']) . '</a>';
     if ($p['role'] !== 'member') echo ' <em style="font-size:11px;font-style:italic;color:' . e(chat_color($p['role'],'')) . '">' . e(role_label($p['role'])) . '</em>';
     echo ' <span class="muted">' . e($p['created_at']) . '</span>';
+    if ($isNew) echo ' <span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.06em">NEW</span>';
     echo ' &middot; <a href="index.php?p=boards&t=' . (int)$tid . '&reply=' . (int)$p['id'] . '#replyform">Reply</a>';
     if ($canModB) echo ' &middot; <form method="post" style="display:inline;margin:0"><input type="hidden" name="action" value="modkill"><input type="hidden" name="post_id" value="' . (int)$p['id'] . '"><button class="vote" style="color:var(--neon2)">delete</button></form>';
     echo '</div><div>' . bbcode($p['body']) . '</div>';
     if (!empty($p['signature'])) echo '<div class="muted" style="border-top:1px solid var(--line);margin-top:6px;padding-top:4px;font-size:11px">' . bbcode($p['signature']) . '</div>';
     echo '</div></div>';
     if (!empty($children[$p['id']])) {
-      foreach ($children[$p['id']] as $c) render_post($c, $children, $scores, $tid, $depth + 1, $canModB, $myVotes);
+      foreach ($children[$p['id']] as $c) render_post($c, $children, $scores, $tid, $depth + 1, $canModB, $myVotes, $topicLastRead);
     }
   }
 }
@@ -244,6 +248,15 @@ if ($tid) {
   }
   $pdo->prepare('UPDATE topics SET views = views + 1 WHERE id = ?')->execute([$tid]);
 
+  // Unread tracking — grab old value first, then mark read
+  $topicLastRead = null;
+  try {
+    $tlr = $pdo->prepare('SELECT last_read FROM topic_reads WHERE player_id=? AND topic_id=?');
+    $tlr->execute([$pid, $tid]);
+    $topicLastRead = $tlr->fetchColumn() ?: null;
+    $pdo->prepare('INSERT INTO topic_reads (player_id,topic_id,last_read) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE last_read=NOW()')->execute([$pid, $tid]);
+  } catch (Throwable $e) {}
+
   $pq = $pdo->prepare('SELECT p.id, p.parent_id, p.body, p.created_at, p.author_id,
                          pl.username AS author, pl.role, pl.chat_color, pl.signature
                        FROM posts p JOIN players pl ON pl.id = p.author_id
@@ -304,7 +317,7 @@ if ($tid) {
 
   <div class="bar">Replies To This Message</div>
   <?php
-    if (!empty($children[$opId])) { foreach ($children[$opId] as $c) render_post($c, $children, $scores, $tid, 0, $canModB, $myVotes); }
+    if (!empty($children[$opId])) { foreach ($children[$opId] as $c) render_post($c, $children, $scores, $tid, 0, $canModB, $myVotes, $topicLastRead); }
     else { echo '<p class="muted">No replies yet.</p>'; }
   ?>
 
@@ -336,17 +349,22 @@ if ($bid) {
     return;
   }
 
+  // Mark this board visited
+  try { $pdo->prepare('INSERT INTO board_reads (player_id,board_id,last_read) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE last_read=NOW()')->execute([$pid, $bid]); } catch (Throwable $e) {}
+
   $total = (int)$pdo->query('SELECT COUNT(*) FROM topics WHERE board_id = ' . (int)$bid)->fetchColumn();
   $pages = max(1, (int)ceil($total / TOPICS_PER_PAGE));
   $pg = min($pg, $pages);
   $off = ($pg - 1) * TOPICS_PER_PAGE;
 
   $tq = $pdo->prepare('SELECT t.id, t.title, t.last_post_at, pl.username AS author, pl.id AS author_id,
-                         (SELECT COUNT(*) - 1 FROM posts p WHERE p.topic_id = t.id) AS replies
+                         (SELECT COUNT(*) - 1 FROM posts p WHERE p.topic_id = t.id) AS replies,
+                         tr.last_read AS my_last_read
                        FROM topics t JOIN players pl ON pl.id = t.author_id
+                       LEFT JOIN topic_reads tr ON tr.topic_id = t.id AND tr.player_id = ?
                        WHERE t.board_id = ? ORDER BY t.last_post_at DESC
                        LIMIT ' . (int)TOPICS_PER_PAGE . ' OFFSET ' . (int)$off);
-  $tq->execute([$bid]);
+  $tq->execute([$pid, $bid]);
   $topics = $tq->fetchAll();
   $base = 'index.php?p=boards&b=' . (int)$bid;
   ?>
@@ -359,11 +377,13 @@ if ($bid) {
   <div class="panel">
     <?php if ($topics): ?>
     <div class="topic-list">
-      <?php foreach ($topics as $t): ?>
+      <?php foreach ($topics as $t):
+        $tUnread = ($t['my_last_read'] === null) || ($t['last_post_at'] > $t['my_last_read']);
+      ?>
       <div class="topic-row">
-        <div class="topic-dot"></div>
+        <div class="topic-dot" style="<?= $tUnread ? 'background:var(--accent);box-shadow:0 0 6px var(--accent)' : '' ?>"></div>
         <div class="topic-main">
-          <a href="index.php?p=boards&t=<?= (int)$t['id'] ?>" class="topic-title"><?= e($t['title']) ?></a>
+          <a href="index.php?p=boards&t=<?= (int)$t['id'] ?>" class="topic-title" style="<?= $tUnread ? 'font-weight:700;color:var(--text)' : '' ?>"><?= e($t['title']) ?><?= $tUnread ? ' <span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;margin-left:4px">NEW</span>' : '' ?></a>
           <div class="topic-meta">by <a href="index.php?p=profile&id=<?= (int)$t['author_id'] ?>" style="color:var(--accent)"><?= e($t['author']) ?></a></div>
         </div>
         <div class="topic-info">
@@ -405,18 +425,21 @@ $cats = [];
 $byCat = [];
 try {
   $cats = $pdo->query('SELECT id, name, sort FROM board_cats ORDER BY sort ASC, id ASC')->fetchAll();
-  $boards = $pdo->query(
+  $bq = $pdo->prepare(
     'SELECT b.id, b.cat_id, b.name, b.descr, b.sort,
        (SELECT COUNT(*) FROM topics t WHERE t.board_id = b.id) AS topics,
-       (SELECT COUNT(*) FROM posts p JOIN topics t2 ON t2.id = p.topic_id WHERE t2.board_id = b.id) AS posts
-     FROM boards b ORDER BY b.sort ASC, b.id ASC')->fetchAll();
+       (SELECT COUNT(*) FROM posts p JOIN topics t2 ON t2.id = p.topic_id WHERE t2.board_id = b.id) AS posts,
+       (SELECT MAX(t3.last_post_at) FROM topics t3 WHERE t3.board_id = b.id) AS latest_post,
+       (SELECT br.last_read FROM board_reads br WHERE br.board_id = b.id AND br.player_id = ?) AS my_last_read
+     FROM boards b ORDER BY b.sort ASC, b.id ASC');
+  $bq->execute([$pid]);
+  $boards = $bq->fetchAll();
   foreach ($boards as $b) $byCat[$b['cat_id']][] = $b;
 } catch (Throwable $e) {
-  // Fallback: boards table may have an old schema
   try {
     $cats = $pdo->query('SELECT id, name FROM board_cats ORDER BY id ASC')->fetchAll();
     $boards = $pdo->query('SELECT b.id, b.cat_id, b.name, b.descr FROM boards b ORDER BY b.id ASC')->fetchAll();
-    foreach ($boards as $b) { $b['topics'] = 0; $b['posts'] = 0; $byCat[$b['cat_id']][] = $b; }
+    foreach ($boards as $b) { $b['topics'] = 0; $b['posts'] = 0; $b['latest_post'] = null; $b['my_last_read'] = null; $byCat[$b['cat_id']][] = $b; }
   } catch (Throwable $e2) {}
 }
 ?>
@@ -430,11 +453,13 @@ try {
 <div class="panel">
   <h3 style="margin-top:0;text-transform:uppercase;letter-spacing:.8px;font-size:12px;color:var(--muted)"><?= e($c['name']) ?></h3>
   <div class="boards-list">
-    <?php foreach ($byCat[$c['id']] ?? [] as $b): ?>
+    <?php foreach ($byCat[$c['id']] ?? [] as $b):
+      $bUnread = !empty($b['latest_post']) && (($b['my_last_read'] === null) || ($b['latest_post'] > $b['my_last_read']));
+    ?>
     <a href="index.php?p=boards&b=<?= (int)$b['id'] ?>" class="board-row">
-      <div class="board-icon">&#128172;</div>
+      <div class="board-icon" style="<?= $bUnread ? 'color:var(--accent)' : '' ?>">&#128172;</div>
       <div class="board-info">
-        <div class="board-name"><?= e($b['name']) ?></div>
+        <div class="board-name" style="<?= $bUnread ? 'font-weight:700;color:var(--text)' : '' ?>"><?= e($b['name']) ?><?= $bUnread ? ' <span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;margin-left:6px">NEW</span>' : '' ?></div>
         <div class="board-desc"><?= e($b['descr']) ?></div>
       </div>
       <div class="board-counts">
