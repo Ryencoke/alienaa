@@ -153,10 +153,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $desc = trim($_POST['syn_desc'] ?? '');
       if (!preg_match('/^[A-Za-z0-9 _\-]{3,60}$/', $name)) throw new RuntimeException('Name: 3–60 chars, letters/numbers/spaces only.');
       if (!preg_match('/^[A-Z0-9]{2,8}$/', $tag))           throw new RuntimeException('Tag: 2–8 uppercase letters/numbers only.');
+      // Friendly pre-check so a dup name/tag doesn't surface as a raw SQL error
+      $dup = $pdo->prepare('SELECT 1 FROM syndicates WHERE name=? OR tag=? LIMIT 1');
+      $dup->execute([$name, $tag]);
+      if ($dup->fetchColumn()) throw new RuntimeException('That name or tag is already taken.');
+      // Deduct INSIDE the transaction — a dup that slips past the pre-check (race)
+      // now rolls back the shard charge instead of pocketing it.
+      $pdo->beginTransaction();
       $u = $pdo->prepare('UPDATE players SET shards = shards - ? WHERE id = ? AND shards >= ?');
       $u->execute([SYNDICATE_CREATE_COST, $pid, SYNDICATE_CREATE_COST]);
       if ($u->rowCount() !== 1) throw new RuntimeException('Not enough Shards. Costs ' . SYNDICATE_CREATE_COST . ' ◆.');
-      $pdo->beginTransaction();
       $pdo->prepare('INSERT INTO syndicates (name,tag,description,leader_id) VALUES (?,?,?,?)')->execute([$name,$tag,$desc,$pid]);
       $sid = (int)$pdo->lastInsertId();
       $pdo->prepare('INSERT INTO syndicate_members (syndicate_id,player_id,rank) VALUES (?,?,?)')->execute([$sid,$pid,'leader']);
@@ -187,9 +193,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$app) throw new RuntimeException('Application not found.');
       // Check applicant not already in a syndicate
       $mc = $pdo->prepare('SELECT syndicate_id FROM syndicate_members WHERE player_id=?'); $mc->execute([$app['player_id']]); if ($mc->fetchColumn()) throw new RuntimeException('Player already joined a Syndicate.');
+      // All three writes commit together — otherwise a mid-sequence failure left
+      // the player a member with the application stuck "pending".
+      $pdo->beginTransaction();
       $pdo->prepare('INSERT INTO syndicate_members (syndicate_id,player_id,rank) VALUES (?,?,?)')->execute([$mySyn['syndicate_id'],$app['player_id'],'member']);
       $pdo->prepare('UPDATE syndicates SET xp=xp+50 WHERE id=?')->execute([$mySyn['syndicate_id']]);
       $pdo->prepare("UPDATE syndicate_applications SET status='accepted' WHERE id=?")->execute([$appId]);
+      $pdo->commit();
       $uname = $pdo->prepare('SELECT username FROM players WHERE id=?'); $uname->execute([$app['player_id']]); $un = $uname->fetchColumn() ?: '?';
       syn_log($pdo,$mySyn['syndicate_id'],$app['player_id'],$pid,'joined',$un.' accepted and joined the syndicate');
       syn_add_sidebar($pdo, $app['player_id'], 'guilds');
@@ -277,7 +287,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$mySyn || !syn_can($myRank,'manage_members')) throw new RuntimeException('No permission.');
       $target = (int)($_POST['target_id'] ?? 0); $newRank = $_POST['new_rank'] ?? '';
       if (!in_array($newRank, array_diff($SYN_RANKS, ['leader']), true)) throw new RuntimeException('Invalid rank.');
-      // Cannot elevate to leader via this action
+      // The leader can't be demoted via this action — otherwise a co-leader could
+      // forge target_id=<leader> to demote then kick the Overseer.
+      $trq = $pdo->prepare('SELECT rank FROM syndicate_members WHERE player_id=? AND syndicate_id=?');
+      $trq->execute([$target, $mySyn['syndicate_id']]);
+      $curRank = $trq->fetchColumn();
+      if (!$curRank) throw new RuntimeException('Not a member.');
+      if ($curRank === 'leader') throw new RuntimeException('Cannot change the leader\'s rank.');
       $pdo->prepare('UPDATE syndicate_members SET rank=? WHERE player_id=? AND syndicate_id=?')->execute([$newRank,$target,$mySyn['syndicate_id']]);
       $tq = $pdo->prepare('SELECT username FROM players WHERE id=?'); $tq->execute([$target]); $tn = $tq->fetchColumn() ?: '?';
       syn_log($pdo,$mySyn['syndicate_id'],$target,$pid,'role_change',$tn.' set to '.($SYN_RANK_LABELS[$newRank]??$newRank));
@@ -386,7 +402,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $tab = $_GET['tab'] ?? '';
 $boardTid = (int)($_GET['tid'] ?? 0); // board: topic detail view
-$validTabs = $mySyn ? ['home','board','members','staff','stockpile','armoury','treasury','log'] : ['search','create'];
+$validTabs = $mySyn ? ['home','board','members','staff','stockpile','armoury','treasury','log','chat'] : ['search','create'];
 if (!in_array($tab, $validTabs, true)) $tab = $mySyn ? 'home' : 'search';
 
 // Pending applications count for badge
@@ -714,6 +730,7 @@ elseif ($tab === 'chat' && $mySyn):
     room.scrollTop=room.scrollHeight;
   }
   function load(){
+    if(!document.body.contains(room)){ if(window.__synChatInterval){clearInterval(window.__synChatInterval);window.__synChatInterval=null;} return; }
     fetch('chat_api.php?action=list&n=100&room='+encodeURIComponent(rk),{credentials:'same-origin'})
       .then(function(r){return r.json();}).then(function(d){ if(d&&d.messages) render(d.messages); }).catch(function(){});
   }

@@ -5,10 +5,15 @@ $pdo = db();
 // Latest staff post
 $staffPost = null;
 try {
+  // Exclude topics in staff-only boards so private staff notes never leak here
   $q = $pdo->query("SELECT t.id, t.title, p.username, p.role, t.created_at,
     (SELECT body FROM posts WHERE topic_id=t.id ORDER BY id ASC LIMIT 1) AS body
-    FROM topics t JOIN players p ON p.id=t.author_id
-    WHERE p.role IN ('manager','admin') ORDER BY t.created_at DESC LIMIT 1");
+    FROM topics t
+      JOIN players p ON p.id=t.author_id
+      JOIN boards b ON b.id=t.board_id
+      JOIN board_cats c ON c.id=b.cat_id
+    WHERE p.role IN ('manager','admin') AND c.name <> 'Staff'
+    ORDER BY t.created_at DESC LIMIT 1");
   $staffPost = $q->fetch() ?: null;
 } catch (Throwable $e) {}
 

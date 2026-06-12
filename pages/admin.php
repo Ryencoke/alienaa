@@ -29,6 +29,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $rv = $_POST['preview_role'] ?? '';
       $allowedRoles = ['','member','chatmod','moderator','admin','manager'];
       if (!in_array($rv, $allowedRoles, true)) throw new RuntimeException('Invalid role.');
+      // Only let preview DOWNGRADE — never preview a role above your own real rank.
+      $rank = ['member'=>0,'chatmod'=>1,'moderator'=>2,'admin'=>3,'manager'=>4];
+      $realRole = ($_SESSION['real_pid'] ?? null) ? ($realPlayer['role'] ?? $role) : $role;
+      if ($rv !== '' && ($rank[$rv] ?? 0) > ($rank[$realRole] ?? 0)) throw new RuntimeException('Cannot preview a role above your own.');
       if ($rv === '') { unset($_SESSION['role_override']); $msg = 'Role preview cleared.'; }
       else { $_SESSION['role_override'] = $rv; $msg = 'Viewing as: '.$rv; }
 

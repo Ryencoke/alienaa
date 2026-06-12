@@ -35,9 +35,14 @@ if ($isImpersonating) {
     $_SESSION['pid'] = (int)$_SESSION['real_pid']; unset($_SESSION['real_pid']); unset($_SESSION['role_override']); $isImpersonating = false; $player = current_player();
   }
 }
-// Role override for admins viewing as another role
-if ($isImpersonating && !empty($_SESSION['role_override']) && $player) {
-  $player['role'] = $_SESSION['role_override'];
+// Role override for admins viewing as another role. Clamp to the REAL admin's
+// rank so "view as" can only ever DOWNGRADE capability — otherwise an admin
+// could impersonate a member, preview as 'manager', and inherit manager powers.
+if ($isImpersonating && !empty($_SESSION['role_override']) && $player && $realPlayer) {
+  $rank = ['member'=>0,'chatmod'=>1,'moderator'=>2,'admin'=>3,'manager'=>4];
+  $realRank = $rank[$realPlayer['role'] ?? 'member'] ?? 0;
+  $ovRank   = $rank[$_SESSION['role_override']] ?? 0;
+  $player['role'] = ($ovRank <= $realRank) ? $_SESSION['role_override'] : ($realPlayer['role'] ?? 'member');
 }
 // Jail check
 $jailRecord = null;
@@ -54,7 +59,8 @@ if ($player) {
 // must run BEFORE any HTML is emitted, or their JSON arrives prefixed with the
 // page layout and the client sees "Network error".
 if ($player && $_SERVER['REQUEST_METHOD'] === 'POST'
-    && (!empty($_POST['mine_ajax']) || !empty($_POST['vat_ajax']) || !empty($_POST['exch_ajax']))) {
+    && (!empty($_POST['mine_ajax']) || !empty($_POST['vat_ajax']) || !empty($_POST['exch_ajax'])
+        || ($p === 'friends' && !empty($_SERVER['HTTP_X_REQUESTED_WITH'])))) {
   $__ajaxStaff = in_array($player['role'] ?? 'member', ['chatmod','moderator','admin','manager'], true);
   if ($jailRecord && !$__ajaxStaff) {
     header('Content-Type: application/json');

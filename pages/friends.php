@@ -31,11 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_SERVER['HTTP_X_REQUESTED_W
       if ($fid === (int)$pid) throw new RuntimeException("Can't friend yourself.");
       $chk = $pdo->prepare('SELECT username FROM players WHERE id = ?'); $chk->execute([$fid]);
       $tgt = $chk->fetch(); if (!$tgt) throw new RuntimeException('Player not found.');
-      $pdo->prepare('INSERT IGNORE INTO friends (player_id, friend_id) VALUES (?,?)')->execute([$pid, $fid]);
-      // Notification for the added player
-      $myName = $pdo->prepare('SELECT username FROM players WHERE id=?'); $myName->execute([$pid]);
-      $me = $myName->fetchColumn();
-      $pdo->prepare('INSERT INTO player_notifications (player_id,type,body) VALUES (?,?,?)')->execute([$fid, 'friend_add', e($me).' added you as a friend.']);
+      $ins = $pdo->prepare('INSERT IGNORE INTO friends (player_id, friend_id) VALUES (?,?)');
+      $ins->execute([$pid, $fid]);
+      // Only notify on a genuinely new friendship — re-posting add no longer spams
+      if ($ins->rowCount() === 1) {
+        $myName = $pdo->prepare('SELECT username FROM players WHERE id=?'); $myName->execute([$pid]);
+        $me = $myName->fetchColumn();
+        $pdo->prepare('INSERT INTO player_notifications (player_id,type,body) VALUES (?,?,?)')->execute([$fid, 'friend_add', e($me).' added you as a friend.']);
+      }
       echo json_encode(['ok'=>true,'msg'=>'Friend added.']);
     } elseif ($act === 'remove') {
       $fid = (int)($_POST['friend_id'] ?? 0);
@@ -59,10 +62,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($fid === (int)$pid) throw new RuntimeException("Can't friend yourself.");
       $chk = $pdo->prepare('SELECT username FROM players WHERE id = ?'); $chk->execute([$fid]);
       $tgt = $chk->fetch(); if (!$tgt) throw new RuntimeException('Player not found.');
-      $pdo->prepare('INSERT IGNORE INTO friends (player_id, friend_id) VALUES (?,?)')->execute([$pid, $fid]);
-      $myName = $pdo->prepare('SELECT username FROM players WHERE id=?'); $myName->execute([$pid]);
-      $me = $myName->fetchColumn();
-      $pdo->prepare('INSERT INTO player_notifications (player_id,type,body) VALUES (?,?,?)')->execute([$fid, 'friend_add', htmlspecialchars($me, ENT_QUOTES).' added you as a friend.']);
+      $ins = $pdo->prepare('INSERT IGNORE INTO friends (player_id, friend_id) VALUES (?,?)');
+      $ins->execute([$pid, $fid]);
+      if ($ins->rowCount() === 1) {
+        $myName = $pdo->prepare('SELECT username FROM players WHERE id=?'); $myName->execute([$pid]);
+        $me = $myName->fetchColumn();
+        $pdo->prepare('INSERT INTO player_notifications (player_id,type,body) VALUES (?,?,?)')->execute([$fid, 'friend_add', htmlspecialchars($me, ENT_QUOTES).' added you as a friend.']);
+      }
       $msg = 'Friend added.';
     } elseif ($act === 'remove') {
       $fid = (int)($_POST['friend_id'] ?? 0);
@@ -106,7 +112,7 @@ if ($q !== '') {
   }
 }
 
-$friendIds = array_column($friends, 'id');
+$friendIds = array_map('intval', array_column($friends, 'id')); // ints so strict in_array() matches (PDO returns strings)
 ?>
 
 <div class="panel" style="padding:0;overflow:hidden">
@@ -134,7 +140,7 @@ $friendIds = array_column($friends, 'id');
   <?php endif; ?>
   <?php if ($searchResults): ?>
   <div style="margin-top:12px;display:flex;flex-direction:column;gap:4px">
-    <?php foreach ($searchResults as $r): $alreadyFriend = in_array($r['id'], $friendIds, true); ?>
+    <?php foreach ($searchResults as $r): $alreadyFriend = in_array((int)$r['id'], $friendIds, true); ?>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:5px">
       <span><a href="index.php?p=profile&id=<?= (int)$r['id'] ?>" style="color:var(--accent);font-weight:700"><?= e($r['username']) ?></a>
         <span class="muted" style="font-size:11px"> Lv.<?= (int)$r['level'] ?></span></span>
@@ -214,27 +220,34 @@ $friendIds = array_column($friends, 'id');
       .then(function(d){ cb(d); })
       .catch(function(){ flash('Network error.',true); });
   }
-  document.addEventListener('click',function(e){
-    var btn=e.target.closest('.fr-add-btn');
-    if(btn){
-      var fid=btn.getAttribute('data-id');
-      btn.disabled=true; btn.textContent='Adding...';
-      ajax('add',fid,function(d){
-        if(d.ok){ flash(d.msg,false); btn.closest('.friend-row,div[style]').remove(); }
-        else{ flash(d.msg,true); btn.disabled=false; btn.textContent='+ Add'; }
-      });
-    }
-    var rbtn=e.target.closest('.fr-remove-btn');
-    if(rbtn){
-      var name=rbtn.getAttribute('data-name')||'this player';
-      if(!confirm('Remove '+name+' from friends?')) return;
-      var fid=rbtn.getAttribute('data-id');
-      rbtn.disabled=true;
-      ajax('remove',fid,function(d){
-        if(d.ok){ flash(d.msg,false); var row=document.getElementById('fr-'+fid); if(row) row.remove(); }
-        else{ flash(d.msg,true); rbtn.disabled=false; }
-      });
-    }
-  });
+  // Expose the latest helpers so the single document-level listener (bound once,
+  // survives AJAX nav) always calls the current closures instead of stacking.
+  window._frHandlers = {flash:flash, ajax:ajax};
+  if(!window._frBound){
+    window._frBound = true;
+    document.addEventListener('click',function(e){
+      var h=window._frHandlers; if(!h) return;
+      var btn=e.target.closest('.fr-add-btn');
+      if(btn){
+        var fid=btn.getAttribute('data-id');
+        btn.disabled=true; btn.textContent='Adding...';
+        h.ajax('add',fid,function(d){
+          if(d.ok){ h.flash(d.msg,false); btn.closest('.friend-row,div[style]').remove(); }
+          else{ h.flash(d.msg,true); btn.disabled=false; btn.textContent='+ Add'; }
+        });
+      }
+      var rbtn=e.target.closest('.fr-remove-btn');
+      if(rbtn){
+        var name=rbtn.getAttribute('data-name')||'this player';
+        if(!confirm('Remove '+name+' from friends?')) return;
+        var fid2=rbtn.getAttribute('data-id');
+        rbtn.disabled=true;
+        h.ajax('remove',fid2,function(d){
+          if(d.ok){ h.flash(d.msg,false); var row=document.getElementById('fr-'+fid2); if(row) row.remove(); }
+          else{ h.flash(d.msg,true); rbtn.disabled=false; }
+        });
+      }
+    });
+  }
 })();
 </script>

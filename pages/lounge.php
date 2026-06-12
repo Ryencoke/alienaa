@@ -155,7 +155,10 @@ try {
     var m=Math.floor(secs/60), s=secs%60;
     return (m>0?m+'m ':'')+s+'s';
   }
+  var lgRoot=document.getElementById('lg-canvas');
   function tickBuffs(){
+    // Stop the old interval once the lounge is swapped out (else one stacks per visit)
+    if(lgRoot && !document.body.contains(lgRoot)){ clearInterval(window._loungeBuffIv); window._loungeBuffIv=null; return; }
     var now=Math.floor(Date.now()/1000);
     ['buffAtkTimer','buffDefTimer'].forEach(function(id){
       var el=document.getElementById(id); if(!el) return;
@@ -163,6 +166,7 @@ try {
       el.textContent=fmtCountdown(exp-now);
     });
   }
-  tickBuffs(); setInterval(tickBuffs,1000);
+  if(window._loungeBuffIv) clearInterval(window._loungeBuffIv);
+  tickBuffs(); window._loungeBuffIv=setInterval(tickBuffs,1000);
 })();
 </script>

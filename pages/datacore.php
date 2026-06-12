@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $msg = "Burned " . number_format($total * 5) . " Drive for " . number_format($total) . " cycles. Skillsofts updated.";
     $player = current_player();
-  } catch (Throwable $ex) { $msg = $ex->getMessage(); }
+  } catch (Throwable $ex) { $msg = $ex->getMessage(); $msgErr = true; }
 }
 
 $rows = $pdo->prepare('SELECT s.id, s.code, s.name, s.max_pts, ps.points
@@ -52,7 +52,7 @@ $skills = $rows->fetchAll();
       'Jack a skillsoft into your cortex. Costs Drive. The deeper you go, the more the Sprawl opens up.', 'pulse', '#a66de8') ?>
 <?= scene_header_js() ?>
 <div class="panel">
-  <?php if ($msg): ?><div class="flash flash-ok"><?= e($msg) ?></div><?php endif; ?>
+  <?php if ($msg): ?><div class="flash <?= !empty($msgErr) ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div><?php endif; ?>
   <div style="text-align:center;margin:10px 0">
     <span class="muted" style="font-size:12px">Available Drive:&nbsp;</span>
     <span style="font-family:'Orbitron',sans-serif;font-weight:bold;color:var(--accent);font-size:1.3rem"><?= number_format($player['cycles']) ?></span>

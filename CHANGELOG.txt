@@ -2,6 +2,55 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-12 BATCH-52 (part 2) ---
+
+FULL CODE REVIEW — SECURITY, CONCURRENCY & SOCIAL FIXES (second wave)
+------------------------------------------------------
+[SECURITY]
+- index.php / admin.php: FIXED privilege-escalation chain. An admin could
+  impersonate a member, "view as" manager, and inherit manager powers
+  (trigger_reset, impersonating staff). The role override is now clamped
+  to the REAL admin's rank in BOTH places — "view as" can only downgrade.
+- boards.php: FIXED the Staff board being readable/postable by everyone.
+  Staff-only boards (Staff category) now gate view, new topic, and reply
+  on staff role, and the Staff category is hidden from the index for
+  non-staff.
+- welcome.php: the "latest staff post" excerpt no longer pulls from
+  staff-only boards (was leaking private staff notes to all players).
+
+[CONCURRENCY]
+- synth.php: FIXED material dupes / one-stim-used-N-times. Brew and use
+  now lock the component/herb/stim JSON blobs with SELECT ... FOR UPDATE
+  inside a transaction and consume before applying effects.
+
+[FRIENDS]
+- friends.php: FIXED add/remove always failing on the Friends page (the
+  JSON response was prefixed with page HTML). Routed through the
+  pre-output AJAX gateway. Notifications now fire only on a genuinely new
+  friendship (no more spam on repeat-add). Mutual-friend detection fixed
+  (int vs string compare). The document click handler is bound once so it
+  no longer stacks across AJAX navigations.
+
+[GUILDS]
+- FIXED shard loss when syndicate creation hit a duplicate name/tag
+  (deduction now inside the transaction + friendly pre-check).
+- FIXED co-leaders being able to demote/kick the leader (setrole now
+  refuses to change the leader's rank).
+- FIXED the dead Syndicate Chat tab ('chat' was missing from validTabs).
+- approve_app is now transactional (no more half-joined applicants).
+
+[JS LISTENER / INTERVAL LEAKS]
+- chat.php, guilds.php: chat poll intervals now stop when the page is
+  swapped out by AJAX nav (were polling forever into detached nodes).
+- chat.php: active-chatter usernames rendered via textContent (was
+  innerHTML — latent stored XSS).
+- lounge.php: the buff countdown interval stops on navigation away
+  (previously stacked one copy per visit).
+
+[ERROR STYLING]
+- messages.php, datacore.php: send/burn failures now render as errors
+  (flash-err) instead of green success toasts.
+
 --- SESSION: 2026-06-11 BATCH-52 (part 1) ---
 
 FULL CODE REVIEW — CRITICAL RACE/EXPLOIT FIXES (first wave)

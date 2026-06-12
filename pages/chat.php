@@ -219,13 +219,21 @@ $roomAccent = $roomAccents[$room] ?? '#19f0c7';
       box.innerHTML='';
       active.forEach(function(a){
         var d=document.createElement('div'); d.style.cssText='font-size:12px;margin-bottom:4px';
-        d.innerHTML='<span style="display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin-right:4px;vertical-align:middle;box-shadow:0 0 4px rgba(25,240,199,.7)"></span><a href="index.php?p=profile&id='+a.id+'" style="color:'+(a.color||'#c9d1e0')+'">'+(a.name||'')+'</a>';
+        var dot=document.createElement('span');
+        dot.style.cssText='display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin-right:4px;vertical-align:middle;box-shadow:0 0 4px rgba(25,240,199,.7)';
+        var link=document.createElement('a');
+        link.href='index.php?p=profile&id='+encodeURIComponent(a.id);
+        link.style.color=a.color||'#c9d1e0';
+        link.textContent=a.name||''; // textContent, not innerHTML — usernames are untrusted
+        d.appendChild(dot); d.appendChild(link);
         box.appendChild(d);
       });
     });
   }
 
   function load(){
+    // Stop polling once the chat page is swapped out by AJAX nav
+    if(!document.body.contains(room)){ if(window.__chatInterval){clearInterval(window.__chatInterval);window.__chatInterval=null;} return; }
     fetch('chat_api.php?action=list&n=150&room='+encodeURIComponent(roomKey),{credentials:'same-origin'})
       .then(function(r){return r.json();})
       .then(function(d){ if(d&&d.messages) render(d.messages); })

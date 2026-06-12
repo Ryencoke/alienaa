@@ -89,6 +89,20 @@ $bid = (int)($_GET['b'] ?? 0);   // viewing a board
 $tid = (int)($_GET['t'] ?? 0);   // viewing a topic
 $pg  = max(1, (int)($_GET['pg'] ?? 1));
 
+// Staff-only boards (Staff category) are readable/postable by staff only.
+function board_is_staff_only(PDO $pdo, int $boardId): bool {
+  if ($boardId <= 0) return false;
+  try {
+    $q = $pdo->prepare("SELECT 1 FROM boards b JOIN board_cats c ON c.id = b.cat_id WHERE b.id = ? AND c.name = 'Staff'");
+    $q->execute([$boardId]);
+    return (bool)$q->fetchColumn();
+  } catch (Throwable $e) { return false; }
+}
+function topic_board_id(PDO $pdo, int $topicId): int {
+  try { $q = $pdo->prepare('SELECT board_id FROM topics WHERE id = ?'); $q->execute([$topicId]); return (int)$q->fetchColumn(); }
+  catch (Throwable $e) { return 0; }
+}
+
 function pager($base, $pg, $pages) {
   if ($pages <= 1) return '';
   $o = '<div class="pager">';
@@ -152,6 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $body  = trim($_POST['body'] ?? '');
       $chk = $pdo->prepare('SELECT 1 FROM boards WHERE id = ?'); $chk->execute([$board]);
       if (!$chk->fetchColumn())             throw new RuntimeException('That board does not exist.');
+      if (board_is_staff_only($pdo, $board) && !$canModB) throw new RuntimeException('That board is staff-only.');
       if ($title === '' || mb_strlen($title) > 160) throw new RuntimeException('Title must be 1-160 characters.');
       if ($body === '')                     throw new RuntimeException('Write something in the body.');
       if (mb_strlen($body) > BODY_MAX)      throw new RuntimeException('Body is too long.');
@@ -172,6 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $body   = trim($_POST['body'] ?? '');
       $chk = $pdo->prepare('SELECT 1 FROM topics WHERE id = ?'); $chk->execute([$topic]);
       if (!$chk->fetchColumn())          throw new RuntimeException('That topic is gone.');
+      if (board_is_staff_only($pdo, topic_board_id($pdo, $topic)) && !$canModB) throw new RuntimeException('That board is staff-only.');
       if ($body === '')                  throw new RuntimeException('Write something first.');
       if (mb_strlen($body) > BODY_MAX)   throw new RuntimeException('Reply is too long.');
       // parent must belong to this topic, else treat as top-level
@@ -260,6 +276,10 @@ if ($tid) {
   if (!$topic) {
     echo '<div class="panel"><h2>Message Boards</h2>' . $flash
        . '<p class="muted">That topic doesn\'t exist. <a href="index.php?p=boards">Back to the boards.</a></p></div>';
+    return;
+  }
+  if (board_is_staff_only($pdo, (int)$topic['board_id']) && !$canModB) {
+    echo '<div class="panel"><h2>Message Boards</h2><p class="muted">That board is staff-only. <a href="index.php?p=boards">Back to the boards.</a></p></div>';
     return;
   }
   $pdo->prepare('UPDATE topics SET views = views + 1 WHERE id = ?')->execute([$tid]);
@@ -364,6 +384,10 @@ if ($bid) {
        . '<p class="muted">No such board. <a href="index.php?p=boards">Back to the boards.</a></p></div>';
     return;
   }
+  if (board_is_staff_only($pdo, $bid) && !$canModB) {
+    echo '<div class="panel"><h2>Message Boards</h2><p class="muted">That board is staff-only. <a href="index.php?p=boards">Back to the boards.</a></p></div>';
+    return;
+  }
 
   // Mark this board visited
   try { $pdo->prepare('INSERT INTO board_reads (player_id,board_id,last_read) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE last_read=NOW()')->execute([$pid, $bid]); } catch (Throwable $e) {}
@@ -440,7 +464,9 @@ if ($bid) {
 $cats = [];
 $byCat = [];
 try {
-  $cats = $pdo->query('SELECT id, name, sort FROM board_cats ORDER BY sort ASC, id ASC')->fetchAll();
+  // Hide the Staff category from non-staff on the index
+  $catSql = 'SELECT id, name, sort FROM board_cats' . ($canModB ? '' : " WHERE name <> 'Staff'") . ' ORDER BY sort ASC, id ASC';
+  $cats = $pdo->query($catSql)->fetchAll();
   $bq = $pdo->prepare(
     'SELECT b.id, b.cat_id, b.name, b.descr, b.sort,
        (SELECT COUNT(*) FROM topics t WHERE t.board_id = b.id) AS topics,

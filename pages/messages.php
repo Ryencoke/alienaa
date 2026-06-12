@@ -27,10 +27,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send'
     if (!$chk->fetchColumn()) throw new RuntimeException('No such recipient.');
     $pdo->prepare('INSERT INTO messages (from_id, to_id, body) VALUES (?,?,?)')->execute([$pid, $toId, $body]);
     $with = $toId; $msg = 'Message sent.';
-  } catch (Throwable $ex) { $msg = $ex->getMessage(); }
+  } catch (Throwable $ex) { $msg = $ex->getMessage(); $msgErr = true; }
 }
 
-$flash = $msg ? '<div class="flash flash-ok">'.e($msg).'</div>' : '';
+$flash = $msg ? '<div class="flash '.(!empty($msgErr) ? 'flash-err' : 'flash-ok').'">'.e($msg).'</div>' : '';
 ?>
 <script>
 /* Comms FX — bound once; transmit overlay on document.body survives AJAX swaps. */

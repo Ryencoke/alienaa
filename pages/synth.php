@@ -94,6 +94,17 @@ try {
 // ── Handle actions ────────────────────────────────────────────────────────
 $tab = in_array($_GET['tab'] ?? '', ['gather','brew','stims']) ? $_GET['tab'] : 'gather';
 
+// Lock a settings JSON blob for the current transaction and return it decoded.
+// The page-top reads above are display-only; mutations must re-read under
+// FOR UPDATE so two parallel brews/uses can't both pass validation and
+// last-write-wins each other (material dupes / one stim used N times).
+$synth_lock_blob = function (string $key) use ($pdo): array {
+  $pdo->prepare('INSERT IGNORE INTO settings (k,v) VALUES (?,?)')->execute([$key, '{}']);
+  $q = $pdo->prepare('SELECT v FROM settings WHERE k=? FOR UPDATE');
+  $q->execute([$key]);
+  return json_decode($q->fetchColumn() ?: '{}', true) ?: [];
+};
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $act = $_POST['action'] ?? '';
   try {
@@ -114,8 +125,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $du = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');
       $du->execute([$totalCost, $pid, $totalCost]);
       if ($du->rowCount() !== 1) throw new RuntimeException('Not enough Drive (' . $totalCost . ' needed).');
+      $pdo->beginTransaction();
+      $myComps = $synth_lock_blob("synth_comp:{$pid}");
       $myComps[$compId] = ($myComps[$compId] ?? 0) + $got;
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["synth_comp:{$pid}", json_encode($myComps)]);
+      $pdo->prepare('UPDATE settings SET v=? WHERE k=?')->execute([json_encode($myComps), "synth_comp:{$pid}"]);
+      $pdo->commit();
       $msg = 'Acquired ' . $got . 'x ' . $comp['name'] . ($bonus ? " (+{$bonus} from signal hotspot!)" : '') . '.';
       $player = current_player(); $cycles = (int)$player['cycles'];
       // Refresh signals on new gather
@@ -128,6 +142,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       foreach ($STIMS as $s) { if ($s['id'] === $stimId) { $stim = $s; break; } }
       if (!$stim) throw new RuntimeException('Invalid stim.');
       if ($biochem < $stim['skill']) throw new RuntimeException('Requires Pharmacology Lv.' . $stim['skill'] . '.');
+      $pdo->beginTransaction();
+      $myComps = $synth_lock_blob("synth_comp:{$pid}");
+      $myHerbs = $synth_lock_blob("vat_herbs:{$pid}");
+      $myStims = $synth_lock_blob("synth_stim:{$pid}");
       foreach ($stim['recipe'] as $r) {
         if (isset($r['herb'])) {
           if (($myHerbs[$r['herb']] ?? 0) < $r['q']) throw new RuntimeException('Missing herbs — grow more at the Hydrofarms.');
@@ -141,9 +159,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         else $myComps[$r['id']] -= $r['q'];
       }
       $myStims[$stimId] = ($myStims[$stimId] ?? 0) + 1;
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["synth_comp:{$pid}", json_encode($myComps)]);
-      if ($usedHerbs) $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["vat_herbs:{$pid}", json_encode($myHerbs)]);
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["synth_stim:{$pid}", json_encode($myStims)]);
+      $wq = $pdo->prepare('UPDATE settings SET v=? WHERE k=?');
+      $wq->execute([json_encode($myComps), "synth_comp:{$pid}"]);
+      if ($usedHerbs) $wq->execute([json_encode($myHerbs), "vat_herbs:{$pid}"]);
+      $wq->execute([json_encode($myStims), "synth_stim:{$pid}"]);
+      $pdo->commit();
       $msg = 'Synthesized 1x ' . $stim['name'] . '!';
       $tab = 'brew';
 
@@ -152,7 +172,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $stim   = null;
       foreach ($STIMS as $s) { if ($s['id'] === $stimId) { $stim = $s; break; } }
       if (!$stim) throw new RuntimeException('Invalid stim.');
-      if (($myStims[$stimId] ?? 0) < 1) throw new RuntimeException("You don't have that stim.");
+      // Consume the stim under lock BEFORE applying effects — parallel uses of
+      // a qty-1 stim previously each applied the effect (last write won the count)
+      $pdo->beginTransaction();
+      $myStims = $synth_lock_blob("synth_stim:{$pid}");
+      if (($myStims[$stimId] ?? 0) < 1) { $pdo->rollBack(); throw new RuntimeException("You don't have that stim."); }
+      $myStims[$stimId]--;
+      if ($myStims[$stimId] <= 0) unset($myStims[$stimId]);
+      $pdo->prepare('UPDATE settings SET v=? WHERE k=?')->execute([json_encode($myStims), "synth_stim:{$pid}"]);
 
       $effect = $stim['effect'];
       $amt    = (int)$stim['amount'];
@@ -175,14 +202,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["buff:def:{$pid}", "{$amt}|{$expiry}"]);
       }
 
-      $myStims[$stimId]--;
-      if ($myStims[$stimId] <= 0) unset($myStims[$stimId]);
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["synth_stim:{$pid}", json_encode($myStims)]);
+      $pdo->commit();
       $msg = 'Used ' . $stim['name'] . '. ' . $stim['desc'];
       $player = current_player(); $cycles = (int)$player['cycles'];
       $tab = 'stims';
     }
-  } catch (Throwable $ex) { $msg = $ex->getMessage(); }
+  } catch (Throwable $ex) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    $msg = $ex->getMessage();
+  }
 }
 
 $totalComps = array_sum($myComps);
