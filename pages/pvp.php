@@ -232,8 +232,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('INSERT INTO pvp_log (attacker_id,defender_id,winner_id,rounds,atk_xp,def_xp,credits_looted,log_data) VALUES (?,?,?,?,?,?,?,?)')->execute([$pid,(int)$defPlayer['id'],$won?$pid:(int)$defPlayer['id'],$result['total_rounds'],$atkXp,$defXp,$creditsLooted,$logJson]);
       $logId = (int)$pdo->lastInsertId();
 
-      grant_xp($pid, $atkXp);
-      grant_xp((int)$defPlayer['id'], $defXp); // defender earns the XP shown in their log/notification
+      // Battle XP — split per each player's own guild-donation rate. The
+      // attacker's donation feeds their syndicate; the defender's feeds theirs.
+      $atkXpRes = grant_battle_xp($pid, $atkXp);
+      grant_battle_xp((int)$defPlayer['id'], $defXp); // defender earns the XP shown in their log/notification
 
       // Mortality alignment: beating a good player gains evil, beating an evil player gains good
       $winnerId2 = $won ? $pid : (int)$defPlayer['id'];
@@ -264,6 +266,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $battleResult = array_merge($result, [
         'won'            => $won,
         'atk_xp'         => $atkXp,        'def_xp'    => $defXp,
+        'xp_donated'     => $atkXpRes['donated'], 'xp_kept' => $atkXpRes['kept'],
+        'guild_levels'   => $atkXpRes['guild_levels'],
         'atk_p'          => $player,        'def_p'     => $defPlayer,
         'atk_s'          => $atkStats,      'def_s'     => $defStats2,
         'int_lost'       => $atkIntLoss,    'def_int_lost' => $defIntLoss,
@@ -453,6 +457,12 @@ if (($tab === 'log') && isset($_GET['detail'])) {
   <!-- Rewards -->
   <div style="display:flex;justify-content:center;gap:20px;margin-top:14px;flex-wrap:wrap">
     <div class="pvp-reward"><b style="color:#e8a33d" data-cnt="<?= (int)$r['atk_xp'] ?>" data-pre="+" data-suf=" XP">+<?= $r['atk_xp'] ?> XP</b><div style="font-size:10px;color:var(--muted)">XP Earned</div></div>
+    <?php if (($r['xp_donated'] ?? 0) > 0): ?>
+    <div class="pvp-reward">
+      <b style="color:var(--accent)">&#9876; +<?= (int)$r['xp_donated'] ?></b>
+      <div style="font-size:10px;color:var(--muted)">XP to Guild<?= ($r['guild_levels'] ?? 0) > 0 ? ' &middot; <span style="color:#e8d44d">LEVEL UP!</span>' : '' ?></div>
+    </div>
+    <?php endif; ?>
     <div class="pvp-reward"><b style="color:var(--neon2)" data-cnt="<?= (int)$r['int_lost'] ?>" data-pre="-" data-suf=" HP">-<?= $r['int_lost'] ?> HP</b><div style="font-size:10px;color:var(--muted)">Health Lost</div></div>
     <?php if (($r['credits_looted'] ?? 0) > 0): ?>
     <div class="pvp-reward">

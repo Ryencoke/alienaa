@@ -197,7 +197,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // the player a member with the application stuck "pending".
       $pdo->beginTransaction();
       $pdo->prepare('INSERT INTO syndicate_members (syndicate_id,player_id,rank) VALUES (?,?,?)')->execute([$mySyn['syndicate_id'],$app['player_id'],'member']);
-      $pdo->prepare('UPDATE syndicates SET xp=xp+50 WHERE id=?')->execute([$mySyn['syndicate_id']]);
+      syn_grant_xp($pdo, (int)$mySyn['syndicate_id'], 50);
       $pdo->prepare("UPDATE syndicate_applications SET status='accepted' WHERE id=?")->execute([$appId]);
       $pdo->commit();
       $uname = $pdo->prepare('SELECT username FROM players WHERE id=?'); $uname->execute([$app['player_id']]); $un = $uname->fetchColumn() ?: '?';
@@ -238,11 +238,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $amt = (int)($_POST['amount'] ?? 0); if ($amt < 1) throw new RuntimeException('Enter an amount above zero.');
       $u = $pdo->prepare('UPDATE players SET creds_pocket=creds_pocket-? WHERE id=? AND creds_pocket>=?'); $u->execute([$amt,$pid,$amt]);
       if ($u->rowCount()!==1) throw new RuntimeException('Not enough credits in pocket.');
-      $pdo->prepare('UPDATE syndicates SET bank=bank+?,xp=xp+? WHERE id=?')->execute([$amt,max(1,(int)($amt/100)),$mySyn['syndicate_id']]);
+      $pdo->prepare('UPDATE syndicates SET bank=bank+? WHERE id=?')->execute([$amt,$mySyn['syndicate_id']]);
+      syn_grant_xp($pdo, (int)$mySyn['syndicate_id'], max(1,(int)($amt/100)));
       syn_log($pdo,$mySyn['syndicate_id'],$pid,$pid,'donated',number_format($amt).' cr donated to bank');
       $player = current_player();
       $msg = 'Donated ' . number_format($amt) . ' credits.';
       $q->execute([$pid]); $mySyn = $q->fetch() ?: null; if ($mySyn) $myRank = $mySyn['rank'];
+
+    } elseif ($act === 'xp_donate') {
+      if (!$mySyn) throw new RuntimeException('Not in a Syndicate.');
+      $rate = max(0, min(100, (int)($_POST['rate'] ?? 0)));
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["guild_xp_donate:{$pid}", (string)$rate]);
+      $msg = $rate > 0
+        ? "Battle-XP donation set to {$rate}% — that share of XP you earn in combat now feeds the Syndicate."
+        : 'Battle-XP donation turned off. You keep all combat XP.';
 
     } elseif ($act === 'bank_withdraw') {
       if (!$mySyn || !syn_can($myRank,'manage_bank')) throw new RuntimeException('No permission.');
@@ -493,6 +502,26 @@ if ($tab === 'home' && $mySyn):
     <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:3px"><?= $sl ?></div>
   </div>
   <?php endforeach; ?>
+</div>
+
+<?php
+  // Level progress bar — XP earned within the current level toward the next
+  $synLvl   = (int)$mySyn['level'];
+  $synXp    = (int)$mySyn['xp'];
+  $lvlFloor = syn_xp_for_level($synLvl);
+  $lvlNext  = syn_xp_for_level($synLvl + 1);
+  $span     = max(1, $lvlNext - $lvlFloor);
+  $into     = max(0, min($span, $synXp - $lvlFloor));
+  $pct      = (int)round($into / $span * 100);
+?>
+<div class="panel" style="margin-top:0">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:var(--muted);margin-bottom:6px">
+    <span>Progress to Level <?= $synLvl + 1 ?></span>
+    <span><?= number_format($into) ?> / <?= number_format($span) ?> XP</span>
+  </div>
+  <div style="height:9px;border-radius:5px;background:rgba(255,255,255,.06);overflow:hidden">
+    <div style="height:100%;width:<?= $pct ?>%;border-radius:5px;background:linear-gradient(90deg,#e8a33d,var(--accent));transition:width .4s"></div>
+  </div>
 </div>
 
 <!-- Announcement -->
@@ -1079,6 +1108,26 @@ elseif ($tab === 'treasury' && $mySyn): ?>
     <button type="submit" style="font-size:12px" <?= (int)$player['creds_pocket']<1?'disabled':'' ?>>Donate</button>
   </form>
 </div>
+
+<?php $xpRate = guild_xp_donate_rate($pdo, $pid); ?>
+<div class="panel" style="border:1px solid rgba(232,163,61,.18)">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+    <h4 style="margin:0;font-size:12px;color:#e8a33d">&#9876; Battle-XP Tithe</h4>
+    <span style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:#e8a33d"><span id="xpRateOut"><?= $xpRate ?></span>%</span>
+  </div>
+  <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Pledge a share of the XP you earn from combat (PvP &amp; the Sim) to the Syndicate. The pledged XP feeds guild levels; you keep the rest. Set it to 0% to keep all your XP.</p>
+  <form method="post" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <input type="hidden" name="action" value="xp_donate">
+    <input type="range" name="rate" id="xpRate" min="0" max="100" step="5" value="<?= $xpRate ?>"
+           oninput="document.getElementById('xpRateOut').textContent=this.value;document.getElementById('xpRateNum').value=this.value"
+           style="flex:1;min-width:160px;accent-color:#e8a33d">
+    <input type="number" id="xpRateNum" min="0" max="100" value="<?= $xpRate ?>"
+           oninput="var v=Math.max(0,Math.min(100,this.value|0));document.getElementById('xpRate').value=v;document.getElementById('xpRateOut').textContent=v;this.form.rate.value=v"
+           style="width:64px;text-align:center">
+    <button type="submit" style="font-size:12px">Save</button>
+  </form>
+</div>
+
 <?php if (syn_can($myRank,'manage_bank') && (int)$mySyn['bank'] > 0): ?>
 <div class="panel" style="border:1px solid rgba(59,207,99,.15)">
   <h4 style="margin:0 0 10px;font-size:12px;color:#3bcf63">&#128274; Vault Keeper — Withdraw</h4>

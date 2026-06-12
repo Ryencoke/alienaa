@@ -2,6 +2,44 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-12 BATCH-53 ---
+
+NEW FEATURE — BATTLE-XP TITHE & GUILD LEVELING
+------------------------------------------------------
+Players can now pledge a share (0–100%) of the XP they earn in combat to
+their Syndicate, and Syndicates now actually LEVEL UP from accrued XP.
+
+Background: syndicates already had xp/level columns, but nothing ever
+raised the level — XP just accumulated and level sat at 1 forever. This
+adds the real leveling mechanic and a player-driven way to feed it.
+
+[lib.php] New shared helpers:
+- syn_xp_for_level(L): cumulative XP to reach a guild level
+  (250*L*(L-1): L2=500, L3=1500, L4=3000, L5=5000, L10=22500…).
+- syn_grant_xp(pdo,sid,amount): adds guild XP atomically and raises level
+  to match (idempotent, race-safe, only ever increases). Returns levels
+  gained.
+- player_guild_id() / guild_xp_donate_rate() helpers.
+- grant_battle_xp(pid,xp): splits battle XP by the player's donation rate
+  — pledged cut goes to their guild (via syn_grant_xp), the rest to the
+  player (via grant_xp, which still applies the apartment XP bonus).
+
+[guilds.php]
+- New "Battle-XP Tithe" control in the Treasury tab: a 0–100% slider
+  (stored in settings guild_xp_donate:{pid}) with an xp_donate action.
+- Overview gains a live "Progress to Level N+1" bar.
+- Existing guild-XP sources (new-member +50, credit donations) now route
+  through syn_grant_xp so they trigger level-ups too.
+
+[pvp.php / sim.php]
+- Battle rewards now go through grant_battle_xp. PvP applies each fighter's
+  own rate to their own guild; the result panel shows "XP to Guild" (and a
+  LEVEL UP! flag). Sim shows the tithe inline in the result message.
+
+Default donation rate is 0% (opt-in) — nobody loses XP unless they choose
+to pledge it.
+
+
 --- SESSION: 2026-06-12 BATCH-52 (part 5) ---
 
 FULL CODE REVIEW — REMAINING CORRECTNESS & UX (fifth wave)

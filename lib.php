@@ -310,6 +310,72 @@ function grant_xp(int $pid, int $amount): int {
   return $gained;
 }
 
+// ---- syndicate (guild) XP / leveling (shared) ----
+
+// Cumulative XP required to REACH a given syndicate level.
+// Per-level cost is level*500, so cumulative = 250 * L * (L-1):
+// L2=500, L3=1500, L4=3000, L5=5000, L10=22500 …
+function syn_xp_for_level(int $level): int {
+  if ($level <= 1) return 0;
+  return 250 * $level * ($level - 1);
+}
+
+// The player's syndicate id, or 0 if none.
+function player_guild_id(PDO $pdo, int $pid): int {
+  try {
+    $q = $pdo->prepare('SELECT syndicate_id FROM syndicate_members WHERE player_id = ?');
+    $q->execute([$pid]);
+    return (int)$q->fetchColumn();
+  } catch (Throwable $e) { return 0; }
+}
+
+// Add XP to a syndicate and raise its level to match. Idempotent and
+// race-safe: xp increments atomically, level is recomputed from the live
+// cumulative xp and only ever raised. Returns levels gained.
+function syn_grant_xp(PDO $pdo, int $sid, int $amount): int {
+  if ($sid <= 0 || $amount <= 0) return 0;
+  $pdo->prepare('UPDATE syndicates SET xp = xp + ? WHERE id = ?')->execute([$amount, $sid]);
+  $q = $pdo->prepare('SELECT xp, level FROM syndicates WHERE id = ?');
+  $q->execute([$sid]);
+  $s = $q->fetch();
+  if (!$s) return 0;
+  $xp = (int)$s['xp']; $cur = (int)$s['level']; $lvl = max(1, $cur);
+  while ($lvl < 999 && $xp >= syn_xp_for_level($lvl + 1)) $lvl++;
+  if ($lvl > $cur) {
+    // Only raise — never lower (guards against a stale concurrent read).
+    $pdo->prepare('UPDATE syndicates SET level = ? WHERE id = ? AND level < ?')->execute([$lvl, $sid, $lvl]);
+    return $lvl - $cur;
+  }
+  return 0;
+}
+
+// A player's chosen battle-XP donation rate (0-100), clamped.
+function guild_xp_donate_rate(PDO $pdo, int $pid): int {
+  try {
+    $q = $pdo->prepare('SELECT v FROM settings WHERE k = ?');
+    $q->execute(["guild_xp_donate:{$pid}"]);
+    return max(0, min(100, (int)$q->fetchColumn()));
+  } catch (Throwable $e) { return 0; }
+}
+
+// Award XP earned from a battle, honouring the player's guild-donation rate.
+// The donated cut goes to their syndicate's XP (and may level it up); the
+// remainder is granted to the player (and gets their apartment XP bonus).
+// Returns ['kept','donated','levels','guild_levels'].
+function grant_battle_xp(int $pid, int $xp): array {
+  $pdo = db();
+  if ($xp <= 0) return ['kept'=>0,'donated'=>0,'levels'=>grant_xp($pid, $xp),'guild_levels'=>0];
+  $rate = guild_xp_donate_rate($pdo, $pid);
+  $sid  = $rate > 0 ? player_guild_id($pdo, $pid) : 0;
+  if ($rate > 0 && $sid > 0) {
+    $donated = (int)floor($xp * $rate / 100);
+    $kept    = $xp - $donated;
+    $gLevels = $donated > 0 ? syn_grant_xp($pdo, $sid, $donated) : 0;
+    return ['kept'=>$kept,'donated'=>$donated,'levels'=>grant_xp($pid, $kept),'guild_levels'=>$gLevels];
+  }
+  return ['kept'=>$xp,'donated'=>0,'levels'=>grant_xp($pid, $xp),'guild_levels'=>0];
+}
+
 // ---- equipped gear resolution (shared) ----
 
 // The equipped_weapon/equipped_armor settings can hold an id from either

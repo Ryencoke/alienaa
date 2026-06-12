@@ -114,17 +114,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           ->execute([$pid, $e['name'], $outcome, $dealt, $taken, $credsWon, $xpWon]);
       $pdo->commit();
 
-      $lv = $xpWon > 0 ? grant_xp($pid, $xpWon) : 0;
+      // Battle XP — honour the player's guild-donation rate (pledged share
+      // feeds their syndicate's level, the rest is kept).
+      $xpRes = $xpWon > 0 ? grant_battle_xp($pid, $xpWon) : ['kept'=>0,'donated'=>0,'levels'=>0,'guild_levels'=>0];
+      $lv = $xpRes['levels'];
       if ($outcome === 'win') {
+        $tithe = $xpRes['donated'] > 0
+          ? ' (&#9876; ' . (int)$xpRes['donated'] . ' to guild' . ($xpRes['guild_levels'] > 0 ? ', LEVEL UP!' : '') . ')'
+          : '';
         $msg = 'Neutralized: <b>' . e($e['name']) . '</b> &mdash; +'
-             . number_format($credsWon) . ' creds, +' . $xpWon . ' XP.'
+             . number_format($credsWon) . ' creds, +' . $xpWon . ' XP' . $tithe . '.'
              . $lootMsg . ($lv ? ' <b>LEVEL UP (+' . $lv . ')!</b>' : '');
       } else {
         $msg = 'Flatlined by <b>' . e($e['name']) . '</b> &mdash; dealt '
              . $dealt . ', took ' . $taken . ' damage. Patch up before re-engaging.';
       }
       $fxEvent = ['t'=>'fight','win'=>$outcome === 'win','enemy'=>$e['name'],
-                  'creds'=>$credsWon,'xp'=>$xpWon,'dealt'=>$dealt,'taken'=>$taken,'levelup'=>$lv];
+                  'creds'=>$credsWon,'xp'=>$xpWon,'dealt'=>$dealt,'taken'=>$taken,'levelup'=>$lv,
+                  'xp_donated'=>(int)$xpRes['donated']];
     }
     elseif ($action === 'heal') {
       $pk = $pdo->query("SELECT id FROM items WHERE code = 'patch_kit'")->fetchColumn();
