@@ -66,6 +66,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       try { $fbq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $fbq->execute(["apt_foundry_bonus:{$pid}"]); $foundryBonus=(int)$fbq->fetchColumn(); } catch(Throwable $e){}
       $pdo->beginTransaction();
 
+      // Claim the cooldown FIRST, atomically — the page-top $cdLeft read is
+      // stale, so without this two parallel scrap_run POSTs both pass the
+      // check and each grant a full run inside the same 20-minute window.
+      $cdTok = (time() + FOUNDRY_CD) . '.' . mt_rand(100000, 999999);
+      $cdClaim = $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?)
+                                ON DUPLICATE KEY UPDATE v = IF(CAST(v AS UNSIGNED) <= ' . time() . ', VALUES(v), v)');
+      $cdClaim->execute([$cdKey, $cdTok]);
+      $cdChk = $pdo->prepare('SELECT v FROM settings WHERE k=?');
+      $cdChk->execute([$cdKey]);
+      if ($cdChk->fetchColumn() !== $cdTok) { $pdo->rollBack(); throw new RuntimeException('Still on cooldown. Try again shortly.'); }
+
       foreach ($picks as $slot) {
         // Rarity roll
         $roll = random_int(1, 100);
@@ -84,10 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $totalXp += $xp;
         $runResult[] = ['name' => $n['item_name'], 'qty' => $qty, 'rarity' => $rarity, 'slot' => $slot, 'xp' => $xp];
       }
-      // Cooldown is committed atomically with the loot — a crash between the two
-      // can no longer leave loot granted with no cooldown set.
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')
-          ->execute([$cdKey, (string)(time() + FOUNDRY_CD)]);
+      // (Cooldown was already claimed atomically above, in the same transaction.)
       $pdo->commit();
       $cdLeft = FOUNDRY_CD;
       $player = current_player();

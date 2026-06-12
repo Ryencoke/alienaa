@@ -16,6 +16,7 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
+$msgErr = false;
 
 try {
   $pdo->exec("CREATE TABLE IF NOT EXISTS bonds (
@@ -92,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   } catch (Throwable $ex) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    $msg = $ex->getMessage();
+    $msg = $ex->getMessage(); $msgErr = true;
   }
 }
 
@@ -119,7 +120,7 @@ try {
 </div>
 
 <?php if ($msg): ?>
-<div style="background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.25);border-radius:6px;padding:10px 14px;font-size:13px"><?= e($msg) ?></div>
+<div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>" style="font-size:13px"><?= e($msg) ?></div>
 <?php endif; ?>
 
 <!-- Bond plans -->

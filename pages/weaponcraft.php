@@ -190,7 +190,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $recipe = null;
       foreach ($RECIPES as $r) { if ($r[0] === $gitem['recipe_id']) { $recipe = $r; break; } }
       $pdo->beginTransaction();
-      $pdo->prepare('DELETE FROM player_gear WHERE id=? AND player_id=?')->execute([$gid, $pid]);
+      // The DELETE is the gate: only the request that actually removes the row
+      // refunds ore, so two parallel salvages of the same gear can't double-refund.
+      $del = $pdo->prepare('DELETE FROM player_gear WHERE id=? AND player_id=?');
+      $del->execute([$gid, $pid]);
+      if ($del->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Item already salvaged.'); }
       if ($recipe) {
         foreach ($recipe[8] as $ore => $need) {
           $ret = max(1, (int)floor($need * 0.4));

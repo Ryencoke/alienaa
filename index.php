@@ -286,6 +286,12 @@ try {
        . '<p class="muted" style="font-size:11px;margin-top:10px">Sentence ends: '.e(date('M j, Y g:ia', strtotime($jailRecord['release_at']))).'</p>'
        . '</div>';
   } else {
+  // Already authenticated: the auth pages don't belong inside the game shell
+  // (a POST there would re-run login/session_regenerate_id mid-layout).
+  if (in_array($p, ['login','register','landing'], true)) {
+    echo '<script>location.replace("index.php?p=home");</script>';
+    echo '<div class="panel"><p class="muted">Already jacked in. <a href="index.php?p=home">Continue &rarr;</a></p></div>';
+  } else {
   $file = __DIR__ . "/pages/{$p}.php";
   if (preg_match('/^[a-z]+$/', $p) && file_exists($file)) {
     try { require $file; }
@@ -297,6 +303,7 @@ try {
   } else {
     echo '<div class="panel"><h2>Signal Lost</h2><p>That node doesn\'t exist on the Sprawl.</p></div>';
   }
+  } // end auth-page redirect else
   } // end jail else block
 ?>
   <div style="padding:4px 0 10px;text-align:left">

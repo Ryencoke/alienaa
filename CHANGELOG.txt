@@ -2,6 +2,27 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-12 BATCH-52 (part 5) ---
+
+FULL CODE REVIEW — REMAINING CORRECTNESS & UX (fifth wave)
+------------------------------------------------------
+[CONCURRENCY]
+- foundry.php: scrap-run cooldown is now claimed atomically before loot
+  is granted (was a stale check-then-act — parallel runs could each pull a
+  full run inside one 20-min window).
+- weaponcraft.php: salvage refunds ore only if the gear DELETE actually
+  removed the row (rowCount gate), so two parallel salvages of the same
+  item can't double-refund.
+
+[ROUTING] index.php: visiting login/register/landing while already logged
+  in now redirects to Home instead of rendering the auth form inside the
+  game shell (a POST there would have re-run the login/session logic
+  mid-layout).
+
+[ERROR STYLING] trade.php and bonds.php failures now render as errors
+  (flash-err) instead of the cyan "success" box. trade.php also drops the
+  fragile substring-matching that mis-classified capitalised errors.
+
 --- SESSION: 2026-06-12 BATCH-52 (part 4) ---
 
 FULL CODE REVIEW — LIBRARY NOW REFLECTS REALITY (fourth wave)

@@ -2,6 +2,7 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
+$msgErr = false;
 
 // ── Schema ──
 try {
@@ -194,7 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $msg = 'Transferred ' . number_format($amt) . ' ' . $type . ' to ' . $tname . '.';
       $player = current_player();
     }
-  } catch (Throwable $ex) { if ($pdo->inTransaction()) $pdo->rollBack(); $msg = $ex->getMessage(); }
+  } catch (Throwable $ex) { if ($pdo->inTransaction()) $pdo->rollBack(); $msg = $ex->getMessage(); $msgErr = true; }
 }
 
 // Pre-select a trade partner from URL
@@ -238,7 +239,7 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab']
 </div>
 
 <?php if ($msg): ?>
-<div class="flash <?= str_contains($msg,'not enough') || str_contains($msg,'not found') || str_contains($msg,'Invalid') ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>
+<div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>
 <?php endif; ?>
 
 <div style="display:flex;gap:8px;flex-wrap:wrap">
