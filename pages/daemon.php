@@ -105,6 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($net > 0) $msg = "Rolled {$sum} — you called ".ucfirst($choice).". Won +".number_format($net)." creds!";
       else          { $msg = "Rolled {$sum} (".ucfirst($band).") — you called ".ucfirst($choice).". The Daemon feeds."; $msgType = 'err'; }
       $fxEvent = ['g'=>'dice','won'=>$net>0,'net'=>$net,'big'=>($mult>=5&&$net>0)];
+      $player = current_player(); // refresh so the balance + MAX chip reflect this spin
     }
 
     elseif ($action === 'slots') {
@@ -128,10 +129,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       elseif  ($mult === 1) { $msg = "Pair — push. Bet returned."; }
       else                  { $msg = "No match. The reels eat your ".number_format($bet)."."; $msgType = 'err'; }
       $fxEvent = ['g'=>'slots','mult'=>$mult,'net'=>$net,'jackpot'=>$mult>=25,'big'=>$mult>=5];
+      $player = current_player(); // refresh so the balance + MAX chip reflect this spin
     }
 
     // ── Blackjack ──
     elseif ($action === 'bj_deal') {
+      // Refuse to deal over a live hand — otherwise the escrowed bet on the
+      // hand in progress is silently lost (never settled, never logged).
+      if (($_SESSION['daemon_bj']['phase'] ?? '') === 'playing') throw new RuntimeException('Finish your current hand first.');
       $bet = (int)($_POST['bet'] ?? 0);
       if ($bet <= 0)      throw new RuntimeException('Place a bet above zero.');
       if ($bet > MAX_BET) throw new RuntimeException('Max single bet is '.number_format(MAX_BET).'.');
@@ -221,6 +226,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ── Video Poker ──
     elseif ($action === 'vp_deal') {
+      // Refuse to deal over a hand still in the hold phase — its bet is escrowed
+      if (($_SESSION['daemon_vp']['phase'] ?? '') === 'hold') throw new RuntimeException('Finish your current hand first.');
       $bet = (int)($_POST['bet'] ?? 0);
       if ($bet <= 0)      throw new RuntimeException('Place a bet above zero.');
       if ($bet > MAX_BET) throw new RuntimeException('Max single bet is '.number_format(MAX_BET).'.');
@@ -267,10 +274,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $bj = $_SESSION['daemon_bj'] ?? null;
 $vp = $_SESSION['daemon_vp'] ?? null;
 
-// History + stats
-$rl = $pdo->prepare('SELECT * FROM casino_log WHERE player_id = ? ORDER BY played_at DESC LIMIT 50');
-$rl->execute([$pid]);
-$recent = $rl->fetchAll();
+// History + stats — casino_log ships in schema_casino.sql; guard so a missing
+// table degrades to an empty history instead of failing the whole page
+$recent = [];
+try {
+  $rl = $pdo->prepare('SELECT * FROM casino_log WHERE player_id = ? ORDER BY played_at DESC LIMIT 50');
+  $rl->execute([$pid]);
+  $recent = $rl->fetchAll();
+} catch (Throwable $e) {}
 
 // Stats calculation (recent 50)
 $statsTotal = count($recent);

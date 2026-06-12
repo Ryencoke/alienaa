@@ -72,7 +72,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $player = current_player();
 }
 
-$mines = $pdo->query("SELECT g.*, i.name AS item_name FROM gather_nodes g JOIN items i ON i.id = g.item_id WHERE g.venue = 'transit' ORDER BY g.skill_req")->fetchAll();
+// gather_nodes ships in schema_foundry.sql — guard so the page still renders
+// gracefully on an install that hasn't applied it (like foundry.php does)
+$mines = [];
+try { $mines = $pdo->query("SELECT g.*, i.name AS item_name FROM gather_nodes g JOIN items i ON i.id = g.item_id WHERE g.venue = 'transit' ORDER BY g.skill_req")->fetchAll(); } catch (Throwable $e) {}
 $drone = (int)($skillPts['drone'] ?? 0);
 $msgType = $msgType ?? 'ok';
 ?>

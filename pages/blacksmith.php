@@ -4,17 +4,24 @@ $pdo = db();
 $msg = '';
 $msgErr = false;
 
-// Ensure purchase table exists
+// Forged gear lives in player_gear — the same table the Fabrication Lab lists
+// and equips, and that PvP/Sim read via equipped_gear(). (The legacy
+// blacksmith_owned table was a dead end: purchases were recorded there and
+// never surfaced anywhere, so players paid up to 55k cr for nothing.)
 try {
-  $pdo->exec('CREATE TABLE IF NOT EXISTS blacksmith_owned (
+  $pdo->exec('CREATE TABLE IF NOT EXISTS player_gear (
     id         INT AUTO_INCREMENT PRIMARY KEY,
     player_id  INT NOT NULL,
-    item_code  VARCHAR(64) NOT NULL,
-    bought_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_player_item (player_id, item_code),
+    recipe_id  VARCHAR(32) NOT NULL,
+    name       VARCHAR(64) NOT NULL,
+    gear_type  ENUM(\'weapon\',\'armor\') NOT NULL,
+    atk_bonus  INT NOT NULL DEFAULT 0,
+    def_bonus  INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_player (player_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 } catch (Throwable $e) {}
+
 
 // Catalog  [code, name, icon, type, sub, atk, def, spd, price, desc]
 $CATALOG = [
@@ -82,6 +89,36 @@ function bs_tier($sub, $price): array {
   return                           ['COMMON',    '#9aa3b8'];
 }
 
+// code => catalog row, for fast lookups
+$BS_BY_CODE = [];
+foreach ($CATALOG as $c) $BS_BY_CODE[$c[0]] = $c;
+
+// One-time migration: give existing (paid-for but dead) blacksmith_owned
+// purchases their real player_gear, then retire the row so it can't re-run.
+try {
+  $legacy = $pdo->query('SHOW TABLES LIKE "blacksmith_owned"')->fetchColumn();
+  if ($legacy) {
+    $lq = $pdo->prepare('SELECT item_code FROM blacksmith_owned WHERE player_id = ?');
+    $lq->execute([$pid]);
+    $codes = $lq->fetchAll(PDO::FETCH_COLUMN);
+    if ($codes) {
+      $haveQ = $pdo->prepare('SELECT 1 FROM player_gear WHERE player_id=? AND recipe_id=?');
+      $insG  = $pdo->prepare('INSERT INTO player_gear (player_id, recipe_id, name, gear_type, atk_bonus, def_bonus) VALUES (?,?,?,?,?,?)');
+      $delL  = $pdo->prepare('DELETE FROM blacksmith_owned WHERE player_id=? AND item_code=?');
+      foreach ($codes as $lc) {
+        if (isset($BS_BY_CODE[$lc])) {
+          $haveQ->execute([$pid, $lc]);
+          if (!$haveQ->fetchColumn()) {
+            $it = $BS_BY_CODE[$lc];
+            $insG->execute([$pid, $lc, $it[1], $it[3], (int)$it[5], (int)$it[6]]);
+          }
+        }
+        $delL->execute([$pid, $lc]);
+      }
+    }
+  }
+} catch (Throwable $e) {}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'buy') {
   $code = $_POST['item_code'] ?? '';
   $item = null;
@@ -89,28 +126,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'buy')
   try {
     if (!$item) throw new RuntimeException('Item not found.');
     $price = $item[8];
-    // Charge first (atomic), then record ownership — all in one transaction.
-    // (The old code inserted ownership and then crashed on PDO::rowCount(),
-    //  handing out free gear; this also closes that hole.)
+    // Charge first (atomic), then forge the gear into player_gear — one
+    // transaction, so a failed charge can't hand out free gear and a failed
+    // insert can't pocket the creds.
     $pdo->beginTransaction();
+    // One-of-each collection model: refuse a duplicate forge.
+    $dup = $pdo->prepare('SELECT 1 FROM player_gear WHERE player_id=? AND recipe_id=?');
+    $dup->execute([$pid, $code]);
+    if ($dup->fetchColumn()) { $pdo->rollBack(); throw new RuntimeException('You already own that item.'); }
     $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
     $u->execute([$price, $pid, $price]);
     if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough creds. Need ' . number_format($price) . ' cr.'); }
-    $ins = $pdo->prepare('INSERT IGNORE INTO blacksmith_owned (player_id, item_code) VALUES (?,?)');
-    $ins->execute([$pid, $code]);
-    if ($ins->rowCount() < 1) { $pdo->rollBack(); throw new RuntimeException('You already own that item.'); }
+    $pdo->prepare('INSERT INTO player_gear (player_id, recipe_id, name, gear_type, atk_bonus, def_bonus) VALUES (?,?,?,?,?,?)')
+        ->execute([$pid, $code, $item[1], $item[3], (int)$item[5], (int)$item[6]]);
     $pdo->commit();
     $player = current_player();
-    $msg = 'Forged: ' . e($item[1]) . '. Check your Inventory.';
+    $msg = 'Forged: ' . e($item[1]) . '. Equip it at the Fabrication Lab.';
   } catch (Throwable $ex) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $msg = $ex->getMessage(); $msgErr = true;
   }
 }
 
-$ownedQ = $pdo->prepare('SELECT item_code FROM blacksmith_owned WHERE player_id = ?');
+// Owned = catalog codes the player already has in player_gear
+$ownedQ = $pdo->prepare('SELECT recipe_id FROM player_gear WHERE player_id = ?');
 $ownedQ->execute([$pid]);
-$owned = array_flip($ownedQ->fetchAll(PDO::FETCH_COLUMN));
+$owned = [];
+foreach ($ownedQ->fetchAll(PDO::FETCH_COLUMN) as $rc) if (isset($BS_BY_CODE[$rc])) $owned[$rc] = true;
 
 $tab = $_GET['tab'] ?? 'weapons';
 if (!in_array($tab, ['weapons','armor'], true)) $tab = 'weapons';

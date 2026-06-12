@@ -84,6 +84,14 @@ if ($with) {
   }
 
   $pdo->prepare('UPDATE messages SET is_read = 1 WHERE to_id = ? AND from_id = ? AND is_read = 0')->execute([$pid, $with]);
+  // Also clear the seeded "New message" notifications for this thread, or the
+  // sidebar badge keeps double-counting PMs you've already read.
+  try {
+    $pdo->prepare("UPDATE player_notifications SET is_read = 1
+                   WHERE player_id = ? AND ref_type = 'message'
+                     AND ref_id IN (SELECT id FROM messages WHERE to_id = ? AND from_id = ?)")
+        ->execute([$pid, $pid, $with]);
+  } catch (Throwable $e) {}
 
   $tq = $pdo->prepare('SELECT m.id, m.from_id, m.body, m.created_at, p.username AS from_name, p.role, p.chat_color
                        FROM messages m JOIN players p ON p.id = m.from_id
@@ -151,10 +159,14 @@ if ($with) {
 /* ---------- inbox ---------- */
 $msgFriends = [];
 try { $fq = $pdo->prepare('SELECT p.id,p.username,p.role,p.chat_color FROM friends f JOIN players p ON p.id=f.friend_id WHERE f.player_id=? ORDER BY p.username LIMIT 30'); $fq->execute([$pid]); $msgFriends = $fq->fetchAll(); } catch (Throwable $e) {}
-$rs = $pdo->prepare('SELECT * FROM messages WHERE from_id = ? OR to_id = ? ORDER BY id DESC LIMIT 200');
-$rs->execute([$pid, $pid]);
+$msgRows = [];
+try {
+  $rs = $pdo->prepare('SELECT * FROM messages WHERE from_id = ? OR to_id = ? ORDER BY id DESC LIMIT 200');
+  $rs->execute([$pid, $pid]);
+  $msgRows = $rs->fetchAll();
+} catch (Throwable $e) {}
 $convos = [];
-foreach ($rs as $m) {
+foreach ($msgRows as $m) {
   $o = ($m['from_id'] == $pid) ? (int)$m['to_id'] : (int)$m['from_id'];
   if (!isset($convos[$o])) $convos[$o] = ['last' => $m, 'unread' => 0];
   if ($m['to_id'] == $pid && !$m['is_read']) $convos[$o]['unread']++;

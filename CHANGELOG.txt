@@ -2,6 +2,44 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-12 BATCH-52 (part 3) ---
+
+FULL CODE REVIEW — INTEGRATION FIXES (third wave)
+------------------------------------------------------
+The audit found the game had three parallel item subsystems that were
+never reconciled. This wave wires them together.
+
+[blacksmith.php] FIXED the biggest one: forged weapons/armor were written
+  to blacksmith_owned, a table NOTHING else read — so players paid up to
+  55,000 cr for gear that never appeared in their inventory, couldn't be
+  equipped, and gave nothing in combat. Purchases now go into player_gear
+  (the same table the Fabrication Lab lists/equips and that PvP/Sim read),
+  so blacksmith gear is equippable and counts in combat. Added a one-time
+  migration that hands existing blacksmith_owned buyers their real gear.
+
+[daemon.php]
+- FIXED bet loss: dealing a new Blackjack/Video-Poker hand over one still
+  in progress now refuses ("Finish your current hand first") instead of
+  silently destroying the escrowed bet on the live hand.
+- Dice & Slots now refresh the player after settling, so the balance and
+  MAX-bet chip reflect the spin you just made.
+- casino_log query guarded (degrades to empty history if schema_casino
+  isn't applied, instead of failing the whole page).
+
+[blackjack.php / poker.php] Retired these orphan pages — they were
+  unlinked but still reachable by URL and duplicated daemon's engine with
+  separate session state (a player could run two engines at once). Now
+  redirect to the Lucky Daemon casino.
+
+[SCHEMA-DRIFT GUARDS] transit.php (gather_nodes) and messages.php
+  (messages) top-level queries are now wrapped in try/catch like the rest
+  of the codebase, so a not-yet-applied schema file degrades gracefully
+  instead of throwing the page's error panel.
+
+[messages.php] FIXED the sidebar unread badge never clearing: opening a
+  thread now also marks the seeded "New message" notifications read (they
+  were double-counted against the badge after reading).
+
 --- SESSION: 2026-06-12 BATCH-52 (part 2) ---
 
 FULL CODE REVIEW — SECURITY, CONCURRENCY & SOCIAL FIXES (second wave)
