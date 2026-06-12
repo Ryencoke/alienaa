@@ -16,22 +16,9 @@ try {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 } catch (Throwable $e) {}
 
-// Catalog  [id, name, icon, desc, price, effect, amount]
+// Catalog  [id, name, icon, desc, price, effect, amount] — shared with the Library
 // effect: 'integrity' | 'signal' | 'cycles' | null (collectible)
-$CATALOG = [
-  ['patch_kit',      'Field Patch Kit',      '&#129657;', 'Nano-polymer bandages. Seals hull breaches fast.',             120,  'integrity',  20],
-  ['signal_boost',   'Signal Booster',       '&#128246;', 'Broadband relay chip. Instant signal surge.',                  90,  'signal',     15],
-  ['cycle_chip',     'Drive Recharger',      '&#128297;', 'Micro-reactor cartridge. Tops up your Drive.',    110,  'cycles',     15],
-  ['stim_pack',      'Combat Stim Pack',     '&#9889;',   'Fast-acting adrenaline compound. Health burst in a pinch.', 200, 'integrity',  40],
-  ['overclk_chip',   'Overclock Chip',       '&#128301;', 'Pushes Drive capacity into the red zone. Temporary boost.',   180,  'cycles',     30],
-  ['booster_array',  'Signal Array',         '&#128225;', 'Dedicated comms module. Massive signal restoration.',         240,  'signal',     40],
-  ['ration_bar',     'Synth Ration Bar',     '&#129365;', 'Tasteless. Calorie-dense. Restores a bit of Health.',                 30,  'integrity',   8],
-  ['data_spike',     'Data Spike',           '&#128300;', 'Disposable hacking tool. Has non-combat utility.',             80,  null,          0],
-  ['smoke_canister', 'Smoke Canister',       '&#128168;', 'Thermal obscurant. Useful for exiting bad situations.',        60,  null,          0],
-  ['burner_chip',    'Burner ID Chip',       '&#128083;', 'Pre-loaded false identity. Single use.',                      150,  null,          0],
-  ['duct_tape',      'Industrial Duct Tape', '&#129683;', 'Fixes everything. No, really. Everything.',                    25,  null,          0],
-  ['energy_drink',   'Reactor Brew',         '&#127866;', 'High-voltage synth caffeine. Cycle recovery bonus.',           45,  'cycles',     10],
-];
+$CATALOG = generalstore_catalog();
 
 // Effect theming
 $FX = [

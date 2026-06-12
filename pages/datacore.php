@@ -10,16 +10,7 @@ $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points)
 // Strip "101" suffix from skill names in DB (runs once harmlessly)
 try { $pdo->exec("UPDATE skills SET name = REPLACE(name, ' 101', '') WHERE name LIKE '% 101'"); } catch (Throwable $e) {}
 
-$SKILLS_META = [
-  'scav'   => ['icon'=>'&#128270;', 'name'=>'Scavenging',     'effect'=>'+yield & unlock higher-tier gather nodes per level',      'color'=>'var(--accent)'],
-  'hydro'  => ['icon'=>'&#127807;', 'name'=>'Hydroponics',    'effect'=>'+crop yield & unlock hydrofarm growth vats per level',    'color'=>'#3bcf63'],
-  'fab'    => ['icon'=>'&#9881;',   'name'=>'Fabrication',    'effect'=>'+crafting output & unlock advanced recipes per level',    'color'=>'var(--neon2)'],
-  'combat' => ['icon'=>'&#9876;',   'name'=>'Combat',         'effect'=>'+damage & crit chance in combat sims per level',          'color'=>'#ff6b35'],
-  'drone'  => ['icon'=>'&#129458;', 'name'=>'Drone Ops',      'effect'=>'+mining yield & unlock remote transit nodes per level',   'color'=>'#4d6be8'],
-  'netrun' => ['icon'=>'&#128187;', 'name'=>'Netrunning',     'effect'=>'+hack success rate & unlock higher-tier net intrusions',  'color'=>'#a66de8'],
-  'chem'   => ['icon'=>'&#9879;',   'name'=>'Streetchem',     'effect'=>'+stim potency & unlock compound synthesis recipes',       'color'=>'#e8d44d'],
-  'hack'   => ['icon'=>'&#128272;', 'name'=>'Cryptocracking', 'effect'=>'+crypto yield & unlock encrypted vault targets',          'color'=>'#4de8b8'],
-];
+$SKILLS_META = skill_defs(); // shared with the Library
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $invest = array_map(static fn($v) => max(0, (int)$v), is_array($_POST['pts'] ?? null) ? $_POST['pts'] : []);

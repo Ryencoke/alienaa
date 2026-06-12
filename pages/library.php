@@ -12,89 +12,38 @@ try {
   foreach ($q as $r) $dbItems[] = $r;
 } catch (Throwable $e) {}
 
-/* ----- Blacksmith catalog ----- */
-$BS_WEAPONS = [
-  ['mono_blade',     '&#9876;',  'Mono Blade',        'weapon', 12, 0, 400,    'Monomolecular edge — cuts through light armor plating.',  'common'],
-  ['plasma_pistol',  '&#128299;','Plasma Pistol',     'weapon', 16, 0, 650,    'Compact plasma rounds. Reliable at close range.',         'common'],
-  ['shock_baton',    '&#9889;',  'Shock Baton',       'weapon', 10, 2, 350,    'Stun-grade pulse discharge. Doubles as a riot tool.',      'common'],
-  ['arc_rifle',      '&#128299;','Arc Rifle',         'weapon', 22, 0, 900,    'Charged particle bursts. Effective vs shielded targets.',  'uncommon'],
-  ['neuro_injector', '&#128296;','Neuro Injector',    'weapon', 8,  4, 500,    'Toxin-loaded spike. Disrupts neural pathways on impact.', 'uncommon'],
-  ['void_blade',     '&#9876;',  'Void Blade',        'weapon', 28, 0, 1400,   'Phase-shifted edge — cuts through most barrier fields.',  'rare'],
-  ['scatter_cannon', '&#128299;','Scatter Cannon',    'weapon', 30, 0, 1800,   'Wide spread burst pattern. Devastating at close range.',  'rare'],
-  ['synapse_spike',  '&#128296;','Synapse Spike',     'weapon', 18, 0, 1100,   'Jams cortical implants on critical hits.',                'uncommon'],
-  ['corrosive_dart', '&#128296;','Corrosive Dart',    'weapon', 14, 0, 700,    'Micro-needle loaded with industrial-grade acid.',         'common'],
-  ['heavy_maul',     '&#9876;',  'Heavy Maul',        'weapon', 35, 0, 2200,   'Two-handed hydraulic hammer. Destroys cover.',            'rare'],
-  ['data_lance',     '&#9876;',  'Data Lance',        'weapon', 20, 2, 1300,   'Carbon-ceramic spike loaded with intrusion code.',        'uncommon'],
-  ['pulse_smg',      '&#128299;','Pulse SMG',         'weapon', 18, 0, 950,    'High-ROF electromagnetic bursts. Drains shield stacks.',  'uncommon'],
-  ['ceramic_blade',  '&#9876;',  'Ceramic Blade',     'weapon', 9,  1, 300,    'Heat-treated ceramic edge. Quiet, light, cheap.',         'common'],
-  ['gauss_rifle',    '&#128299;','Gauss Rifle',       'weapon', 40, 0, 3500,   'Electromagnetic rail accelerator. Long range, brutal.',   'elite'],
-  ['hyper_katana',   '&#9876;',  'Hyper Katana',      'weapon', 45, 0, 4200,   'Vibro-edged titanium blade tuned to 12kHz resonance.',   'elite'],
-  ['nano_swarm',     '&#128296;','Nano Swarm',        'weapon', 25, 0, 2000,   'Micro-bots dispersed on impact — dissolve soft tissue.',  'rare'],
-  ['thermal_lance',  '&#9876;',  'Thermal Lance',     'weapon', 32, 0, 2600,   'Plasma-focused cutting beam at melee range.',             'rare'],
-  ['ghost_pistol',   '&#128299;','Ghost Pistol',      'weapon', 20, 3, 1600,   'Subsonic rounds — no muzzle flash, no heat signature.',   'rare'],
-  ['breacher_axe',   '&#9876;',  'Breacher Axe',      'weapon', 26, 0, 1700,   'Hydraulic spike-axe designed for armored door breach.',   'uncommon'],
-  ['taser_web',      '&#9889;',  'Taser Web',         'weapon', 15, 0, 800,    'Filament net discharged at 50,000V. Immobilizes targets.','uncommon'],
-  ['entropy_knife',  '&#9876;',  'Entropy Knife',     'weapon', 16, 1, 850,    'Quantum-edge blade — decays chemical bonds on contact.',  'uncommon'],
-  ['sonic_driver',   '&#128299;','Sonic Driver',      'weapon', 22, 0, 1200,   'Focused directional sound weapon. Shatters internals.',   'rare'],
-  ['smart_carbine',  '&#128299;','Smart Carbine',     'weapon', 38, 0, 3000,   'Target-lock AI integrated into the stock and barrel.',    'elite'],
-  ['void_cannon',    '&#128299;','Void Cannon',       'weapon', 55, 0, 6000,   'Annihilation-class weapon. Banned in six city-states.',   'legendary'],
-  ['hex_blade',      '&#9876;',  'Hex Blade',         'weapon', 50, 5, 7500,   'Cursed edge forged in an illegal foundry. Whispers.',     'legendary'],
-];
-$BS_ARMOR = [
-  ['combat_vest',    '&#128737;','Combat Vest',       'armor', 0, 12, 400,    'Standard-issue polymer composite. Stops ballistics.',      'common'],
-  ['riot_shell',     '&#128737;','Riot Shell',        'armor', 0, 18, 650,    'Full-body riot plate. Heavy but reliable.',                 'common'],
-  ['exo_frame',      '&#128737;','Exo Frame',         'armor', 0, 28, 1200,   'Powered exoskeletal shell. Absorbs kinetic impact.',       'uncommon'],
-  ['camo_wraps',     '&#128737;','Camo Wraps',        'armor', 0, 8,  280,    'Adaptive-pattern light wrap. Harder to hit.',              'common'],
-  ['neural_weave',   '&#128737;','Neural Weave',      'armor', 2, 14, 700,    'Conductive mesh that anticipates incoming strikes.',       'uncommon'],
-  ['ablative_coat',  '&#128737;','Ablative Coat',     'armor', 0, 22, 950,    'Sacrificial layers burn away on impact. Single-use effect.','uncommon'],
-  ['shadow_suit',    '&#128737;','Shadow Suit',       'armor', 0, 16, 800,    'Stealth-optimized flexweave. Blocks thermal imaging.',     'uncommon'],
-  ['pulse_shield',   '&#128737;','Pulse Shield',      'armor', 0, 35, 2400,   'Electrostatic barrier shell. Regenerates between hits.',   'rare'],
-  ['nano_skin',      '&#128737;','Nano Skin',         'armor', 3, 20, 1800,   'Living mesh that redistributes impact force.',             'rare'],
-  ['juggernaut_plate','&#128737;','Juggernaut Plate', 'armor', 0, 45, 4000,   'Military-grade ceramic-titanium plate. Near-impenetrable.','elite'],
-  ['reflex_suit',    '&#128737;','Reflex Suit',       'armor', 4, 18, 1500,   'Myomer-lined suit that augments reaction speed.',          'rare'],
-  ['subdermal_mesh', '&#128737;','Subdermal Mesh',    'armor', 0, 25, 1600,   'Embedded under-skin armor weave. Invisible to scanners.',  'rare'],
-  ['ghost_cloak',    '&#128737;','Ghost Cloak',       'armor', 0, 30, 2200,   'Phase-shifting coat — partial optical camouflage.',        'rare'],
-  ['reactor_jacket', '&#128737;','Reactor Jacket',    'armor', 0, 38, 3000,   'Fusion-cell powered shield emitters in the shoulder pads.','elite'],
-  ['circuit_shroud', '&#128737;','Circuit Shroud',    'armor', 5, 24, 2000,   'EMP-hardened longcoat with embedded counter-intrusion.',   'rare'],
-  ['void_carapace',  '&#128737;','Void Carapace',     'armor', 0, 60, 7000,   'Salvaged from a crashed warship. Absorbs almost anything.','legendary'],
-  ['chrome_shell',   '&#128737;','Chrome Shell',      'armor', 0, 42, 3600,   'Mirror-polished deflection plating. Bounces energy beams.','elite'],
-  ['biomech_skin',   '&#128737;','Biomech Skin',      'armor', 6, 28, 2800,   'Genetically-engineered symbiotic armor organism.',         'elite'],
-  ['quantum_vest',   '&#128737;','Quantum Vest',      'armor', 0, 50, 5500,   'Quantum-locked protection field. Probability-based defense.','legendary'],
-  ['kinetic_weave',  '&#128737;','Kinetic Weave',     'armor', 0, 20, 1100,   'Dissipates kinetic energy across the entire suit surface.','uncommon'],
-  ['ferro_coat',     '&#128737;','Ferro Coat',        'armor', 0, 15, 750,    'Ferromagnetic fiber coat. Deflects shrapnel and debris.',  'common'],
-  ['carbon_bodysuit','&#128737;','Carbon Bodysuit',   'armor', 2, 22, 1300,   'Full-body carbon-nanotube weave. Light and protective.',   'uncommon'],
-  ['aegis_frame',    '&#128737;','Aegis Frame',       'armor', 0, 55, 6500,   'Corporate elite bodyguard issue. Rarely leaves the vault.','legendary'],
-  ['surge_plate',    '&#128737;','Surge Plate',       'armor', 0, 32, 2500,   'Capacitor-fed active armor — discharges on impact.',      'rare'],
-  ['phantom_wrap',   '&#128737;','Phantom Wrap',      'armor', 0, 26, 1900,   'Chameleon fabric that shifts pattern to match surroundings.','rare'],
-];
+/* ----- The Forge catalog (sourced from the live blacksmith catalog) ----- */
+// Library rarity mirrors blacksmith's bs_tier(): Legendary / EPIC>=15k /
+// RARE>=6k / UNCOMMON>=2.5k / else COMMON (EPIC shown as "elite" here).
+$lib_rarity = function ($sub, $price) {
+  if ($sub === 'Legendary') return 'legendary';
+  if ($price >= 15000)      return 'elite';
+  if ($price >= 6000)       return 'rare';
+  if ($price >= 2500)       return 'uncommon';
+  return 'common';
+};
+$BS_WEAPONS = []; $BS_ARMOR = [];
+foreach (blacksmith_catalog() as $c) {
+  // render row: [code, icon, name, sub-type, atk, def, price, desc, rarity]
+  $row = [$c[0], $c[2], $c[1], $c[4], (int)$c[5], (int)$c[6], (int)$c[8], $c[9], $lib_rarity($c[4], (int)$c[8])];
+  if ($c[3] === 'weapon') $BS_WEAPONS[] = $row; else $BS_ARMOR[] = $row;
+}
 
-/* ----- Consumables ----- */
-$CONSUMABLES = [
-  ['stim_pack',    '&#128138;','Stim Pack',     '+25 Health. Quick combat patch.',            200,  'consumable'],
-  ['medkit',       '&#128138;','Medkit',        '+75 Health. Full trauma kit.',               650,  'consumable'],
-  ['neural_boost', '&#9889;',  'Neural Boost',  '+30 Signal. Temporary cortex overclocking.',    300,  'consumable'],
-  ['cycle_chip',   '&#128296;','Cycle Chip',    '+20 Drive. Cooldown recovery module.',         280,  'consumable'],
-  ['regen_serum',  '&#128138;','Regen Serum',   '+50 Health. Bio-regenerative compound.',     450,  'consumable'],
-  ['overclock_tab','&#9889;',  'Overclock Tab', '+50 Signal. Neural stimulant tablet.',          500,  'consumable'],
-  ['signal_jammer','&#128296;','Signal Jammer', 'Collectible. Disrupts nearby comms.',           800,  'collectible'],
-  ['data_chip',    '&#128190;','Data Chip',     'Collectible. Encrypted data fragment.',         600,  'collectible'],
-  ['grid_key',     '&#128273;','Grid Key',      'Collectible. Unlock unknown grid nodes.',      1200,  'collectible'],
-  ['holo_badge',   '&#127894;','Holo Badge',    'Collectible. Counterfeit identity chip.',      1500,  'collectible'],
-  ['neural_shard', '&#128296;','Neural Shard',  'Collectible. Cortex implant fragment.',        2200,  'collectible'],
-  ['ghost_token',  '&#128121;','Ghost Token',   'Collectible. Proof of a completed shadow run.',3500,  'collectible'],
-];
+/* ----- Consumables (sourced from the live General Store catalog) ----- */
+$CONSUMABLES = [];
+$lib_fx_label = ['integrity'=>'Health','signal'=>'Signal','cycles'=>'Drive'];
+foreach (generalstore_catalog() as $g) {
+  // generalstore row: [id, name, icon, desc, price, effect, amount]
+  $type = $g[5] ? 'consumable' : 'collectible';
+  $desc = ($g[5] && (int)$g[6] > 0 ? '+' . (int)$g[6] . ' ' . ($lib_fx_label[$g[5]] ?? '') . '. ' : '') . $g[3];
+  $CONSUMABLES[] = [$g[0], $g[2], $g[1], $desc, (int)$g[4], $type];
+}
 
-/* ----- Skills ----- */
-$SKILLS = [
-  ['combat',     '&#9876;',  'Combat',     'Increases attack damage in PvP and PvE encounters.',   'var(--neon2)'],
-  ['hacking',    '&#128296;','Hacking',    'Grants access to locked grid nodes and better loot.',  'var(--accent)'],
-  ['stealth',    '&#128121;','Stealth',    'Reduces chance of being detected in field operations.', '#4d6be8'],
-  ['endurance',  '&#128737;','Endurance',  'Raises maximum Health and reduces incoming damage.', '#3bcf63'],
-  ['tech',       '&#9881;',  'Tech',       'Improves crafting output and fabrication efficiency.',  '#e8a33d'],
-  ['trading',    '&#128722;','Trading',    'Reduces Bazaar listing fees and improves sale prices.', '#ffe14d'],
-  ['medic',      '&#128138;','Medic',      'Increases healing from all consumables and regen.',    '#5fe0e0'],
-  ['networking', '&#128225;','Networking', 'Reduces Signal ability cooldowns and improves range.',  '#9bff3d'],
-];
+/* ----- Skills (sourced from the live skill defs, keyed to skills.code) ----- */
+$SKILLS = [];
+foreach (skill_defs() as $code => $d) {
+  $SKILLS[] = [$code, $d['icon'], $d['name'], $d['effect'], $d['color']];
+}
 
 /* ----- Rarity helpers ----- */
 function lib_rarity_color($r) {
@@ -192,8 +141,8 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
           <span style="background:rgba(232,212,77,.08);border:1px solid rgba(232,212,77,.2);color:#e8d44d;padding:2px 8px;border-radius:4px;font-size:11px">&#9670; <?= number_format($price) ?> cr</span>
         </div>
         <div style="font-size:11px">
-          <span style="color:var(--muted)">Obtain at: </span>
-          <a href="index.php?p=weaponcraft&tab=<?= $tab === 'weapons' ? 'weapons' : 'armor' ?>" style="color:var(--accent)">&#9881; Weaponcraft Lab</a>
+          <span style="color:var(--muted)">Buy at: </span>
+          <a href="index.php?p=blacksmith&tab=<?= $tab === 'weapons' ? 'weapons' : 'armor' ?>" style="color:var(--accent)">&#128296; The Forge</a>
         </div>
       </div>
     </div>
