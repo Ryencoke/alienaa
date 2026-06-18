@@ -1,6 +1,45 @@
 <?php
 require 'config.php';
 require 'lib.php';
+
+// ── Site password gate ──────────────────────────────────────────────────────
+$SITE_PASSWORD = 'durpin';
+if (!empty($_POST['__site_pw'])) {
+  if (hash_equals($SITE_PASSWORD, (string)$_POST['__site_pw'])) {
+    $_SESSION['site_pw_ok'] = true;
+    header('Location: ' . ($_SERVER['REQUEST_URI'] ?? 'index.php')); exit;
+  }
+  $__site_pw_err = true;
+}
+if (empty($_SESSION['site_pw_ok'])) {
+  ?><!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Sprawl-9</title>
+<style>
+  html,body{height:100%;margin:0}
+  body{background:#0a0a12;color:#c9d1e0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center}
+  .gate{background:#12121e;border:1px solid #1e2236;border-radius:12px;padding:32px 28px;width:280px;text-align:center;box-shadow:0 0 40px rgba(25,240,199,.08)}
+  .gate h1{font-size:18px;margin:0 0 4px;color:#19f0c7;letter-spacing:1px}
+  .gate p{font-size:12px;color:#5d6680;margin:0 0 20px}
+  .gate input{width:100%;box-sizing:border-box;background:#0a0a12;border:1px solid #1e2236;color:#c9d1e0;border-radius:6px;padding:10px 12px;font-size:14px;margin-bottom:12px;outline:none}
+  .gate input:focus{border-color:#19f0c7}
+  .gate button{width:100%;background:#19f0c7;color:#0a0a12;border:0;border-radius:6px;padding:10px;font-size:14px;font-weight:700;cursor:pointer}
+  .gate .err{color:#ff2d95;font-size:12px;margin-bottom:12px}
+</style></head><body>
+  <form class="gate" method="post" autocomplete="off">
+    <h1>SPRAWL-9</h1>
+    <p>Restricted access</p>
+    <?php if (!empty($__site_pw_err)): ?><div class="err">Incorrect password.</div><?php endif; ?>
+    <input type="password" name="__site_pw" placeholder="Enter password" autofocus>
+    <button type="submit">Enter</button>
+  </form>
+</body></html><?php
+  exit;
+}
+
 csrf_guard();
 $p   = $_GET['p']   ?? 'home';
 $act = $_GET['act'] ?? '';
