@@ -30,8 +30,6 @@ if (empty($_SESSION['site_pw_ok'])) {
   .gate .err{color:#ff2d95;font-size:12px;margin-bottom:12px}
 </style></head><body>
   <form class="gate" method="post" autocomplete="off">
-    <h1>SPRAWL-9</h1>
-    <p>Restricted access</p>
     <?php if (!empty($__site_pw_err)): ?><div class="err">Incorrect password.</div><?php endif; ?>
     <input type="password" name="__site_pw" placeholder="Enter password" autofocus>
     <button type="submit">Enter</button>
