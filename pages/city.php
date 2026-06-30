@@ -17,9 +17,6 @@ $DISTRICTS = [
     ['blacksmith', 'The Blacksmith'], ['apartments', 'Apartment Complex'],
     ['mining', 'The Sump (Mining)'], ['weaponcraft', 'Fabrication Lab'],
   ]],
-  ['The Firewall',      '&#128737;', '#e23b3b', 'Simulated violence, real rewards.', [
-    ['sim', 'Combat Simulator'],
-  ]],
   ['The Loading Docks', '&#128643;', '#e8a33d', 'Cargo in, cargo out, ambushes between.', [
     ['transit', 'Transit Hub'],
   ]],
@@ -39,8 +36,8 @@ $DISTRICTS = [
     ['cityhall', 'Admin Spire'], ['registry', 'ID Registry'], ['tickets', 'Customer Service'],
     ['awards', 'Grid Rankings'], ['welfare', 'Subsistence Terminal'], ['jail', 'Confinement Grid'],
   ]],
-  ['Combat Zone',       '&#9876;',   '#ff2d95', 'Ghost versus ghost. No referees.', [
-    ['pvp', 'Combat Arena'], ['training', 'Neural Training'],
+  ['Combat Zone',       '&#9876;',   '#ff2d95', 'Ghost versus ghost, or the machines. No referees.', [
+    ['pvp', 'Combat Arena'], ['training', 'Neural Training'], ['sim', 'Combat Simulator'],
   ]],
 ];
 ?>
@@ -66,7 +63,7 @@ $DISTRICTS = [
   <div style="position:relative">
     <canvas id="city-canvas"></canvas>
     <div style="position:absolute;left:0;right:0;bottom:12px;text-align:center;pointer-events:none">
-      <p class="muted" style="margin:0;font-size:11px;text-shadow:0 1px 4px #000">Thirteen districts, none of them safe. Pick a node and jack in.</p>
+      <p class="muted" style="margin:0;font-size:11px;text-shadow:0 1px 4px #000">Twelve districts, none of them safe. Pick a node and jack in.</p>
     </div>
   </div>
 </div>
