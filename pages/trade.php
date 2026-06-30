@@ -315,7 +315,7 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab']
   <div style="margin-bottom:12px">
     <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Quick-select a friend:</div>
     <div style="display:flex;flex-wrap:wrap;gap:5px">
-      <?php foreach ($tradeFriends as $tf): $tfc = chat_color($tf['role'],$tf['chat_color']); ?>
+      <?php foreach ($tradeFriends as $tf): $tfc = chat_color($tf['role'],''); ?>
       <button type="button" data-fill-trade="<?= e($tf['username']) ?>" style="font-size:11px;padding:3px 10px;color:<?= e($tfc) ?>;border-color:<?= e($tfc) ?>;background:rgba(0,0,0,.2)"><?= e($tf['username']) ?></button>
       <?php endforeach; ?>
     </div>
@@ -384,7 +384,7 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab']
   <div style="margin-bottom:12px">
     <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Quick-select:</div>
     <div style="display:flex;flex-wrap:wrap;gap:5px">
-      <?php foreach ($tradeFriends as $tf): $tfc = chat_color($tf['role'],$tf['chat_color']); ?>
+      <?php foreach ($tradeFriends as $tf): $tfc = chat_color($tf['role'],''); ?>
       <button type="button" data-fill-xfer="<?= e($tf['username']) ?>" style="font-size:11px;padding:3px 10px;color:<?= e($tfc) ?>;border-color:<?= e($tfc) ?>;background:rgba(0,0,0,.2)"><?= e($tf['username']) ?></button>
       <?php endforeach; ?>
     </div>

@@ -84,7 +84,7 @@ $medals = ['&#127945;','&#129352;','&#129353;'];
     <?php foreach ($rows as $i => $r):
       $rank = $i + 1;
       $isMe = (int)$r['id'] === $myId;
-      $col  = chat_color($r['role'] ?? 'member', $r['chat_color'] ?? '#c9d1e0');
+      $col  = chat_color($r['role'] ?? 'member', '');
       $bg   = $isMe ? 'rgba(25,240,199,.04)' : ($rank % 2 === 0 ? 'var(--panel2)' : 'transparent');
     ?>
     <div style="display:grid;grid-template-columns:52px 1fr 100px;padding:8px 16px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center;background:<?= $bg ?>;<?= $isMe ? 'border-left:3px solid var(--accent)' : '' ?>">

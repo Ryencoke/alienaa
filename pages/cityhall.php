@@ -23,7 +23,7 @@ if ($sec === 'offices') {
   <div class="panel">
     <h3><?= e($b[0]) ?></h3>
     <p class="muted" style="margin-top:-4px"><?= e($b[1]) ?></p>
-    <?php if ($groups[$rk]): foreach ($groups[$rk] as $s): $c = chat_color($s['role'], $s['chat_color']); ?>
+    <?php if ($groups[$rk]): foreach ($groups[$rk] as $s): $c = chat_color($s['role'], ''); ?>
       <div style="padding:2px 0"><a href="index.php?p=profile&id=<?= (int)$s['id'] ?>" style="color:<?= e($c) ?>;font-weight:bold"><?= e($s['username']) ?></a></div>
     <?php endforeach; else: ?>
       <p class="muted">None appointed yet.</p>

@@ -165,7 +165,7 @@ $friendIds = array_map('intval', array_column($friends, 'id')); // ints so stric
   <div class="friend-row" id="fr-<?= (int)$f['id'] ?>">
     <span class="friend-dot <?= $f['online'] ? 'online' : 'offline' ?>"></span>
     <div class="friend-info">
-      <a href="index.php?p=profile&id=<?= (int)$f['id'] ?>" style="color:<?= e(chat_color($f['role'],$f['chat_color']??'')) ?>;font-weight:700"><?= e($f['username']) ?></a>
+      <a href="index.php?p=profile&id=<?= (int)$f['id'] ?>" style="color:<?= e(chat_color($f['role'],'')) ?>;font-weight:700"><?= e($f['username']) ?></a>
       <span class="muted" style="font-size:11px"> Lv.<?= (int)$f['level'] ?></span>
     </div>
     <span class="friend-status <?= $f['online'] ? 'status-online' : 'status-offline' ?>"><?= $f['online'] ? 'Online' : 'Offline' ?></span>
@@ -188,7 +188,7 @@ $friendIds = array_map('intval', array_column($friends, 'id')); // ints so stric
   <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <span class="friend-dot <?= $f['online'] ? 'online' : 'offline' ?>"></span>
     <div style="flex:1;min-width:100px">
-      <a href="index.php?p=profile&id=<?= (int)$f['id'] ?>" style="color:<?= e(chat_color($f['role'],$f['chat_color']??'')) ?>;font-weight:700"><?= e($f['username']) ?></a>
+      <a href="index.php?p=profile&id=<?= (int)$f['id'] ?>" style="color:<?= e(chat_color($f['role'],'')) ?>;font-weight:700"><?= e($f['username']) ?></a>
       <span class="muted" style="font-size:11px"> Lv.<?= (int)$f['level'] ?></span>
     </div>
     <?php if ($mutualFriend): ?>

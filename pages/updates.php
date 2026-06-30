@@ -175,7 +175,7 @@ function uvote($uid, $dir, $glyph, $myVote) {
       $isFresh  = (time() - $uts) < 172800; // < 48h
       $score    = (int)$r['score'];
       $scoreCol = $score > 0 ? '#3bcf63' : ($score < 0 ? 'var(--neon2)' : 'var(--muted)');
-      $puColor  = chat_color($r['posted_role'] ?? '', $r['posted_color'] ?? '');
+      $puColor  = chat_color($r['posted_role'] ?? '', '');
     ?>
     <div class="upd-item<?= $isLatest ? ' latest' : '' ?><?= $isFresh ? ' fresh' : '' ?>" style="animation-delay:<?= min(10, $i) * 45 ?>ms" data-search="<?= e(mb_strtolower($r['body'] . ' ' . ($r['posted_by'] ?? '') . ' ' . $r['credit'])) ?>">
       <div class="upd-node"><span class="upd-dot"></span></div>

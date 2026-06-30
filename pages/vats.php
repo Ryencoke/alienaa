@@ -15,6 +15,11 @@ try {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (Throwable $e) {}
 
+// Drive (cycles) cost — planting and harvesting both draw on the player's Drive,
+// independent of the per-crop credit cost.
+define('VATS_PLANT_DRIVE', 5);
+define('VATS_HARVEST_DRIVE', 1);
+
 // Crop definitions — harvests yield HERBS (used at the Synthesis Den to brew potions)
 $CROPS = [
   'nutriblast'  => ['name'=>'Nutriblast',  'herb'=>'Nutriblast Algae', 'icon'=>'&#127807;', 'mins'=>10, 'cost'=>15,  'yield_min'=>3, 'yield_max'=>6,  'col'=>'#3bcf63', 'style'=>'algae',   'desc'=>'Fast-grow algae. Quick herbs, small batch.'],
@@ -78,11 +83,16 @@ if (!empty($_POST['vat_ajax'])) {
       $cq->execute([$pid]);
       if ((int)$cq->fetchColumn() >= $maxPlots) throw new RuntimeException('All '.$maxPlots.' vats occupied. Harvest first.');
       $crop = $CROPS[$cropCode];
+      $pdo->beginTransaction();
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([$crop['cost'], $pid, $crop['cost']]);
-      if ($u->rowCount() !== 1) throw new RuntimeException('Not enough credits. Need '.number_format($crop['cost']).' cr.');
+      if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough credits. Need '.number_format($crop['cost']).' cr.'); }
+      $d = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');
+      $d->execute([VATS_PLANT_DRIVE, $pid, VATS_PLANT_DRIVE]);
+      if ($d->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough Drive. Need '.VATS_PLANT_DRIVE.'.'); }
       $readyAt = date('Y-m-d H:i:s', time() + $crop['mins'] * 60);
       $pdo->prepare('INSERT INTO player_vats (player_id, crop_code, planted_at, ready_at) VALUES (?,?,NOW(),?)')->execute([$pid, $cropCode, $readyAt]);
+      $pdo->commit();
       echo json_encode(['ok'=>true,'state'=>vats_state($pdo,$pid,$CROPS,$maxPlots,$hydroLevel),
         'msg'=>$crop['name'].' seeded. Ready in '.$crop['mins'].' min.']); exit;
     }
@@ -96,6 +106,9 @@ if (!empty($_POST['vat_ajax'])) {
       if (strtotime($vat['ready_at']) > time()) { $pdo->rollBack(); throw new RuntimeException('Still growing.'); }
       $crop = $CROPS[$vat['crop_code']] ?? null;
       if (!$crop) { $pdo->rollBack(); throw new RuntimeException('Crop data missing.'); }
+      $d = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');
+      $d->execute([VATS_HARVEST_DRIVE, $pid, VATS_HARVEST_DRIVE]);
+      if ($d->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough Drive. Need '.VATS_HARVEST_DRIVE.'.'); }
       // Yield: base range + hydro skill bonus (10% per level above 1)
       $yieldBase  = mt_rand($crop['yield_min'], $crop['yield_max']);
       $yieldBonus = (int)round($yieldBase * ($hydroLevel - 1) * 0.10);
@@ -156,6 +169,7 @@ try {
     </div>
     <div style="display:flex;gap:14px;font-size:11px;color:var(--muted);align-items:center">
       <div>CREDITS <b id="vhud-creds" style="font-family:'Orbitron',sans-serif;color:var(--accent)"><?= number_format((int)$player['creds_pocket']) ?></b></div>
+      <div>DRIVE <b id="vhud-drive" style="font-family:'Orbitron',sans-serif;color:#e8a33d"><?= number_format((int)$player['cycles']) ?></b><span style="opacity:.6">/<?= number_format((int)$player['cycles_max']) ?></span></div>
       <div>HYDRO <b style="font-family:'Orbitron',sans-serif;color:#3bcf63">Lv <?= $hydroLevel ?></b></div>
       <div>VATS <b id="vhud-plots" style="font-family:'Orbitron',sans-serif;color:var(--text)">0/<?= $maxPlots ?></b></div>
       <button id="vat-mute" onclick="toggleVatSound()" title="Toggle sound" style="font-size:12px;padding:3px 8px;background:transparent;border:1px solid rgba(255,255,255,.15);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
@@ -194,7 +208,7 @@ try {
       <div style="font-size:10px;color:var(--muted);line-height:1.45"><?= e($crop['desc']) ?></div>
       <div style="font-size:10px;margin-top:5px;line-height:1.5">
         <span style="color:<?= $crop['col'] ?>"><?= $minY ?>–<?= $maxY ?>× <?= e($crop['herb']) ?></span><br>
-        <span class="muted"><?= $crop['mins'] ?> min &middot; <?= number_format($crop['cost']) ?> cr</span>
+        <span class="muted"><?= $crop['mins'] ?> min &middot; <?= number_format($crop['cost']) ?> cr &middot; <?= VATS_PLANT_DRIVE ?> Drive</span>
       </div>
     </div>
     <?php endforeach; ?>
@@ -236,6 +250,7 @@ var ctx=canvas.getContext('2d');
 var state=<?= $initState ?>;
 var CROPS=<?= $cropsJson ?>;
 var MAXSLOTS=<?= $MAX_SLOTS ?>;
+var PLANT_DRIVE=<?= VATS_PLANT_DRIVE ?>, HARVEST_DRIVE=<?= VATS_HARVEST_DRIVE ?>;
 
 var rows=Math.ceil(MAXSLOTS/COLS);
 var W=COLS*SLOT_W+(COLS+1)*PAD, H=rows*SLOT_H+(rows+1)*PAD;
@@ -285,6 +300,7 @@ function syncDom(){
   if(!state) return;
   var pe=document.getElementById('vhud-plots'); if(pe) pe.textContent=state.plots.length+'/'+state.max_plots;
   var ce=document.getElementById('vhud-creds'); if(ce) ce.textContent=Number(state.creds).toLocaleString('en-US');
+  var de=document.getElementById('vhud-drive'); if(de) de.textContent=Number(state.drive).toLocaleString('en-US');
   var sat=document.getElementById('vat-satchel');
   if(sat){
     var keys=Object.keys(state.herbs||{}).filter(function(k){return state.herbs[k]>0;});
@@ -303,7 +319,7 @@ function syncDom(){
   // grey out unaffordable seed cards
   document.querySelectorAll('.crop-card').forEach(function(card){
     var cost=parseInt(card.dataset.cost,10)||0;
-    card.classList.toggle('broke', state.creds<cost);
+    card.classList.toggle('broke', state.creds<cost || state.drive<PLANT_DRIVE);
   });
 }
 
@@ -587,6 +603,7 @@ canvas.addEventListener('click',function(e){
   if(plot){
     var nw=now();
     if(nw>=plot.ready){
+      if(state.drive<HARVEST_DRIVE){ showMsg('Not enough Drive to harvest.','var(--neon2)'); sfx(90,.07,'square',.03); return; }
       var crop=CROPS[plot.crop]||{};
       var p=slotXY(i);
       vatPost({vat_action:'harvest',vat_id:plot.id},function(d){
@@ -639,7 +656,7 @@ canvas.addEventListener('click',function(e){
 // seed card selection
 document.querySelectorAll('.crop-card').forEach(function(card){
   card.addEventListener('click',function(){
-    if(card.classList.contains('broke')){ showMsg('Not enough credits for that strain.','var(--neon2)'); return; }
+    if(card.classList.contains('broke')){ showMsg('Not enough credits or Drive for that strain.','var(--neon2)'); return; }
     var was=card.classList.contains('sel');
     document.querySelectorAll('.crop-card').forEach(function(c){c.classList.remove('sel');});
     selCrop=was?null:card.dataset.crop;

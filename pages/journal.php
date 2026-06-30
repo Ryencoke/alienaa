@@ -18,7 +18,7 @@ try {
   $journalText = (string)($jq->fetchColumn() ?: '');
 } catch (Throwable $e) {}
 
-$col     = chat_color($jPlayer['role'], $jPlayer['chat_color'] ?? '');
+$col     = chat_color($jPlayer['role'], '');
 $country = strtolower(trim($jPlayer['country'] ?? ''));
 $isMe    = ((int)$jPlayer['id'] === (int)($_SESSION['pid'] ?? 0));
 ?>

@@ -46,17 +46,17 @@ $DISTRICTS = [
 ?>
 <style>
 #city-canvas{display:block;width:100%;height:200px;border-radius:9px 9px 0 0;cursor:default}
-.cty-card{position:relative;overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:14px 16px;transition:transform .12s,border-color .15s,box-shadow .15s;animation:ctyIn .3s ease-out backwards}
+.cty-card{position:relative;overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:10px 13px;transition:transform .12s,border-color .15s,box-shadow .15s;animation:ctyIn .3s ease-out backwards}
 @keyframes ctyIn{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:none}}
 .cty-card:hover{transform:translateY(-2px);border-color:var(--cty-col);box-shadow:0 4px 14px rgba(0,0,0,.3),0 0 12px var(--cty-glow)}
 .cty-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--cty-col),transparent)}
-.cty-head{display:flex;align-items:center;gap:9px;margin-bottom:3px}
-.cty-head .ic{font-size:19px;transition:transform .15s,text-shadow .15s}
+.cty-head{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+.cty-head .ic{font-size:17px;transition:transform .15s,text-shadow .15s}
 .cty-card:hover .cty-head .ic{transform:scale(1.12);text-shadow:0 0 12px var(--cty-col)}
-.cty-card h4{margin:0;font-size:13px;color:var(--cty-col)}
-.cty-sub{font-size:10px;color:var(--muted);margin:0 0 8px;font-style:italic}
+.cty-card h4{margin:0;font-size:12px;color:var(--cty-col)}
+.cty-sub{font-size:10px;color:var(--muted);margin:0 0 5px;font-style:italic}
 .cty-card ul{list-style:none;margin:0;padding:0}
-.cty-card li{padding:3px 0;font-size:12px}
+.cty-card li{padding:1.5px 0;font-size:11px;line-height:1.4}
 .cty-card li a{color:var(--text);text-decoration:none;transition:color .12s,padding-left .12s;display:inline-block}
 .cty-card li a:hover{color:var(--cty-col);padding-left:5px}
 .cty-card li a::before{content:'\203A\00a0';color:var(--cty-col);opacity:.6}
@@ -71,7 +71,7 @@ $DISTRICTS = [
   </div>
 </div>
 
-<div class="districts" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px">
+<div class="districts" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(195px,1fr));gap:8px">
   <?php foreach ($DISTRICTS as $di => [$dName, $dIcon, $dCol, $dSub, $dLinks]): ?>
   <div class="cty-card" style="--cty-col:<?= $dCol ?>;--cty-glow:<?= $dCol ?>22;animation-delay:<?= min(12, $di) * 40 ?>ms">
     <div class="cty-head"><span class="ic"><?= $dIcon ?></span><h4><?= $dName ?></h4></div>

@@ -2,6 +2,74 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-30 BATCH-56 ---
+
+BUGFIX — GUILD ARMOURY LOAN ERROR
+------------------------------------------------------
+[guilds.php] loan_item: the player_gear INSERT had 5 placeholders but
+execute() was passing 6 values (recipe_id and loan_id were hardcoded 0
+literals in the VALUES clause, not bound params) — every loan attempt
+failed with "SQLSTATE[HY093]: Invalid parameter number". Removed the
+extra trailing value so the bound-param count matches the placeholders.
+
+USERNAME COLOR — STAFF ONLY (22 call sites across 11 files)
+------------------------------------------------------
+Usernames were rendering in each player's self-picked custom chat color
+everywhere on the site (profiles, member lists, friends, messages,
+leaderboards, boards, online panel) — chat.php and account.php's own
+copy both already documented the intended design correctly: custom
+color is for chat MESSAGE TEXT only, username color is role-based only
+(Manager red / Admin yellow / Moderator blue / Chat Mod green / member
+default). Every other call site was passing the player's real chat_color
+into chat_color($role, $member_color) for username display instead of
+''. Fixed in home.php, awards.php, cityhall.php, index.php, state_api.php
+(x3), journal.php, friends.php (x2), trade.php (x2), messages.php (x4),
+updates.php, guilds.php (x5). chat.php, chat_api.php, and guilds.php's
+own internal guild-chat tab were already correct (they're the actual
+message-text-color use cases) and were left untouched.
+
+NEW — HYDROFARMS DRIVE COST (vats.php)
+------------------------------------------------------
+Planting now costs 5 Drive and harvesting costs 1 Drive, on top of the
+existing per-crop credit cost. Both deductions are atomic guarded
+UPDATEs inside the existing transactions (plant: credits+Drive both must
+succeed or neither is charged; harvest: Drive charged alongside the
+existing FOR UPDATE lock). HUD now shows a DRIVE stat alongside CREDITS;
+seed cards show "+5 Drive" and grey out when either resource is short;
+clicking a ready vat with 0 Drive shows an instant client-side message
+instead of round-tripping to the server.
+
+UI — CITY HUB DENSITY (city.php)
+------------------------------------------------------
+The Sprawl district grid was 2 columns at typical desktop widths, making
+13 districts span 7 rows and forcing a long scroll. Lowered the grid's
+minimum card width (230px → 195px) so 3-4 columns fit instead, and
+tightened card padding/gaps/font-sizes throughout. Left the generative
+skyline canvas header alone — its building/arcology proportions are
+hand-tuned pixel constants and rescaling them without the ability to
+render and check risked breaking the art for a small height saving.
+
+ADMIN — MANAGER+ GATING & IMPERSONATION CARD (admin.php)
+------------------------------------------------------
+Create User, Broadcast, Announcements (Manage Updates), and Maintenance
+were reachable by any admin; restricted to Manager+ only — both the
+?sec= page gate AND the underlying POST action handlers (create_user,
+broadcast, edit_update, del_update, trigger_reset already was), so an
+admin can't bypass the hub UI by forging a POST. Hub cards for these now
+only render for managers instead of showing admins a card that would
+error on click.
+- Impersonation & View-as-Role was a plain panel stuck at the bottom of
+  the hub with no dedicated page; promoted to its own section
+  (?sec=impersonate) reachable via a Manager+ staffcard in the System
+  category, matching every other admin tool's panel/breadcrumb layout.
+- Impersonation had no audit trail at all. Added an admin_log entry on
+  every impersonation (admin → target) and a "Recent impersonations"
+  feed on the new page.
+- Added a confirm() dialog to "Jack In" (every other consequential admin
+  action — daily reset, broadcast — already had one; impersonation
+  didn't) and a guard against impersonating yourself.
+
+
 --- SESSION: 2026-06-30 BATCH-54 ---
 
 FULL pages/ AUDIT — SECURITY, ECONOMY BUGS, AND DEDUP (50-file review)

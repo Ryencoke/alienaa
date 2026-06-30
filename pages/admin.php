@@ -6,6 +6,8 @@ $role = $player['role'] ?? 'member';
 $canMod   = in_array($role, ['chatmod','moderator','admin','manager'], true);
 $canBoardMod = in_array($role, ['moderator','admin','manager'], true); // chatmod = chat only
 $canAdmin = in_array($role, ['admin','manager'], true);
+$isManager = ($role === 'manager'); // gates the highest-impact tools: impersonation, user creation,
+                                     // broadcasts, announcements, and server maintenance.
 
 if (!$canMod) { echo '<script>if(history.length>1){history.back();}else{window.location.href="index.php?p=home";}</script>'; return; }
 
@@ -16,16 +18,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $a = $_POST['action'] ?? '';
   try {
 
-    if ($a === 'impersonate' && $canAdmin) {
+    if ($a === 'impersonate' && $isManager) {
       $tgt = trim($_POST['imp_handle'] ?? '');
       $iq  = $pdo->prepare('SELECT id, username, role FROM players WHERE username=?'); $iq->execute([$tgt]); $ti = $iq->fetch();
       if (!$ti) throw new RuntimeException('Ghost not found: ' . htmlspecialchars($tgt, ENT_QUOTES));
-      if (in_array($ti['role'] ?? '', ['admin','manager'], true) && $role !== 'manager') throw new RuntimeException('Cannot impersonate staff.');
+      if ((int)$ti['id'] === $pid) throw new RuntimeException("You're already you.");
+      try { $pdo->prepare('INSERT INTO admin_log (admin_id, target_id, field, old_value, new_value) VALUES (?,?,?,?,?)')->execute([$pid, (int)$ti['id'], 'impersonate', '', $ti['username']]); } catch (Throwable $e) {}
       $_SESSION['real_pid'] = $pid;
       $_SESSION['pid'] = (int)$ti['id'];
       if (!headers_sent()) header('Location: index.php?p=home'); exit;
 
-    } elseif ($a === 'role_preview' && $canAdmin) {
+    } elseif ($a === 'role_preview' && $isManager) {
       $rv = $_POST['preview_role'] ?? '';
       $allowedRoles = ['','member','chatmod','moderator','admin','manager'];
       if (!in_array($rv, $allowedRoles, true)) throw new RuntimeException('Invalid role.');
@@ -129,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       $editId = $uid; $msg = 'Inventory updated.';
     }
-    elseif ($a === 'create_user' && $canAdmin) {
+    elseif ($a === 'create_user' && $isManager) {
       $nu = trim($_POST['new_username'] ?? '');
       $ne = trim($_POST['new_email'] ?? '');
       $np = $_POST['new_pass'] ?? '';
@@ -145,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Redirect straight to edit page so the link works
       echo '<script>location.replace("index.php?p=admin&sec=editplayer&u='.$editId.'");</script>'; return;
     }
-    elseif ($a === 'trigger_reset' && $role === 'manager') {
+    elseif ($a === 'trigger_reset' && $isManager) {
       // Capture pre-reset counts for summary
       $rTotal   = (int)$pdo->query('SELECT COUNT(*) FROM players')->fetchColumn();
       $rHealth  = (int)$pdo->query('SELECT COUNT(*) FROM players WHERE integrity < integrity_max')->fetchColumn();
@@ -177,17 +180,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('DELETE FROM posts WHERE topic_id=?')->execute([$tid]);
       $pdo->prepare('DELETE FROM topics WHERE id=?')->execute([$tid]); $msg = 'Topic deleted.';
     }
-    elseif ($a === 'del_update' && $canAdmin) {
+    elseif ($a === 'del_update' && $isManager) {
       $uidd = (int)($_POST['id'] ?? 0);
       $pdo->prepare('DELETE FROM updates WHERE id=?')->execute([$uidd]);
       try { $pdo->prepare('DELETE FROM update_votes WHERE update_id=?')->execute([$uidd]); } catch (Throwable $e) {}
       $msg = 'Update deleted.';
     }
-    elseif ($a === 'edit_update' && $canAdmin) {
+    elseif ($a === 'edit_update' && $isManager) {
       $uidd = (int)($_POST['id'] ?? 0); $b = trim($_POST['body'] ?? '');
       if ($b !== '') { $pdo->prepare('UPDATE updates SET body=? WHERE id=?')->execute([$b, $uidd]); $msg = 'Update edited.'; }
     }
-    elseif ($a === 'broadcast' && $canAdmin) {
+    elseif ($a === 'broadcast' && $isManager) {
       $bBody   = trim($_POST['broadcast_body'] ?? '');
       $bTarget = $_POST['broadcast_target'] ?? 'all';
       if ($bBody === '') throw new RuntimeException('Write a message first.');
@@ -828,7 +831,7 @@ if ($sec === 'iplog') {
 }
 
 /* ============================ CREATE USER ============================ */
-if ($sec === 'createuser' && $canAdmin) { ?>
+if ($sec === 'createuser' && $isManager) { ?>
   <div class="panel">
     <h2>&#128100; Create New User</h2>
     <?= $back ?><?= $flash ?>
@@ -846,11 +849,10 @@ if ($sec === 'createuser' && $canAdmin) { ?>
 }
 
 /* ============================ MAINTENANCE ============================ */
-if ($sec === 'maintenance' && $canAdmin) { ?>
+if ($sec === 'maintenance' && $isManager) { ?>
   <div class="panel">
     <h2>&#9881; Maintenance</h2>
     <?= $back ?><?= $flash ?>
-    <?php if ($role === 'manager'): ?>
     <div style="background:rgba(232,163,61,.05);border:1px solid rgba(232,163,61,.25);border-radius:8px;padding:14px;margin-bottom:16px">
       <h4 style="margin:0 0 8px;color:#e8a33d">&#8635; Daily Reset</h4>
       <p class="muted" style="font-size:12px;margin:0 0 10px">Runs the daily reset immediately for all players: restores Health &amp; Signal to max, adds +250 Drive (capped). Clears the per-player reset flag so normal daily reset still fires at midnight.</p>
@@ -859,7 +861,6 @@ if ($sec === 'maintenance' && $canAdmin) { ?>
         <button type="submit" style="background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.4);color:#e8a33d">Trigger Daily Reset</button>
       </form>
     </div>
-    <?php endif; ?>
 
     <h4 style="margin:18px 0 8px">&#128340; Server Health</h4>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px">
@@ -953,7 +954,7 @@ if ($sec === 'economy' && $canAdmin) {
 }
 
 /* ============================ BROADCAST ============================ */
-if ($sec === 'broadcast' && $canAdmin) {
+if ($sec === 'broadcast' && $isManager) {
   $bcCounts = ['all'=>0,'online'=>0,'subs'=>0,'staff'=>0];
   try {
     $bcr = $pdo->query("SELECT COUNT(*) a,
@@ -1075,10 +1076,10 @@ if ($sec === 'grant' && $canAdmin) {
 }
 
 /* ============================ MANAGE UPDATES ============================ */
-if ($sec === 'updates' && $canAdmin) {
+if ($sec === 'updates' && $isManager) {
   ?>
   <div class="panel">
-    <h2>Manage Updates</h2>
+    <h2>&#128240; Manage Announcements</h2>
     <?= $back ?><?= $flash ?>
     <?php foreach ($pdo->query("SELECT id,body,created_at FROM updates ORDER BY id DESC LIMIT 25") as $u): ?>
     <div style="border-bottom:1px solid var(--line);padding:8px 0">
@@ -1092,6 +1093,52 @@ if ($sec === 'updates' && $canAdmin) {
       <form method="post" style="margin-top:4px"><input type="hidden" name="action" value="del_update"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>"><button>Delete</button></form>
     </div>
     <?php endforeach; ?>
+  </div>
+  <?php return;
+}
+
+/* ============================ IMPERSONATION & VIEW TOOLS ============================ */
+if ($sec === 'impersonate' && $isManager) {
+  $recentImp = [];
+  try { $riq = $pdo->query("SELECT l.*, a.username admin_name, t.username target_name FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id LEFT JOIN players t ON t.id=l.target_id WHERE l.field='impersonate' ORDER BY l.id DESC LIMIT 8"); $recentImp = $riq->fetchAll(); } catch (Throwable $e) {}
+  ?>
+  <div class="panel" style="border:1px solid rgba(255,45,149,.2);background:rgba(255,45,149,.03)">
+    <h2 style="color:var(--neon2)">&#128737; Impersonation &amp; View Tools</h2>
+    <?= $back ?><?= $flash ?>
+    <p class="muted" style="font-size:12px;margin-bottom:14px">Impersonate a player to see the game exactly as they do. Your session is flagged — a stop banner is always shown. You can also preview how the UI looks for a specific staff role.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;flex-wrap:wrap">
+      <div>
+        <h4 style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.5px">Impersonate Player</h4>
+        <form method="post" style="display:flex;gap:8px" onsubmit="return confirm('Impersonate this player? You will act as them until you stop.')">
+          <input type="hidden" name="action" value="impersonate">
+          <input type="text" name="imp_handle" placeholder="Ghost's handle" style="flex:1">
+          <button type="submit" style="background:rgba(255,45,149,.1);border-color:rgba(255,45,149,.4);color:var(--neon2)">Jack In</button>
+        </form>
+      </div>
+      <div>
+        <h4 style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.5px">View as Role <?= !empty($_SESSION['role_override']) ? '(<b style="color:var(--accent)">'.e($_SESSION['role_override']).'</b>)' : '' ?></h4>
+        <form method="post" style="display:flex;gap:8px">
+          <input type="hidden" name="action" value="role_preview">
+          <select name="preview_role" style="flex:1">
+            <option value="">— clear override —</option>
+            <?php foreach (['member','chatmod','moderator','admin','manager'] as $rr): ?>
+            <option value="<?= $rr ?>" <?= ($_SESSION['role_override'] ?? '') === $rr ? 'selected' : '' ?>><?= ucfirst($rr) ?></option>
+            <?php endforeach; ?>
+          </select>
+          <button type="submit">Apply</button>
+        </form>
+      </div>
+    </div>
+    <?php if ($recentImp): ?>
+    <h4 style="margin:20px 0 8px">Recent impersonations</h4>
+    <?php foreach ($recentImp as $ri): ?>
+    <div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px">
+      <b style="color:var(--neon2)"><?= e($ri['admin_name'] ?? '?') ?></b> jacked in as
+      <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$ri['target_id'] ?>"><?= e($ri['target_name'] ?? '?') ?></a>
+      <span class="muted" style="font-size:10px"> &middot; <?= e(date('M j g:ia', strtotime($ri['created_at']))) ?></span>
+    </div>
+    <?php endforeach; ?>
+    <?php endif; ?>
   </div>
   <?php return;
 }
@@ -1255,11 +1302,13 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, t.username ta
     <p>Browse the full player registry. Filter by alignment, activity, subscriptions, and more.</p>
     <span class="req">Admin+</span>
   </a>
+  <?php if ($isManager): ?>
   <a class="staffcard" href="index.php?p=admin&sec=createuser" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
     <span class="ic">&#128100;</span><h4>Create User</h4>
     <p>Manually create a new player account with username, email, and password.</p>
-    <span class="req">Admin+</span>
+    <span class="req">Manager+</span>
   </a>
+  <?php endif; ?>
   <a class="staffcard" href="index.php?p=admin&sec=combat" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
     <span class="ic">&#9876;</span><h4>Combat Log</h4>
     <p>Site-wide PvP history, filterable by player. Spot harassment patterns.</p>
@@ -1314,26 +1363,35 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, t.username ta
 <?php if ($canAdmin): ?>
 <div class="adm-cat">&#9881; System</div>
 <div class="staffgrid">
+  <?php if ($isManager): ?>
   <a class="staffcard" href="index.php?p=admin&sec=broadcast" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
     <span class="ic">&#128226;</span><h4>Broadcast</h4>
     <p>Push a notification to all players, online players, subs, or staff.</p>
-    <span class="req">Admin+ &middot; NEW</span>
+    <span class="req">Manager+</span>
   </a>
   <a class="staffcard" href="index.php?p=admin&sec=updates" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
     <span class="ic">&#128240;</span><h4>Announcements</h4>
     <p>Post, edit, and delete game update announcements.</p>
-    <span class="req">Admin+</span>
+    <span class="req">Manager+</span>
   </a>
+  <?php endif; ?>
   <a class="staffcard" href="index.php?p=admin&sec=editlog" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
     <span class="ic">&#128220;</span><h4>Edit Log</h4>
     <p>Audit trail of all admin account changes &mdash; who changed what.</p>
     <span class="req">Admin+</span>
   </a>
+  <?php if ($isManager): ?>
   <a class="staffcard" href="index.php?p=admin&sec=maintenance" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
     <span class="ic">&#9881;</span><h4>Maintenance</h4>
     <p>Daily reset trigger, table row counts, and server health readout.</p>
-    <span class="req">Admin+</span>
+    <span class="req">Manager+</span>
   </a>
+  <a class="staffcard" href="index.php?p=admin&sec=impersonate" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
+    <span class="ic">&#128737;</span><h4>Impersonation</h4>
+    <p>Jack into a player's account, or preview the UI as a specific staff role.</p>
+    <span class="req">Manager+</span>
+  </a>
+  <?php endif; ?>
 </div>
 
 <!-- Activity feed -->
@@ -1360,36 +1418,6 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, t.username ta
     </div>
     <?php endforeach; endif; ?>
     <p style="margin:8px 0 0"><a href="index.php?p=admin&sec=editlog" style="font-size:11px;color:var(--muted)">Full edit log &rarr;</a></p>
-  </div>
-</div>
-<?php endif; ?>
-
-<?php if ($canAdmin): ?>
-<div class="panel" style="border:1px solid rgba(255,45,149,.2);background:rgba(255,45,149,.03)">
-  <h3 style="margin-top:0;color:var(--neon2)">&#128737; Impersonation &amp; View Tools</h3>
-  <p class="muted" style="font-size:12px;margin-bottom:14px">Impersonate a player to see the game exactly as they do. Your session is flagged — a stop banner is always shown. You can also preview how the UI looks for a specific staff role.</p>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;flex-wrap:wrap">
-    <div>
-      <h4 style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.5px">Impersonate Player</h4>
-      <form method="post" style="display:flex;gap:8px">
-        <input type="hidden" name="action" value="impersonate">
-        <input type="text" name="imp_handle" placeholder="Ghost's handle" style="flex:1">
-        <button type="submit" style="background:rgba(255,45,149,.1);border-color:rgba(255,45,149,.4);color:var(--neon2)">Jack In</button>
-      </form>
-    </div>
-    <div>
-      <h4 style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.5px">View as Role <?= !empty($_SESSION['role_override']) ? '(<b style="color:var(--accent)">'.e($_SESSION['role_override']).'</b>)' : '' ?></h4>
-      <form method="post" style="display:flex;gap:8px">
-        <input type="hidden" name="action" value="role_preview">
-        <select name="preview_role" style="flex:1">
-          <option value="">— clear override —</option>
-          <?php foreach (['member','chatmod','moderator','admin','manager'] as $rr): ?>
-          <option value="<?= $rr ?>" <?= ($_SESSION['role_override'] ?? '') === $rr ? 'selected' : '' ?>><?= ucfirst($rr) ?></option>
-          <?php endforeach; ?>
-        </select>
-        <button type="submit">Apply</button>
-      </form>
-    </div>
   </div>
 </div>
 <?php endif; ?>

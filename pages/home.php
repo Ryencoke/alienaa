@@ -2,7 +2,7 @@
 $pdo  = db();
 $pid  = (int)$player['id'];
 $role = $player['role'] ?? 'member';
-$col  = chat_color($role, $player['chat_color'] ?? '#c9d1e0');
+$col  = chat_color($role, '');
 $isSub = is_subscribed($player);
 
 // ── Equipped gear ──

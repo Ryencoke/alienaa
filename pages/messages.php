@@ -100,7 +100,7 @@ if ($with) {
                        ORDER BY m.id ASC');
   $tq->execute([$pid, $with, $with, $pid]);
   $thread = $tq->fetchAll();
-  $ocol = chat_color($other['role'], $other['chat_color']);
+  $ocol = chat_color($other['role'], '');
   ?>
   <div class="panel" style="padding:0;overflow:hidden">
     <div style="padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px">
@@ -116,7 +116,7 @@ if ($with) {
         <div style="text-align:center;padding:30px;color:var(--muted)">No messages yet. Say something.</div>
       <?php endif; ?>
       <?php foreach ($thread as $m):
-        $c = chat_color($m['role'], $m['chat_color']);
+        $c = chat_color($m['role'], '');
         $isMine = ($m['from_id'] == $pid);
         $ts = strtotime($m['created_at']);
         $timeStr = (time() - $ts < 86400) ? date('g:i a', $ts) : date('M j, g:i a', $ts);
@@ -204,7 +204,7 @@ if ($convos) {
   <div style="margin-bottom:10px">
     <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Friends</div>
     <div style="display:flex;flex-wrap:wrap;gap:5px">
-      <?php foreach ($msgFriends as $mf): $mfc = chat_color($mf['role'], $mf['chat_color']); ?>
+      <?php foreach ($msgFriends as $mf): $mfc = chat_color($mf['role'], ''); ?>
       <button type="button" onclick="document.getElementById('msgToName').value='<?= e(addslashes($mf['username'])) ?>'" style="font-size:11px;padding:3px 10px;color:<?= e($mfc) ?>;border-color:<?= e($mfc) ?>;background:rgba(0,0,0,.2)"><?= e($mf['username']) ?></button>
       <?php endforeach; ?>
     </div>
@@ -267,7 +267,7 @@ if ($convos) {
   <div class="convo-list">
     <?php foreach ($convos as $oid => $c):
       $nm = $names[$oid] ?? null; if (!$nm) continue;
-      $ncol = chat_color($nm['role'], $nm['chat_color']);
+      $ncol = chat_color($nm['role'], '');
       $snippet = mb_substr(trim(preg_replace('/\s+/', ' ', $c['last']['body'])), 0, 55);
       $ts = strtotime($c['last']['created_at']);
       $timeStr = (time()-$ts < 86400) ? date('g:i a',$ts) : date('M j',$ts);

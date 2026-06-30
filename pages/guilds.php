@@ -389,7 +389,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Verify borrower is in syndicate
       $bq = $pdo->prepare('SELECT rank FROM syndicate_members WHERE player_id=? AND syndicate_id=?'); $bq->execute([$borrower,$mySyn['syndicate_id']]); if (!$bq->fetchColumn()) throw new RuntimeException('Not a syndicate member.');
       // Insert into borrower's player_gear
-      $pdo->prepare("INSERT INTO player_gear (player_id,recipe_id,name,gear_type,atk_bonus,def_bonus,loan_id) VALUES (?,0,?,?,?,?,0)")->execute([$borrower,$si['item_name'],$si['gear_type'],$si['atk_bonus'],$si['def_bonus'],0]);
+      $pdo->prepare("INSERT INTO player_gear (player_id,recipe_id,name,gear_type,atk_bonus,def_bonus,loan_id) VALUES (?,0,?,?,?,?,0)")->execute([$borrower,$si['item_name'],$si['gear_type'],$si['atk_bonus'],$si['def_bonus']]);
       $pgid = (int)$pdo->lastInsertId();
       // Create loan record
       $pdo->prepare('INSERT INTO syndicate_loans (syndicate_id,stockpile_id,player_id,player_gear_id,loaned_by) VALUES (?,?,?,?,?)')->execute([$mySyn['syndicate_id'],$iid,$borrower,$pgid,$pid]);
@@ -625,7 +625,7 @@ elseif ($tab === 'board' && $mySyn): ?>
   <?php else:
     $reps = [];
     try { $rq = $pdo->prepare('SELECT sp.*,p.username,p.role,p.chat_color FROM syndicate_posts sp JOIN players p ON p.id=sp.author_id WHERE sp.syndicate_id=? AND sp.parent_id=? ORDER BY sp.created_at ASC'); $rq->execute([$mySyn['syndicate_id'], $boardTid]); $reps = $rq->fetchAll(); } catch (Throwable $e) {}
-    $tc = chat_color($topicPost['role'],$topicPost['chat_color']);
+    $tc = chat_color($topicPost['role'],'');
   ?>
   <div class="panel">
     <p class="muted" style="margin-top:0"><a href="index.php?p=guilds&tab=board">&laquo; Board</a></p>
@@ -642,7 +642,7 @@ elseif ($tab === 'board' && $mySyn): ?>
   <div class="panel" style="padding:0;overflow:hidden">
     <div style="padding:10px 14px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)"><?= count($reps) ?> repl<?= count($reps)===1?'y':'ies' ?></div>
     <?php foreach ($reps as $rp):
-      $rc = chat_color($rp['role'],$rp['chat_color']); ?>
+      $rc = chat_color($rp['role'],''); ?>
     <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.04)">
       <div style="font-size:13px;line-height:1.6;white-space:pre-wrap;margin-bottom:6px"><?= bbcode($rp['body']) ?></div>
       <div style="font-size:11px;color:var(--muted)">
@@ -687,7 +687,7 @@ elseif ($tab === 'board' && $mySyn): ?>
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:8px 14px;border-bottom:1px solid var(--line);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px"><?= count($topics) ?> discussion<?= count($topics)!==1?'s':'' ?></div>
   <?php foreach ($topics as $t):
-    $tc = chat_color($t['role'], $t['chat_color']);
+    $tc = chat_color($t['role'], '');
     $lastAt = $t['last_reply_at'] ?: $t['created_at'];
   ?>
   <a href="index.php?p=guilds&tab=board&tid=<?= (int)$t['id'] ?>" style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.04);text-decoration:none;color:var(--text)">
@@ -823,7 +823,7 @@ elseif ($tab === 'members' && $mySyn):
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)"><?= count($members) ?> member<?= count($members)!==1?'s':'' ?></div>
   <?php foreach ($members as $m):
-    $mc = chat_color($m['role'],$m['chat_color']);
+    $mc = chat_color($m['role'],'');
     $rc = $SYN_RANK_COLORS[$m['rank']] ?? 'var(--muted)';
     $rl = $SYN_RANK_LABELS[$m['rank']] ?? ucfirst($m['rank']);
     $joinStr = !empty($m['joined_at']) ? date('M j Y', strtotime($m['joined_at'])) : '';
@@ -1340,7 +1340,7 @@ elseif ($tab === 'view'):
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)"><?= count($viewMembers) ?> member<?= count($viewMembers)!==1?'s':'' ?></div>
   <?php foreach ($viewMembers as $m):
-    $mc = chat_color($m['role'],$m['chat_color']);
+    $mc = chat_color($m['role'],'');
     $rc = $SYN_RANK_COLORS[$m['rank']] ?? 'var(--muted)';
     $rl = $SYN_RANK_LABELS[$m['rank']] ?? ucfirst($m['rank']);
     $joinStr = !empty($m['joined_at']) ? date('M j Y', strtotime($m['joined_at'])) : '';

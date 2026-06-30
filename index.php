@@ -449,7 +449,7 @@ try {
       <div id="jackedin-<?= $tid ?>" style="display:none">
         <?php if (empty($olist)): ?>
           <p class="muted" style="font-size:11px;margin:3px 0">None online.</p>
-        <?php else: foreach ($olist as $o): $oc = chat_color($o['role'], $o['chat_color'] ?? ''); ?>
+        <?php else: foreach ($olist as $o): $oc = chat_color($o['role'], ''); ?>
           <div class="online-player"><span class="online-dot"></span><a href="index.php?p=profile&id=<?= (int)$o['id'] ?>" style="color:<?= e($oc) ?>"><?= e($o['username']) ?></a></div>
         <?php endforeach; endif; ?>
         <?php if ($tid === 'friends'): ?><p style="font-size:10px;margin:6px 0 0"><a href="index.php?p=friends" style="color:var(--muted)">View all friends &rarr;</a></p><?php endif; ?>
