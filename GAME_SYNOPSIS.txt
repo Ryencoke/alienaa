@@ -94,6 +94,25 @@ cityhall.php      → City Hall hub
 library.php       → Item/skill reference
 updates.php       → Game update announcements
 welcome.php       → New player welcome screen
+login.php         → Auth: handle/email + password login
+registry.php      → ID Registry: paid handle rename (single rename path)
+landing.php       → Logged-out splash; the canonical signup flow (email-verified,
+                    pending_signups + 6-digit code) — register.php is a thin
+                    legacy redirect into this same flow, not a separate path
+jail.php          → Confinement Grid (admin/staff tool — detain/release, reasons, days)
+sim.php           → Combat Sim: solo PvE fights vs NPC enemies (tiers, loot)
+blacksmith.php    → The Forge: craft weapons/armor from ore into player_gear (one-of-each)
+weaponcraft.php   → Fabrication Lab: craft weapons/armor into player_gear (stockpilable,
+                    for guild armoury donation)
+lounge.php        → Stim bar: buy/administer combat buffs (atk/def, timed)
+generalstore.php  → The Supply Node (item shop — consumables/collectibles)
+awards.php        → Player awards/badges showcase
+journal.php       → Private player journal/notes
+chat.php          → Public Channel + Trading/Help rooms + per-syndicate chat rooms
+daemon.php        → Lucky Daemon casino — slots, video poker, blackjack, dice
+blackjack.php     → Retired standalone table; redirects into daemon.php
+poker.php         → Retired standalone table; redirects into daemon.php
+logout.php        → Session kill + redirect to landing
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 KEY DATABASE TABLES

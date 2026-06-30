@@ -123,6 +123,21 @@ function syn_remove_sidebar($pdo, $playerId, $key) {
   } catch (Throwable $e) {}
 }
 
+// Un-equip (if currently worn) and delete a player's loaned player_gear row.
+// Shared by leave/kick/return_item so a returned/reclaimed loan can't stay
+// silently equipped via a stale equipped_weapon:/equipped_armor: settings key.
+function syn_unequip_and_delete_gear(PDO $pdo, int $pid, int $gearId): void {
+  if ($gearId <= 0) return;
+  foreach (['weapon','armor'] as $slot) {
+    $gq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
+    $gq->execute(["equipped_{$slot}:{$pid}"]);
+    if ((int)($gq->fetchColumn() ?: 0) === $gearId) {
+      $pdo->prepare('DELETE FROM settings WHERE k=?')->execute(["equipped_{$slot}:{$pid}"]);
+    }
+  }
+  $pdo->prepare('DELETE FROM player_gear WHERE id=? AND player_id=?')->execute([$gearId, $pid]);
+}
+
 // ── Load membership ──
 $mySyn = null; $myRank = '';
 try {
@@ -220,10 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $loans = $pdo->prepare('SELECT sl.id,sl.player_gear_id FROM syndicate_loans sl WHERE sl.syndicate_id=? AND sl.player_id=? AND sl.returned_at IS NULL');
       $loans->execute([$sid,$pid]); $loanRows = $loans->fetchAll();
       foreach ($loanRows as $ln) {
-        if ($ln['player_gear_id']) {
-          foreach (['weapon','armor'] as $sl2) { $gq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(["equipped_{$sl2}:{$pid}"]); if ((int)($gq->fetchColumn()?:0) === (int)$ln['player_gear_id']) $pdo->prepare('DELETE FROM settings WHERE k=?')->execute(["equipped_{$sl2}:{$pid}"]); }
-          $pdo->prepare('DELETE FROM player_gear WHERE id=? AND player_id=?')->execute([$ln['player_gear_id'],$pid]);
-        }
+        syn_unequip_and_delete_gear($pdo, $pid, (int)$ln['player_gear_id']);
         $pdo->prepare('UPDATE syndicate_loans SET returned_at=NOW() WHERE id=?')->execute([$ln['id']]);
         $pdo->prepare('UPDATE syndicate_stockpile SET available=1 WHERE id=(SELECT stockpile_id FROM syndicate_loans WHERE id=?)')->execute([$ln['id']]);
       }
@@ -318,7 +330,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Auto-return loans
       $loans = $pdo->prepare('SELECT id,player_gear_id FROM syndicate_loans WHERE syndicate_id=? AND player_id=? AND returned_at IS NULL'); $loans->execute([$mySyn['syndicate_id'],$target]); $lrows = $loans->fetchAll();
       foreach ($lrows as $ln) {
-        if ($ln['player_gear_id']) $pdo->prepare('DELETE FROM player_gear WHERE id=? AND player_id=?')->execute([$ln['player_gear_id'],$target]);
+        syn_unequip_and_delete_gear($pdo, $target, (int)$ln['player_gear_id']);
         $pdo->prepare('UPDATE syndicate_loans SET returned_at=NOW() WHERE id=?')->execute([$ln['id']]);
         $pdo->prepare('UPDATE syndicate_stockpile SET available=1 WHERE id=(SELECT stockpile_id FROM syndicate_loans WHERE id=?)')->execute([$ln['id']]);
       }
@@ -395,8 +407,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Only the borrower or armourers+ can return
       if ((int)$ln['player_id'] !== $pid && !syn_can($myRank,'loan_items')) throw new RuntimeException('No permission.');
       // Remove from borrower's player_gear
-      foreach (['weapon','armor'] as $gsl) { $gq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(["equipped_{$gsl}:{$ln['player_id']}"]); if ((int)($gq->fetchColumn()?:0)===(int)$ln['player_gear_id']) $pdo->prepare('DELETE FROM settings WHERE k=?')->execute(["equipped_{$gsl}:{$ln['player_id']}"]); }
-      $pdo->prepare('DELETE FROM player_gear WHERE id=? AND player_id=?')->execute([$ln['player_gear_id'],$ln['player_id']]);
+      syn_unequip_and_delete_gear($pdo, (int)$ln['player_id'], (int)$ln['player_gear_id']);
       $pdo->prepare('UPDATE syndicate_loans SET returned_at=NOW() WHERE id=?')->execute([$lid]);
       $pdo->prepare('UPDATE syndicate_stockpile SET available=1 WHERE id=?')->execute([$ln['stockpile_id']]);
       $sq = $pdo->prepare('SELECT item_name FROM syndicate_stockpile WHERE id=?'); $sq->execute([$ln['stockpile_id']]); $sname = $sq->fetchColumn() ?: '?';
@@ -411,7 +422,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $tab = $_GET['tab'] ?? '';
 $boardTid = (int)($_GET['tid'] ?? 0); // board: topic detail view
-$validTabs = $mySyn ? ['home','board','members','staff','stockpile','armoury','treasury','log','chat'] : ['search','create'];
+// 'search' (directory) and 'view' (read-only profile of any syndicate) are reachable
+// regardless of membership — everyone should be able to browse other Syndicates.
+$validTabs = ($mySyn ? ['home','board','members','staff','stockpile','armoury','treasury','log','chat'] : ['create']);
+$validTabs[] = 'search';
+$validTabs[] = 'view';
 if (!in_array($tab, $validTabs, true)) $tab = $mySyn ? 'home' : 'search';
 
 // Pending applications count for badge
@@ -477,12 +492,15 @@ if ($mySyn) {
   $membersLabel = '&#128101; Members' . ($pendingApps ? ' <span style="background:var(--neon2);color:#000;border-radius:10px;padding:1px 6px;font-size:9px;font-weight:700">'.$pendingApps.'</span>' : '');
   $tabDefs = $mySyn
     ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','chat'=>'&#128172; Chat','members'=>$membersLabel,'staff'=>'&#128737; Staff','stockpile'=>'&#9874; Stockpile','armoury'=>'&#9876; Armoury','treasury'=>'&#128178; Treasury','log'=>'&#128196; Log']
-    : ['search'=>'&#128269; Find Syndicate','create'=>'&#43; Create'];
+    : ['create'=>'&#43; Create'];
+  // Directory is shown to everyone — members browse other Syndicates here too,
+  // they just won't see an Apply button on their own (or any, while affiliated).
+  $tabDefs = ['search'=>($mySyn ? '&#128270; Directory' : '&#128269; Find Syndicate')] + $tabDefs;
   foreach ($tabDefs as $tk=>$tl):
     $show = isset($tabDefs[$tk]);
     if ($tk==='log' && !syn_can($myRank,'view_log') && !$isAdmin) continue;
   ?>
-  <a href="index.php?p=guilds&tab=<?= $tk ?>" class="syn-pill <?= $tab===$tk ? 'on' : '' ?>"><?= $tl ?></a>
+  <a href="index.php?p=guilds&tab=<?= $tk ?>" class="syn-pill <?= ($tab===$tk || ($tab==='view' && $tk==='search')) ? 'on' : '' ?>"><?= $tl ?></a>
   <?php endforeach; ?>
 </div>
 
@@ -1191,6 +1209,11 @@ elseif ($tab === 'search'):
         <div style="font-size:12px;color:var(--muted);margin-top:4px"><?= e(mb_substr($s['description'],0,120)) ?></div>
         <?php endif; ?>
       </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <a href="index.php?p=guilds&tab=view&sid=<?= (int)$s['id'] ?>" class="syn-pill" style="padding:5px 12px;font-size:11px">&#128065; View</a>
+          <?php if ($isMem): ?><span style="font-size:11px;color:var(--accent)">&#10003; Your Syndicate</span><?php endif; ?>
+        </div>
       <?php if (!$mySyn && !$isMem):
         // Check for existing pending application
         $hasApp = false;
@@ -1209,7 +1232,8 @@ elseif ($tab === 'search'):
           </form>
         </div>
       <?php endif; ?>
-      <?php elseif ($isMem): ?><span style="font-size:11px;color:var(--accent)">&#10003; Your Syndicate</span><?php endif; ?>
+      <?php endif; ?>
+      </div>
     </div>
   </div>
   <?php endforeach; ?>
@@ -1237,6 +1261,100 @@ elseif ($tab === 'create'): ?>
   </form>
   <?php endif; ?>
 </div>
+<?php // ══ VIEW (read-only public profile of any Syndicate) ═══
+elseif ($tab === 'view'):
+  $viewSid = (int)($_GET['sid'] ?? 0);
+  $viewSyn = null;
+  if ($viewSid > 0) {
+    try {
+      $vq = $pdo->prepare("SELECT s.*,(SELECT COUNT(*) FROM syndicate_members sm WHERE sm.syndicate_id=s.id) AS member_count,p.username AS leader_name,p.id AS leader_id FROM syndicates s JOIN players p ON p.id=s.leader_id WHERE s.id=?");
+      $vq->execute([$viewSid]);
+      $viewSyn = $vq->fetch();
+    } catch (Throwable $e) {}
+  }
+?>
+<div style="margin-bottom:10px"><a href="index.php?p=guilds&tab=search" style="font-size:11px;color:var(--muted);text-decoration:none">&larr; Back to Directory</a></div>
+<?php if (!$viewSyn): ?>
+<div class="panel" style="text-align:center;padding:24px;color:var(--muted)">That Syndicate doesn't exist (or was disbanded).</div>
+<?php else:
+  $viewIsMine = $mySyn && (int)$mySyn['syndicate_id'] === $viewSid;
+  $vNextLevelXp = syn_xp_for_level((int)$viewSyn['level'] + 1);
+  $vThisLevelXp = syn_xp_for_level((int)$viewSyn['level']);
+  $vProgress = $vNextLevelXp > $vThisLevelXp ? max(0, min(100, round((((int)$viewSyn['xp'] - $vThisLevelXp) / ($vNextLevelXp - $vThisLevelXp)) * 100))) : 100;
+  $viewOfficers = [];
+  try {
+    $vfq = $pdo->prepare("SELECT sm.rank,sm.player_id,p.username,p.level,p.role,p.chat_color FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? AND sm.rank != 'member' ORDER BY FIELD(sm.rank,'leader','coleader','treasurer','armourer','librarian','advisor')");
+    $vfq->execute([$viewSid]);
+    foreach ($vfq->fetchAll() as $vfm) $viewOfficers[$vfm['rank']][] = $vfm;
+  } catch (Throwable $e) {}
+  $viewMembers = [];
+  try {
+    $vmq = $pdo->prepare("SELECT sm.player_id,sm.rank,sm.joined_at,p.username,p.level,p.role,p.chat_color FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? ORDER BY FIELD(sm.rank,'leader','coleader','treasurer','armourer','librarian','advisor','member'), p.username ASC");
+    $vmq->execute([$viewSid]);
+    $viewMembers = $vmq->fetchAll();
+  } catch (Throwable $e) {}
+?>
+<div class="panel">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <span style="font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700;color:var(--neon2)">[<?= e($viewSyn['tag']) ?>]</span>
+      <span style="font-size:18px;font-weight:700;color:var(--text);margin-left:8px"><?= e($viewSyn['name']) ?></span>
+      <?php if ($viewIsMine): ?><span style="font-size:11px;color:var(--accent);margin-left:8px">&#10003; Your Syndicate</span><?php endif; ?>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Led by <a href="index.php?p=profile&id=<?= (int)$viewSyn['leader_id'] ?>" style="color:var(--neon2);font-weight:700"><?= e($viewSyn['leader_name']) ?></a> &middot; Founded <?= e(date('M j, Y', strtotime($viewSyn['created_at']))) ?></div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-family:'Orbitron',sans-serif;font-size:20px;font-weight:700;color:var(--accent)">Lv <?= (int)$viewSyn['level'] ?></div>
+      <div style="font-size:10px;color:var(--muted)"><?= (int)$viewSyn['member_count'] ?> member<?= (int)$viewSyn['member_count']!==1?'s':'' ?></div>
+    </div>
+  </div>
+  <?php if ($vNextLevelXp > $vThisLevelXp): ?>
+  <div style="margin-top:10px;height:6px;border-radius:4px;background:var(--panel2);overflow:hidden"><div style="height:100%;width:<?= $vProgress ?>%;background:var(--accent)"></div></div>
+  <div style="font-size:10px;color:var(--muted);margin-top:3px">Progress to Level <?= (int)$viewSyn['level']+1 ?></div>
+  <?php endif; ?>
+  <?php if (!empty($viewSyn['description'])): ?>
+  <div style="font-size:12px;color:var(--muted);margin-top:12px;white-space:pre-wrap"><?= e($viewSyn['description']) ?></div>
+  <?php endif; ?>
+</div>
+
+<div class="panel" style="padding:0;overflow:hidden">
+  <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700;color:var(--neon2)">&#128737; Officers</div>
+  <?php foreach (['leader','coleader','treasurer','armourer','librarian','advisor'] as $ork):
+    $holders = $viewOfficers[$ork] ?? [];
+    $rc = $SYN_RANK_COLORS[$ork] ?? 'var(--muted)';
+    $rl = $SYN_RANK_LABELS[$ork] ?? ucfirst($ork);
+  ?>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.04)">
+    <div style="width:100px;flex:none;font-size:11px;font-weight:700;font-style:italic;color:<?= $rc ?>"><?= e($rl) ?></div>
+    <?php if (empty($holders)): ?>
+      <span style="font-size:12px;color:var(--muted);font-style:italic">Vacant</span>
+    <?php else: foreach ($holders as $ho): ?>
+      <a href="index.php?p=profile&id=<?= (int)$ho['player_id'] ?>" style="font-weight:700;font-size:13px;color:<?= e($rc) ?>"><?= e($ho['username']) ?></a>
+      <span style="font-size:11px;color:var(--muted)">Lv<?= (int)$ho['level'] ?></span>
+    <?php endforeach; endif; ?>
+  </div>
+  <?php endforeach; ?>
+</div>
+
+<div class="panel" style="padding:0;overflow:hidden">
+  <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)"><?= count($viewMembers) ?> member<?= count($viewMembers)!==1?'s':'' ?></div>
+  <?php foreach ($viewMembers as $m):
+    $mc = chat_color($m['role'],$m['chat_color']);
+    $rc = $SYN_RANK_COLORS[$m['rank']] ?? 'var(--muted)';
+    $rl = $SYN_RANK_LABELS[$m['rank']] ?? ucfirst($m['rank']);
+    $joinStr = !empty($m['joined_at']) ? date('M j Y', strtotime($m['joined_at'])) : '';
+  ?>
+  <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);flex-wrap:wrap">
+    <div style="width:30px;height:30px;border-radius:7px;background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.12);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--accent);flex:none"><?= mb_strtoupper(mb_substr($m['username'],0,1)) ?></div>
+    <div style="flex:1;min-width:100px">
+      <a href="index.php?p=profile&id=<?= (int)$m['player_id'] ?>" style="font-weight:700;color:<?= e($mc) ?>"><?= e($m['username']) ?></a>
+      <span style="font-size:10px;color:var(--muted)"> Lv<?= (int)$m['level'] ?></span>
+      <?php if ($joinStr): ?><span style="font-size:10px;color:var(--muted);margin-left:6px">Joined <?= $joinStr ?></span><?php endif; ?>
+    </div>
+    <em style="font-size:11px;font-weight:700;color:<?= $rc ?>;font-style:italic"><?= e($rl) ?></em>
+  </div>
+  <?php endforeach; ?>
+</div>
+<?php endif; ?>
 <?php endif; ?>
 
 <script>

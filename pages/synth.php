@@ -91,6 +91,18 @@ try {
   if ($hv) $myHerbs = json_decode($hv, true) ?: [];
 } catch (Throwable $e) {}
 
+// Signal hotspots must persist server-side (session) rather than being
+// regenerated fresh on every load — otherwise the value is purely decorative
+// and a forged gather POST can claim a max bonus chance regardless of what
+// was actually shown. Generated once per compound, then carried forward.
+if (!isset($_SESSION['synth_signals']) || !is_array($_SESSION['synth_signals'])) {
+  $_SESSION['synth_signals'] = [];
+}
+foreach ($COMPOUNDS as $c) {
+  if (!isset($_SESSION['synth_signals'][$c['id']])) $_SESSION['synth_signals'][$c['id']] = random_int(0, 3);
+}
+$signals = $_SESSION['synth_signals'];
+
 // ── Handle actions ────────────────────────────────────────────────────────
 $tab = in_array($_GET['tab'] ?? '', ['gather','brew','stims']) ? $_GET['tab'] : 'gather';
 
@@ -117,23 +129,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $qty = max(1, (int)($_POST['qty'] ?? 1));
       $totalCost = $comp['cost'] * $qty;
       if ($cycles < $totalCost) throw new RuntimeException('Not enough Drive (' . $totalCost . ' needed).');
-      $sigBonus = max(0, min(3, (int)($_POST['sig'] ?? 0)));
+      // Authoritative bonus chance is the server-held signal value for this
+      // compound (session), not whatever the client submitted in $_POST['sig'].
+      $sigBonus = (int)($signals[$compId] ?? 0);
       // Signal hotspot bonus: each signal bar = chance of +1 extra per gather
       $bonus = 0;
       for ($i = 0; $i < $sigBonus; $i++) { if (random_int(1, 100) <= 35) $bonus++; }
       $got = $qty + $bonus;
+      // Drive deduction and the compound grant must commit-or-fail together —
+      // previously these were two separate operations, so a crash between them
+      // could charge Drive with nothing granted.
+      $pdo->beginTransaction();
       $du = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');
       $du->execute([$totalCost, $pid, $totalCost]);
-      if ($du->rowCount() !== 1) throw new RuntimeException('Not enough Drive (' . $totalCost . ' needed).');
-      $pdo->beginTransaction();
+      if ($du->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough Drive (' . $totalCost . ' needed).'); }
       $myComps = $synth_lock_blob("synth_comp:{$pid}");
       $myComps[$compId] = ($myComps[$compId] ?? 0) + $got;
       $pdo->prepare('UPDATE settings SET v=? WHERE k=?')->execute([json_encode($myComps), "synth_comp:{$pid}"]);
       $pdo->commit();
       $msg = 'Acquired ' . $got . 'x ' . $comp['name'] . ($bonus ? " (+{$bonus} from signal hotspot!)" : '') . '.';
       $player = current_player(); $cycles = (int)$player['cycles'];
-      // Refresh signals on new gather
-      foreach ($COMPOUNDS as $c2) { $signals[$c2['id']] = random_int(0, 3); }
+      // Refresh signals on new gather (server-side, persisted for the next request)
+      foreach ($COMPOUNDS as $c2) { $_SESSION['synth_signals'][$c2['id']] = random_int(0, 3); }
+      $signals = $_SESSION['synth_signals'];
       $tab = 'gather';
 
     } elseif ($act === 'brew') {
@@ -215,10 +233,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $totalComps = array_sum($myComps);
 $totalStims = array_sum($myStims);
-
-// Generate random signal hotspots per page load (1-3 bonus yield per compound)
-$signals = [];
-foreach ($COMPOUNDS as $c) { $signals[$c['id']] = random_int(0, 3); }
 ?>
 
 <style>
@@ -304,7 +318,6 @@ foreach ($COMPOUNDS as $c) { $signals[$c['id']] = random_int(0, 3); }
         <form method="post" style="margin:0;display:flex;gap:6px;align-items:center">
           <input type="hidden" name="action" value="gather">
           <input type="hidden" name="comp_id" value="<?= e($c['id']) ?>">
-          <input type="hidden" name="sig" value="<?= $sig ?>">
           <input type="number" name="qty" value="1" min="1" max="<?= $maxQty ?>" style="width:60px;padding:4px 6px;font-size:12px">
           <span style="font-size:10px;color:var(--muted);flex:1"><?= $c['cost'] ?> drive/unit</span>
           <button type="submit" style="padding:5px 12px;font-size:11px;<?= $sig>=3 ? 'border-color:#4d6be8;color:#4d6be8;background:rgba(77,107,232,.1)' : ($sig>=2 ? 'border-color:rgba(232,163,61,.5);color:#e8a33d;background:rgba(232,163,61,.08)' : '') ?>" <?= $cycles < $c['cost'] ? 'disabled' : '' ?>>Acquire</button>

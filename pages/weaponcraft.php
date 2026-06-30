@@ -11,18 +11,8 @@ try {
     ore_type VARCHAR(32) NOT NULL, quantity INT NOT NULL DEFAULT 0,
     UNIQUE KEY uq_po (player_id, ore_type), KEY idx_player (player_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-  $pdo->exec('CREATE TABLE IF NOT EXISTS player_gear (
-    id         INT AUTO_INCREMENT PRIMARY KEY,
-    player_id  INT NOT NULL,
-    recipe_id  VARCHAR(32) NOT NULL,
-    name       VARCHAR(64) NOT NULL,
-    gear_type  ENUM(\'weapon\',\'armor\') NOT NULL,
-    atk_bonus  INT NOT NULL DEFAULT 0,
-    def_bonus  INT NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_player (player_id)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 } catch (Throwable $e) {}
+ensure_player_gear_table($pdo);
 
 // Recipes: [id, name, type, atk_bonus, def_bonus, icon, color, desc, cost: ['ore'=>qty,...]]
 $RECIPES = [

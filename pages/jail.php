@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isStaff) {
       $pdo->prepare("UPDATE jail_records SET status='released', released_early_by=?, released_at=NOW() WHERE id=? AND status='active'")->execute([$pid, $jid]);
       $msg = 'Player released.';
     }
-  } catch (RuntimeException $ex) { $msg = $ex->getMessage(); }
+  } catch (Throwable $ex) { $msg = $ex->getMessage(); }
 }
 
 // Load active jail records

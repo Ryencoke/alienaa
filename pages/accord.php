@@ -7,7 +7,7 @@ $msg = '';
 try { $pdo->exec("ALTER TABLE players ADD COLUMN merchant_until DATE NULL DEFAULT NULL"); } catch (Throwable $e) {}
 
 $today = date('Y-m-d');
-$isMerchant = !empty($player['merchant_until']) && $player['merchant_until'] >= $today;
+$isMerchant = is_merchant($player);
 $daysLeft   = $isMerchant ? (int)((strtotime($player['merchant_until']) - strtotime($today)) / 86400) + 1 : 0;
 
 $durations = [5=>'5 Days',10=>'10 Days',30=>'30 Days',60=>'60 Days',90=>'90 Days'];

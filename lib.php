@@ -35,10 +35,77 @@ function is_subscribed($row) {
   return !empty($row['sub_until']) && $row['sub_until'] >= date('Y-m-d');
 }
 
+// True if the player row has an active Commerce Accord enlistment (merchant_until
+// today or later) — combat pages lock out fighting while this is true.
+function is_merchant($row) {
+  return !empty($row['merchant_until']) && $row['merchant_until'] >= date('Y-m-d');
+}
+
+// Generic per-player settings k/v read/write (settings table). Centralises the
+// try/SELECT/catch-default pattern that was repeated ad hoc across pages.
+function setting_get(PDO $pdo, string $key, string $default = ''): string {
+  try {
+    $q = $pdo->prepare('SELECT v FROM settings WHERE k=?');
+    $q->execute([$key]);
+    $v = $q->fetchColumn();
+    return $v === false ? $default : (string)$v;
+  } catch (Throwable $e) { return $default; }
+}
+function setting_set(PDO $pdo, string $key, string $value): void {
+  $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute([$key, $value]);
+}
+
+// player_gear table used by both the Forge (blacksmith.php) and the Fabrication
+// Lab (weaponcraft.php) — was independently re-declared in each file and had
+// already begun to drift; centralised here as the single definition.
+function ensure_player_gear_table(PDO $pdo): void {
+  try {
+    $pdo->exec('CREATE TABLE IF NOT EXISTS player_gear (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      player_id  INT NOT NULL,
+      recipe_id  VARCHAR(32) NOT NULL,
+      name       VARCHAR(64) NOT NULL,
+      gear_type  ENUM(\'weapon\',\'armor\') NOT NULL,
+      atk_bonus  INT NOT NULL DEFAULT 0,
+      def_bonus  INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_player (player_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+  } catch (Throwable $e) {}
+}
+
+// Shared numbered pager (boards.php + updates.php). $base is the URL prefix
+// (must already end in a query string this can append "&pg=N" to).
+function pager($base, $pg, $pages) {
+  if ($pages <= 1) return '';
+  $o = '<div class="pager">';
+  if ($pg > 1) $o .= '<a href="' . $base . '&pg=' . ($pg - 1) . '">&lsaquo;</a>';
+  $start = max(1, $pg - 2); $end = min($pages, $pg + 2);
+  if ($start > 1) { $o .= '<a href="' . $base . '&pg=1">1</a>'; if ($start > 2) $o .= '<span class="dots">&hellip;</span>'; }
+  for ($i = $start; $i <= $end; $i++)
+    $o .= $i === $pg ? '<span class="cur">' . $i . '</span>' : '<a href="' . $base . '&pg=' . $i . '">' . $i . '</a>';
+  if ($end < $pages) { if ($end < $pages - 1) $o .= '<span class="dots">&hellip;</span>'; $o .= '<a href="' . $base . '&pg=' . $pages . '">' . $pages . '</a>'; }
+  if ($pg < $pages) $o .= '<a href="' . $base . '&pg=' . ($pg + 1) . '">&rsaquo;</a>';
+  return $o . '</div>';
+}
+
 // CSRF mitigation: reject POSTs whose Origin/Referer host doesn't match ours.
 // (Same-origin form/fetch posts pass; a cross-site attacker's posted form is blocked.)
+//
+// Sec-Fetch-Site is sent by all modern browsers and — unlike Origin/Referer —
+// cannot be suppressed by the requesting page (no meta tag, no fetch option
+// turns it off). When present it's checked first and is authoritative: a
+// 'cross-site' value is rejected outright even if Origin/Referer are blank.
+// Origin/Referer remain the fallback for older browsers that omit it. Only
+// when none of the three headers are present at all do we allow the request,
+// to avoid false rejects from privacy tools that strip all of them.
 function csrf_guard() {
   if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') return;
+  $fetchSite = $_SERVER['HTTP_SEC_FETCH_SITE'] ?? '';
+  if ($fetchSite !== '' && $fetchSite !== 'same-origin' && $fetchSite !== 'none') {
+    http_response_code(403);
+    exit('Forbidden: cross-origin request blocked.');
+  }
   $src = $_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '';
   if ($src === '') return;                       // no header to check — allow (avoid false rejects)
   $h = parse_url($src, PHP_URL_HOST);

@@ -45,8 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ext = strtolower(pathinfo((string)$_FILES['screenshot']['name'], PATHINFO_EXTENSION));
         if (!in_array($ext, ['jpg','jpeg','png','gif','webp'], true)) throw new RuntimeException('Screenshot must be a JPG, PNG, GIF, or WebP image.');
         if ($_FILES['screenshot']['size'] > 3 * 1024 * 1024) throw new RuntimeException('Screenshot too large (max 3 MB).');
-        $ftype = function_exists('mime_content_type') ? @mime_content_type($_FILES['screenshot']['tmp_name']) : '';
-        if ($ftype && !str_starts_with($ftype, 'image/')) throw new RuntimeException('Invalid file type.');
+        $ftype = function_exists('mime_content_type') ? @mime_content_type($_FILES['screenshot']['tmp_name']) : false;
+        if (!$ftype || !str_starts_with($ftype, 'image/')) throw new RuntimeException('Invalid or unreadable file type.');
         $dir = __DIR__ . '/../uploads/tickets/';
         if (!is_dir($dir)) @mkdir($dir, 0755, true);
         $fname = 'tk_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;

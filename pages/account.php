@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'journal') {
       $jtext = trim($_POST['journal_text'] ?? '');
       if (mb_strlen($jtext) > 1000) $jtext = mb_substr($jtext, 0, 1000);
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['journal:'.$pid, $jtext]);
+      setting_set($pdo, 'journal:'.$pid, $jtext);
       $msg = 'Journal saved.';
     }
     elseif ($action === 'theme') {
@@ -65,20 +65,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'sidebar_bars') {
       $allowed = ['creds','bank','shards','integrity','xp','signal','cycles'];
       $chosen  = array_values(array_intersect($allowed, (array)($_POST['bars'] ?? [])));
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')
-          ->execute(['sidebar_bars:' . $pid, implode(',', $chosen)]);
+      setting_set($pdo, 'sidebar_bars:' . $pid, implode(',', $chosen));
       $msg = 'Stat display updated.';
     }
     elseif ($action === 'sidebar_topbar') {
       $hide = ($_POST['hide_topbar'] ?? '0') === '1' ? '1' : '0';
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['hide_topbar:'.$pid, $hide]);
+      setting_set($pdo, 'hide_topbar:'.$pid, $hide);
       $msg = $hide ? 'Top bar hidden.' : 'Top bar visible.';
     }
     elseif ($action === 'font') {
       $validFonts = ['default','rajdhani','share_tech_mono','inter','jura','ibm_plex_mono'];
       $font = $_POST['font_choice'] ?? 'default';
       if (!in_array($font, $validFonts, true)) $font = 'default';
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['font:'.$pid, $font]);
+      setting_set($pdo, 'font:'.$pid, $font);
       $msg = 'Font preference saved.';
     }
     elseif ($action === 'handle') {
@@ -98,29 +97,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $autoLabels = ['level'=>'Reach level '.$gtarget,'credits_pocket'=>'Save '.number_format($gtarget).' credits (pocket)','credits_bank'=>'Store '.number_format($gtarget).' in bank','combat_wins'=>'Win '.$gtarget.' fights'];
         $glabel = $autoLabels[$gtype] ?? 'Goal';
       }
-      $goalsRaw = '';
-      try { $gq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(['goals:'.$pid]); $goalsRaw=(string)$gq->fetchColumn(); } catch(Throwable $e){}
+      $goalsRaw = setting_get($pdo, 'goals:'.$pid, '');
       $goals = ($goalsRaw && $goalsRaw !== '0') ? (json_decode($goalsRaw,true) ?: []) : [];
       $goals[] = ['id'=>time().'_'.mt_rand(1000,9999),'type'=>$gtype,'label'=>$glabel,'target'=>$gtype==='custom'?null:$gtarget,'completed'=>false];
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['goals:'.$pid,json_encode($goals)]);
+      setting_set($pdo, 'goals:'.$pid, json_encode($goals));
       $msg = 'Goal added.';
     }
     elseif ($action === 'del_goal') {
       $gid = $_POST['goal_id'] ?? '';
-      $goalsRaw = '';
-      try { $gq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(['goals:'.$pid]); $goalsRaw=(string)$gq->fetchColumn(); } catch(Throwable $e){}
+      $goalsRaw = setting_get($pdo, 'goals:'.$pid, '');
       $goals = ($goalsRaw && $goalsRaw !== '0') ? (json_decode($goalsRaw,true) ?: []) : [];
       $goals = array_values(array_filter($goals,fn($g)=>($g['id']??'')!==$gid));
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['goals:'.$pid,json_encode($goals)]);
+      setting_set($pdo, 'goals:'.$pid, json_encode($goals));
       $msg = 'Goal removed.';
     }
     elseif ($action === 'complete_goal') {
       $gid = $_POST['goal_id'] ?? '';
-      $goalsRaw = '';
-      try { $gq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(['goals:'.$pid]); $goalsRaw=(string)$gq->fetchColumn(); } catch(Throwable $e){}
+      $goalsRaw = setting_get($pdo, 'goals:'.$pid, '');
       $goals = ($goalsRaw && $goalsRaw !== '0') ? (json_decode($goalsRaw,true) ?: []) : [];
       foreach ($goals as &$g) { if(($g['id']??'')===$gid){$g['completed']=true;break;} } unset($g);
-      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['goals:'.$pid,json_encode($goals)]);
+      setting_set($pdo, 'goals:'.$pid, json_encode($goals));
       $msg = 'Goal marked complete!';
     }
     elseif ($action === 'password') {
@@ -266,11 +262,9 @@ $curAccent = $player['accent_color'] ?? '';
 
   <?php
     $sbBarsKey = 'sidebar_bars:' . $pid;
-    $sbBarsRaw = '';
-    try { $r = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $r->execute([$sbBarsKey]); $sbBarsRaw = (string)$r->fetchColumn(); } catch (Throwable $e) {}
+    $sbBarsRaw = setting_get($pdo, $sbBarsKey, '');
     $activeBars = $sbBarsRaw !== '' ? array_filter(explode(',', $sbBarsRaw)) : ['creds','bank','shards','integrity','xp','signal','cycles'];
-    $hideTopbar = false;
-    try { $htq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $htq->execute(['hide_topbar:'.$pid]); $hideTopbar = $htq->fetchColumn() === '1'; } catch (Throwable $e) {}
+    $hideTopbar = setting_get($pdo, 'hide_topbar:'.$pid, '0') === '1';
     $barLabels = ['creds'=>'Credits','bank'=>'Bank','shards'=>'Shards','integrity'=>'Health','xp'=>'XP','signal'=>'Signal','cycles'=>'Drive'];
   ?>
   <h3 style="margin-top:24px">Visible Stats</h3>
@@ -412,8 +406,7 @@ $curAccent = $player['accent_color'] ?? '';
 
   <!-- Font Preference -->
   <?php
-  $curFont = 'default';
-  try { $fq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $fq->execute(['font:'.$pid]); $fv = $fq->fetchColumn(); if ($fv !== false) $curFont = $fv; } catch (Throwable $e) {}
+  $curFont = setting_get($pdo, 'font:'.$pid, 'default');
   $fontOptions = [
     'default'        => ['label'=>'Exo 2 (Default)',        'stack'=>"'Exo 2', sans-serif",             'import'=>'Exo+2:wght@300;400;600;700;900'],
     'rajdhani'       => ['label'=>'Rajdhani (Compact)',      'stack'=>"'Rajdhani', sans-serif",           'import'=>'Rajdhani:wght@400;600;700'],
@@ -588,8 +581,7 @@ $curAccent = $player['accent_color'] ?? '';
 
 <?php elseif ($sec === 'goals'):
   // Load goals
-  $goalsRaw = '';
-  try { $gq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $gq->execute(['goals:'.$pid]); $goalsRaw=(string)$gq->fetchColumn(); } catch(Throwable $e){}
+  $goalsRaw = setting_get($pdo, 'goals:'.$pid, '');
   $goals = ($goalsRaw && $goalsRaw !== '0') ? (json_decode($goalsRaw,true) ?: []) : [];
   // Load progress values
   $currentLevel   = (int)$player['level'];
@@ -705,8 +697,7 @@ $curAccent = $player['accent_color'] ?? '';
   </script>
 
 <?php elseif ($sec === 'journal'):
-  $journalText = '';
-  try { $jq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $jq->execute(['journal:'.$pid]); $journalText=(string)($jq->fetchColumn()?: ''); } catch(Throwable $e){}
+  $journalText = setting_get($pdo, 'journal:'.$pid, '');
   $journalLen = mb_strlen($journalText);
 ?>
   <h3 style="margin-bottom:4px">&#128214; My Journal</h3>

@@ -54,11 +54,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Drive cost per dig (scales with site tier) — keeps tunnel mining in line
       // with the Sump and Foundry instead of being free infinite farming.
       $driveCost = 5 + (int)$node['skill_req'];
+      // Drive deduction and the item grant must commit-or-fail together — previously
+      // these were two separate operations, so a crash between them could charge
+      // Drive with no item granted.
+      $pdo->beginTransaction();
       $dc = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');
       $dc->execute([$driveCost, $pid, $driveCost]);
-      if ($dc->rowCount() !== 1) throw new RuntimeException("Not enough Drive — a dig here costs {$driveCost} Drive.");
+      if ($dc->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException("Not enough Drive — a dig here costs {$driveCost} Drive."); }
       $yield = random_int((int)$node['yield_min'], (int)$node['yield_max']);
       $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty = qty + VALUES(qty)')->execute([$pid, $node['item_id'], $yield]);
+      $pdo->commit();
       $msg = "Extracted <b style=\"color:var(--accent)\">{$yield}&times; {$node['item_name']}</b> from the tunnels. (&minus;{$driveCost} Drive)";
       $msgType = 'ok';
       $fxEvent = ['t'=>'mine','qty'=>$yield,'item'=>$node['item_name'],'drive'=>$driveCost];

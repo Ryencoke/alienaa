@@ -311,9 +311,15 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
       </form>
     </div>
     <?php if (!$a['is_primary']): ?>
+    <?php
+      // Mirror the server's actual sellback payout (min(catalog, paid_price) / 2) so this
+      // estimate never overstates what apartments.php's 'sellback' handler will pay out.
+      $sbPaid   = $a['paid_price'] !== null ? (int)$a['paid_price'] : (int)$atype['price'];
+      $sbRefund = (int)(min((int)$atype['price'], $sbPaid) / 2);
+    ?>
     <div class="sellback-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
-      <p style="margin:0 0 8px;font-size:12px;color:var(--muted)">Sell back to system for <b style="color:var(--accent)"><?= number_format((int)($atype['price'] / 2)) ?> cr</b> (50% of original price). This cannot be undone.</p>
-      <form method="post" onsubmit="return confirm('Sell this apartment back for <?= number_format((int)($atype['price'] / 2)) ?> credits? This is permanent.')">
+      <p style="margin:0 0 8px;font-size:12px;color:var(--muted)">Sell back to system for <b style="color:var(--accent)"><?= number_format($sbRefund) ?> cr</b> (50% of what you paid, capped at catalog price). This cannot be undone.</p>
+      <form method="post" onsubmit="return confirm('Sell this apartment back for <?= number_format($sbRefund) ?> credits? This is permanent.')">
         <input type="hidden" name="action" value="sellback"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>">
         <button type="submit" style="font-size:12px;color:var(--neon2);border-color:rgba(255,45,149,.3)">Confirm Sell Back</button>
       </form>

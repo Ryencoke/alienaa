@@ -8,19 +8,7 @@ $msgErr = false;
 // and equips, and that PvP/Sim read via equipped_gear(). (The legacy
 // blacksmith_owned table was a dead end: purchases were recorded there and
 // never surfaced anywhere, so players paid up to 55k cr for nothing.)
-try {
-  $pdo->exec('CREATE TABLE IF NOT EXISTS player_gear (
-    id         INT AUTO_INCREMENT PRIMARY KEY,
-    player_id  INT NOT NULL,
-    recipe_id  VARCHAR(32) NOT NULL,
-    name       VARCHAR(64) NOT NULL,
-    gear_type  ENUM(\'weapon\',\'armor\') NOT NULL,
-    atk_bonus  INT NOT NULL DEFAULT 0,
-    def_bonus  INT NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_player (player_id)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-} catch (Throwable $e) {}
+ensure_player_gear_table($pdo);
 
 
 $CATALOG = blacksmith_catalog();

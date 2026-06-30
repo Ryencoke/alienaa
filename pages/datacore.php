@@ -14,8 +14,23 @@ $SKILLS_META = skill_defs(); // shared with the Library
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $invest = array_map(static fn($v) => max(0, (int)$v), is_array($_POST['pts'] ?? null) ? $_POST['pts'] : []);
-  $total  = array_sum($invest);
   try {
+    // Clamp each requested amount to what the skill can actually still accept,
+    // so a forged POST can never be charged Drive for points LEAST() below would
+    // silently drop (skill ids not owned by this player clamp to 0/remain unset).
+    if ($invest) {
+      $ids = array_map('intval', array_keys($invest));
+      $capQ = $pdo->prepare('SELECT s.id, GREATEST(0, s.max_pts - ps.points) AS remaining
+                              FROM skills s JOIN player_skills ps ON ps.skill_id = s.id AND ps.player_id = ?
+                              WHERE s.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')');
+      $capQ->execute(array_merge([$pid], $ids));
+      $remainingBySkill = [];
+      foreach ($capQ->fetchAll() as $r) $remainingBySkill[(int)$r['id']] = (int)$r['remaining'];
+      foreach ($invest as $sid => $pts) {
+        $invest[$sid] = max(0, min($pts, $remainingBySkill[(int)$sid] ?? 0));
+      }
+    }
+    $total = array_sum($invest);
     if ($total <= 0)                        throw new RuntimeException('Move a slider to allocate Drive.');
     if ($total * 5 > $player['cycles'])    throw new RuntimeException('Not enough Drive. Need '.number_format($total * 5).' Drive for '.number_format($total).' cycles.');
     $burn = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');

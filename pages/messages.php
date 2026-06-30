@@ -12,12 +12,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send'
     if ($body === '')            throw new RuntimeException('Write a message.');
     if (mb_strlen($body) > 4000) throw new RuntimeException('Message is too long.');
     if (!$toId && $toName !== '') {
-      if (ctype_digit($toName)) {
+      // Exact username match takes priority — usernames may legally be all-digits,
+      // so checking that first avoids routing to an unrelated player whose numeric
+      // ID happens to match a numeric handle.
+      $r = $pdo->prepare('SELECT id FROM players WHERE username = ?'); $r->execute([$toName]);
+      $toId = (int)$r->fetchColumn();
+      if (!$toId && ctype_digit($toName)) {
         $r = $pdo->prepare('SELECT id FROM players WHERE id = ?'); $r->execute([(int)$toName]);
-        $toId = (int)$r->fetchColumn();
-      }
-      if (!$toId) {
-        $r = $pdo->prepare('SELECT id FROM players WHERE username = ?'); $r->execute([$toName]);
         $toId = (int)$r->fetchColumn();
       }
     }

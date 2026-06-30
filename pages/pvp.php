@@ -136,7 +136,7 @@ function pvp_simulate($atk_p, $atk_s, $def_p, $def_s) {
 }
 
 $_pvpMerchantUntil = $player['merchant_until'] ?? null;
-$_pvpIsMerchant = !empty($_pvpMerchantUntil) && $_pvpMerchantUntil >= date('Y-m-d');
+$_pvpIsMerchant = is_merchant($player);
 
 // ── Handle POST ────────────────────────────────────────────────────────────
 $battleResult = null;

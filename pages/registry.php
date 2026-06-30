@@ -24,7 +24,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       $cost = 50;
       if ((int)$player['shards'] < $cost) throw new RuntimeException('Not enough shards. Need ' . $cost . ' &#9670;.');
-      // Check uniqueness
+      // Check uniqueness. This SELECT + the UPDATE below aren't atomic together —
+      // two concurrent requests for the same handle could both pass this check
+      // before either commits. The schema's UNIQUE KEY on players.username is
+      // what actually closes that race; the catch below turns the resulting
+      // duplicate-key error into a friendly message instead of a raw exception.
       $chk = $pdo->prepare('SELECT id FROM players WHERE LOWER(username) = LOWER(?) AND id != ?');
       $chk->execute([$newHandle, $pid]); if ($chk->fetchColumn()) throw new RuntimeException('That handle is already taken.');
       // Block handles matching/too similar to staff names (same letters after stripping digits/symbols)
@@ -36,8 +40,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($newLetters !== '' && $snLetters !== '' && $newLetters === $snLetters)
           throw new RuntimeException('That handle is too similar to a staff member\'s name.');
       }
-      $u = $pdo->prepare('UPDATE players SET prev_username=username, username=?, shards=shards-?, handle_changed_at=NOW() WHERE id=? AND shards >= ?');
-      $u->execute([$newHandle, $cost, $pid, $cost]);
+      try {
+        $u = $pdo->prepare('UPDATE players SET prev_username=username, username=?, shards=shards-?, handle_changed_at=NOW() WHERE id=? AND shards >= ?');
+        $u->execute([$newHandle, $cost, $pid, $cost]);
+      } catch (PDOException $dupEx) {
+        if ($dupEx->getCode() === '23000') throw new RuntimeException('That handle is already taken.');
+        throw $dupEx;
+      }
       if ($u->rowCount() !== 1) throw new RuntimeException('Not enough shards. Need ' . $cost . ' &#9670;.');
       $player = current_player();
       $msg = 'Handle updated to ' . $newHandle . '. ' . $cost . ' shards deducted.';

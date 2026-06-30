@@ -2,6 +2,126 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-06-30 BATCH-54 ---
+
+FULL pages/ AUDIT — SECURITY, ECONOMY BUGS, AND DEDUP (50-file review)
+------------------------------------------------------
+Reviewed all 50 files in pages/ for bugs, security, and code quality, then
+fixed everything found except two large structural items (deliberately
+deferred — see bottom).
+
+[SECURITY]
+- register.php: was a raw, unverified `INSERT INTO players` reachable
+  directly at ?p=register, bypassing landing.php's email-verified signup
+  (pending_signups + 6-digit code). Now a thin redirect into ?p=landing,
+  same retirement pattern as blackjack.php/poker.php. login.php's
+  "Register a ghost" link updated to point at ?p=landing directly.
+- login.php: no rate limiting — unlimited password-guessing per handle/
+  email. Added a lockout: 5 failed attempts per identifier (lowercased
+  handle/email) within 15 minutes blocks further attempts with a
+  "try again in N minutes" message; resets on success. Built on the new
+  setting_get()/setting_set() helpers (key login_fail:{identifier}), no
+  schema migration needed.
+- registry.php: handle-change had a TOCTOU race (uniqueness SELECT and
+  the rename UPDATE weren't atomic). players.username already has a
+  UNIQUE constraint in schema.sql; added a catch for PDOException 23000
+  (duplicate key) that turns the race into a friendly "that handle is
+  already taken" message instead of a raw DB exception.
+- lib.php csrf_guard(): now checks Sec-Fetch-Site first (cannot be
+  suppressed by a requesting page, unlike Origin/Referer) and rejects
+  'cross-site' outright; Origin/Referer remain the fallback for browsers
+  that omit it; only allows through when ALL three headers are absent.
+
+[ECONOMY / LOGIC BUGS]
+- lounge.php buy_stim: buying a weaker stim while a stronger one of the
+  same type was active silently did nothing (kept old value/expiry) but
+  still charged credits and showed a false success message. Now checks
+  ATK/DEF improvement before charging; refuses with a clear message if
+  the purchase wouldn't help, otherwise applies only the components that
+  actually improved.
+- datacore.php: server charged Drive for the full requested skill points
+  but LEAST()-capped actual points gained, so a forged POST could be
+  charged for unattainable points. Now clamps requested points to each
+  skill's remaining capacity before computing the Drive cost.
+- synth.php gather: signal bonus (sig, 0-3) was trusted directly from
+  $_POST. Now generated server-side into $_SESSION['synth_signals'] per
+  compound and read from there; gather's Drive deduction + compound
+  grant now share one transaction (previously two separate writes).
+- transit.php mine: Drive deduction and item-grant INSERT were two
+  separate writes (crash between them could charge Drive with no item
+  granted). Now one transaction.
+- generalstore.php buy: credit deduction + stat-effect apply now wrapped
+  in beginTransaction/commit/rollBack, matching blacksmith.php/
+  weaponcraft.php's existing pattern (previously untransacted).
+- messages.php: an all-digit handle was resolved as a player ID before
+  trying a username match, so messaging a numeric-named player by handle
+  could misroute. Now tries exact username match first, ID lookup only
+  as fallback.
+- apartments.php: sell-back confirm dialog always showed catalog_price/2
+  even when the unit was bought below catalog on the player market
+  (server pays min(catalog,paid_price)/2). Dialog now matches the real
+  payout formula.
+- jail.php: action handler caught only RuntimeException, unlike every
+  other admin file (Throwable) — a DB exception surfaced as a raw 500.
+  Now catches Throwable.
+- tickets.php: screenshot upload's MIME check silently no-opped when
+  mime_content_type() was unavailable/falsy, leaving only the extension
+  whitelist as a gate. Now fail-closed — rejects the upload if the MIME
+  check can't run.
+
+[CODE QUALITY / DEDUP]
+- lib.php: new shared helpers — is_merchant($row) (mirrors
+  is_subscribed()), setting_get()/setting_set() (generic per-player
+  settings k/v read/write), ensure_player_gear_table($pdo), and pager()
+  (moved from boards.php, now also used by updates.php).
+- guilds.php: the loan-auto-return logic (un-equip + delete player_gear
+  row) was duplicated across leave/kick/return_item — and kick was
+  missing the un-equip-from-settings step entirely, which could leave a
+  stale equipped_weapon:/equipped_armor: setting pointing at a deleted
+  gear row. Extracted into syn_unequip_and_delete_gear($pdo,$pid,$gearId)
+  and called consistently from all three actions — fixes the kick gap
+  as a side effect of the dedup.
+- pvp.php / training.php / accord.php / sim.php: each hand-rolled the
+  same "is Commerce Accord active" date comparison under a different
+  local variable name. All four now call lib.php's is_merchant($player).
+- weaponcraft.php / blacksmith.php: both independently declared
+  `CREATE TABLE IF NOT EXISTS player_gear` with column lists that had
+  already begun to drift apart. Both now call ensure_player_gear_table().
+- account.php: 7 read/write sites around the settings table (goals,
+  sidebar_bars, hide_topbar, font, journal) each hand-rolled the same
+  try/SELECT/catch pattern. All now use setting_get()/setting_set().
+- daemon.php: bj_render_card() and vp_render_card() were near-identical
+  (different suit-glyph formats: unicode vs single-letter codes, plus a
+  held-ring option). Merged into one function with a palette/held param;
+  all 7 call sites (5 blackjack, 2 video poker) unchanged externally.
+- updates.php: inline pagination loop replaced with the shared pager().
+
+[DOCUMENTATION]
+- GAME_SYNOPSIS.txt's KEY PAGES list was missing 17 of the 50 actual
+  files in pages/ (login, jail, weaponcraft, blacksmith, sim, blackjack,
+  poker, registry, awards, logout, lounge, journal, chat's full room
+  list, daemon's dice/blackjack, landing vs. register's relationship,
+  cityhall). Added entries for all of them.
+
+[DEFERRED — not done this session, flagged for a future pass]
+- FX/canvas/audio duplication: auction.php, ledger.php, exchange.php,
+  mining.php, home.php, profile.php each hand-roll their own ~100-150
+  line canvas background + Web Audio kit instead of lib.php's shared
+  scene_header()/scene_header_js() engine (which chat.php/stash.php/
+  awards.php already use). Left alone — purely cosmetic, no functional
+  bug, and changing rendered visuals across 6 live pages without a way
+  to browser-test them here was judged too risky to do blind.
+- Scattered inline CREATE TABLE IF NOT EXISTS / ALTER TABLE ADD COLUMN
+  calls run on every page load across dozens of files instead of living
+  in the documented schema_*.sql migrations (README.md). Left alone —
+  consolidating touches deployment/migration ordering for a live site
+  and is a bigger, separate undertaking.
+- ledger.php has its own separate merchant-lock check that wasn't
+  consolidated into is_merchant() in this pass (out of scope for the
+  batch that touched pvp/training/accord/sim) — not a bug, just not yet
+  deduped.
+
+
 --- SESSION: 2026-06-12 BATCH-53 ---
 
 NEW FEATURE — BATTLE-XP TITHE & GUILD LEVELING

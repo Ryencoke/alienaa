@@ -3,25 +3,49 @@ $err='';
 if ($_SERVER['REQUEST_METHOD']==='POST') {
   $em=strtolower(trim($_POST['email']??'')); $pw=$_POST['password']??'';
   $pdo=db();
-  // Try by email first; fall back to username so existing accounts still work
-  $stmt=$pdo->prepare('SELECT * FROM players WHERE email=?');
-  $stmt->execute([$em]); $row=$stmt->fetch();
-  if (!$row) {
-    $stmt=$pdo->prepare('SELECT * FROM players WHERE username=?');
+
+  // Lockout: 5 failed attempts for the same identifier within 15 minutes blocks
+  // further attempts (even a correct password) until the window expires. Stored
+  // in the generic settings k/v store as "count|first_attempt_unix_ts" — no
+  // schema migration needed, mirrors how cooldowns elsewhere in the app work.
+  $lockKey = 'login_fail:' . $em;
+  $lockMax = 5; $lockWindow = 900; // 15 minutes
+  $failCount = 0; $firstAttempt = 0;
+  $lockRaw = setting_get($pdo, $lockKey, '');
+  if ($lockRaw !== '' && str_contains($lockRaw, '|')) {
+    [$failCount, $firstAttempt] = array_map('intval', explode('|', $lockRaw, 2));
+  }
+  $lockedOut = $failCount >= $lockMax && (time() - $firstAttempt) < $lockWindow;
+
+  if ($lockedOut) {
+    $waitMin = max(1, (int)ceil(($lockWindow - (time() - $firstAttempt)) / 60));
+    $err = "Too many failed attempts. Try again in {$waitMin} minute" . ($waitMin === 1 ? '' : 's') . '.';
+  } else {
+    if ($failCount >= $lockMax) { $failCount = 0; $firstAttempt = 0; } // window expired — reset
+    // Try by email first; fall back to username so existing accounts still work
+    $stmt=$pdo->prepare('SELECT * FROM players WHERE email=?');
     $stmt->execute([$em]); $row=$stmt->fetch();
+    if (!$row) {
+      $stmt=$pdo->prepare('SELECT * FROM players WHERE username=?');
+      $stmt->execute([$em]); $row=$stmt->fetch();
+    }
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
+    if ($row && password_verify($pw,$row['pass_hash'])) {
+      setting_set($pdo, $lockKey, ''); // clear lockout on success
+      session_regenerate_id(true);
+      $_SESSION['pid']=(int)$row['id']; // int, so strict ===-comparisons against (int) ids behave
+      $_SESSION['last_activity']=time();
+      unset($_SESSION['timed_out']);
+      try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id'],$ip,$ua,'login']); } catch(Throwable $e){}
+      header('Location: index.php?p=welcome'); exit;
+    }
+    $failCount++;
+    if ($firstAttempt === 0) $firstAttempt = time();
+    setting_set($pdo, $lockKey, $failCount . '|' . $firstAttempt);
+    try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id']??null,$ip,$ua,'fail']); } catch(Throwable $e){}
+    $err='Bad credentials. The Grid does not know you.';
   }
-  $ip = $_SERVER['REMOTE_ADDR'] ?? '';
-  $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
-  if ($row && password_verify($pw,$row['pass_hash'])) {
-    session_regenerate_id(true);
-    $_SESSION['pid']=(int)$row['id']; // int, so strict ===-comparisons against (int) ids behave
-    $_SESSION['last_activity']=time();
-    unset($_SESSION['timed_out']);
-    try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id'],$ip,$ua,'login']); } catch(Throwable $e){}
-    header('Location: index.php?p=welcome'); exit;
-  }
-  try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id']??null,$ip,$ua,'fail']); } catch(Throwable $e){}
-  $err='Bad credentials. The Grid does not know you.';
 }
 ?>
 <style>
@@ -75,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
         </div>
         <button type="submit" class="btn btn-primary btn-block">&#9889; Jack In</button>
       </form>
-      <p class="auth-foot">No handle yet? <a href="index.php?p=register">Register a ghost.</a></p>
+      <p class="auth-foot">No handle yet? <a href="index.php?p=landing">Register a ghost.</a></p>
     </div>
   </div>
 </div>

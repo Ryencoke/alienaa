@@ -216,17 +216,7 @@ function uvote($uid, $dir, $glyph, $myVote) {
   <?php endif; ?>
 </div>
 
-<?php if ($pages > 1):
-  $base = 'index.php?p=updates';
-  echo '<div class="pager">';
-  if ($pg > 1) echo '<a href="'.$base.'&pg='.($pg-1).'">&lsaquo;</a>';
-  $start = max(1,$pg-2); $end = min($pages,$pg+2);
-  if ($start>1){echo '<a href="'.$base.'&pg=1">1</a>';if($start>2)echo '<span class="dots">&hellip;</span>';}
-  for($i=$start;$i<=$end;$i++) echo $i===$pg?'<span class="cur">'.$i.'</span>':'<a href="'.$base.'&pg='.$i.'">'.$i.'</a>';
-  if($end<$pages){if($end<$pages-1)echo '<span class="dots">&hellip;</span>';echo '<a href="'.$base.'&pg='.$pages.'">'.$pages.'</a>';}
-  if ($pg < $pages) echo '<a href="'.$base.'&pg='.($pg+1).'">&rsaquo;</a>';
-  echo '</div>';
-endif; ?>
+<?= pager('index.php?p=updates', $pg, $pages) ?>
 
 <script>
 (function(){

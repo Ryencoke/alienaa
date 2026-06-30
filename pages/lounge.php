@@ -31,22 +31,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $stimKey = $_POST['stim'] ?? '';
       if (!isset($STIMS[$stimKey])) throw new RuntimeException('Unknown compound.');
       $stim = $STIMS[$stimKey];
+      $exp = time() + $stim['mins'] * 60;
+      // Only consider a component "improved" if the new stim raises its value,
+      // or matches it but would run longer than what's currently active —
+      // otherwise the purchase would have zero effect on that component.
+      $atkImproves = $stim['atk'] > 0 && ($stim['atk'] > $buffAtk || ($stim['atk'] === $buffAtk && $exp > $buffAtkExp));
+      $defImproves = $stim['def'] > 0 && ($stim['def'] > $buffDef || ($stim['def'] === $buffDef && $exp > $buffDefExp));
+      if (!$atkImproves && !$defImproves) {
+        throw new RuntimeException('You already have a stronger or equal-strength buff active — wait for it to expire.');
+      }
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([$stim['cost'], $pid, $stim['cost']]);
       if ($u->rowCount() !== 1) throw new RuntimeException('Not enough credits. Need ' . number_format($stim['cost']) . ' cr.');
-      $exp = time() + $stim['mins'] * 60;
-      if ($stim['atk'] > 0) {
-        // Stack with existing if same type, take higher value
-        $newAtk = max($buffAtk, $stim['atk']);
-        $newAtkExp = $stim['atk'] >= $buffAtk ? $exp : $buffAtkExp;
-        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["buff:atk:{$pid}", $newAtk.'|'.$newAtkExp]);
-        $buffAtk = $newAtk; $buffAtkExp = $newAtkExp;
+      if ($atkImproves) {
+        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["buff:atk:{$pid}", $stim['atk'].'|'.$exp]);
+        $buffAtk = $stim['atk']; $buffAtkExp = $exp;
       }
-      if ($stim['def'] > 0) {
-        $newDef = max($buffDef, $stim['def']);
-        $newDefExp = $stim['def'] >= $buffDef ? $exp : $buffDefExp;
-        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["buff:def:{$pid}", $newDef.'|'.$newDefExp]);
-        $buffDef = $newDef; $buffDefExp = $newDefExp;
+      if ($defImproves) {
+        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(["buff:def:{$pid}", $stim['def'].'|'.$exp]);
+        $buffDef = $stim['def']; $buffDefExp = $exp;
       }
       $player = current_player();
       $msg = $stim['name'] . ' administered. Effect active for ' . $stim['mins'] . ' minutes.';

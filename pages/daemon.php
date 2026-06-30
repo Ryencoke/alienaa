@@ -72,11 +72,18 @@ function bj_card(): array {
   $suits = ['♠','♥','♦','♣'];
   return ['r'=>$ranks[random_int(0,12)], 's'=>$suits[random_int(0,3)]];
 }
-function bj_render_card(array $c, bool $hidden = false): string {
-  $red = in_array($c['s'], ['♥','♦'], true);
-  $col = $hidden ? '#555' : ($red ? '#e23b3b' : '#ffffff');
+// Shared renderer for both Blackjack (suits as unicode glyphs, e.g. '♥') and
+// Video Poker (suits as single-letter codes, e.g. 'H') cards. $redColor/
+// $blackColor default to Blackjack's palette; Video Poker passes its own
+// (slightly different) palette and the optional $held "kept card" ring.
+function bj_render_card(array $c, bool $hidden = false, bool $held = false, string $redColor = '#e23b3b', string $blackColor = '#ffffff'): string {
   if ($hidden) return '<div class="bj-card bj-hidden">??</div>';
-  return '<div class="bj-card" style="color:'.$col.'">' . e($c['r']) . '<span style="font-size:10px">' . e($c['s']) . '</span></div>';
+  $glyphs = ['S'=>'&#9824;','H'=>'&#9829;','D'=>'&#9830;','C'=>'&#9827;'];
+  $sGlyph = $glyphs[$c['s']] ?? e($c['s']);
+  $red = in_array($c['s'], ['♥','♦','H','D'], true);
+  $col = $red ? $redColor : $blackColor;
+  $ring = $held ? 'box-shadow:0 0 0 2px var(--accent);' : '';
+  return '<div class="bj-card" style="color:'.$col.';'.$ring.'">' . e($c['r']) . '<span style="font-size:10px">' . $sGlyph . '</span></div>';
 }
 
 // ── POST handling ────────────────────────────────────────────────────────────
@@ -566,12 +573,7 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
 <?php
 $vpPayTable = [['Royal Flush',800],['Straight Flush',50],['Four of a Kind',25],['Full House',9],['Flush',6],['Straight',4],['Three of a Kind',3],['Two Pair',2],['Jacks or Better',1]];
 function vp_render_card(array $c, bool $hidden=false, bool $held=false): string {
-  $red = in_array($c['s'],['H','D'],true);
-  $sGlyph = ['S'=>'&#9824;','H'=>'&#9829;','D'=>'&#9830;','C'=>'&#9827;'][$c['s']]??'';
-  $col = $hidden ? '#555' : ($red ? '#ff5555' : '#dde2f0');
-  $ring = $held ? 'box-shadow:0 0 0 2px var(--accent);' : '';
-  if ($hidden) return '<div class="bj-card bj-hidden">??</div>';
-  return '<div class="bj-card" style="color:'.$col.';'.$ring.'">'.e($c['r']).'<span style="font-size:10px">'.$sGlyph.'</span></div>';
+  return bj_render_card($c, $hidden, $held, '#ff5555', '#dde2f0');
 }
 ?>
 <div class="game-pane <?= $activeTab==='vp'?'active':'' ?>" id="pane-vp">

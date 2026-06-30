@@ -72,7 +72,7 @@ $canTrain      = $cooldownLeft === 0;
 $driveOk       = (int)$player['cycles'] >= TRAIN_DRIVE_COST;
 
 $_merchantUntil = $player['merchant_until'] ?? null;
-$_isMerchant = !empty($_merchantUntil) && $_merchantUntil >= date('Y-m-d');
+$_isMerchant = is_merchant($player);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'train') {
   $reg = $_POST['regimen'] ?? '';

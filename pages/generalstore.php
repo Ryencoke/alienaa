@@ -35,9 +35,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'buy')
   try {
     if (!$item) throw new RuntimeException('Item not found.');
     $price = $item[4];
+    $pdo->beginTransaction();
     $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
     $u->execute([$price, $pid, $price]);
-    if ($u->rowCount() !== 1) throw new RuntimeException('Not enough creds. Need ' . number_format($price) . ' &#9670;');
+    if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough creds. Need ' . number_format($price) . ' &#9670;'); }
     $effect = $item[5]; $amount = (int)$item[6];
     if ($effect) {
       // Apply stat up to its max
@@ -51,9 +52,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'buy')
       $pdo->prepare('INSERT INTO player_general_items (player_id, item_id, quantity) VALUES (?,?,1)
                      ON DUPLICATE KEY UPDATE quantity = quantity + 1')->execute([$pid, $iid]);
     }
+    $pdo->commit();
     $player = current_player();
     $msg = 'Dispensed: ' . e($item[1]) . ($effect ? '. Effect applied.' : '. Added to stash.');
-  } catch (Throwable $ex) { $msg = $ex->getMessage(); $msgErr = true; }
+  } catch (Throwable $ex) { if ($pdo->inTransaction()) $pdo->rollBack(); $msg = $ex->getMessage(); $msgErr = true; }
 }
 
 // Load inventory quantities

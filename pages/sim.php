@@ -55,7 +55,7 @@ try {
 } catch (Throwable $e) {}
 
 $_simMerchantUntil = $player['merchant_until'] ?? null;
-$_simIsMerchant = !empty($_simMerchantUntil) && $_simMerchantUntil >= date('Y-m-d');
+$_simIsMerchant = is_merchant($player);
 
 /* ---------- action handling ---------- */
 $fxEvent = null; // ceremony payload for the client

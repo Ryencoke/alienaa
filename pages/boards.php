@@ -103,19 +103,6 @@ function topic_board_id(PDO $pdo, int $topicId): int {
   catch (Throwable $e) { return 0; }
 }
 
-function pager($base, $pg, $pages) {
-  if ($pages <= 1) return '';
-  $o = '<div class="pager">';
-  if ($pg > 1) $o .= '<a href="' . $base . '&pg=' . ($pg - 1) . '">&lsaquo;</a>';
-  $start = max(1, $pg - 2); $end = min($pages, $pg + 2);
-  if ($start > 1) { $o .= '<a href="' . $base . '&pg=1">1</a>'; if ($start > 2) $o .= '<span class="dots">&hellip;</span>'; }
-  for ($i = $start; $i <= $end; $i++)
-    $o .= $i === $pg ? '<span class="cur">' . $i . '</span>' : '<a href="' . $base . '&pg=' . $i . '">' . $i . '</a>';
-  if ($end < $pages) { if ($end < $pages - 1) $o .= '<span class="dots">&hellip;</span>'; $o .= '<a href="' . $base . '&pg=' . $pages . '">' . $pages . '</a>'; }
-  if ($pg < $pages) $o .= '<a href="' . $base . '&pg=' . ($pg + 1) . '">&rsaquo;</a>';
-  return $o . '</div>';
-}
-
 // Vote arrows for a post (two tiny POST forms). $myVote: 1=up, -1=down, 0=none
 function votebox_html($postId, $score, $myVote = 0) {
   $upA  = $myVote === 1  ? ' vote-active' : '';
