@@ -370,10 +370,10 @@ if (($tab === 'log') && isset($_GET['detail'])) {
 </div>
 
 <?php if ($msg): ?>
-<div style="background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.3);border-radius:6px;padding:10px 14px;font-size:13px;color:var(--neon2)"><?= e($msg) ?></div>
+<div class="flash flash-err"><?= e($msg) ?></div>
 <?php endif; ?>
 
-<div style="display:flex;gap:8px;flex-wrap:wrap">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
   <?php foreach (['arena'=>'&#9876; Arena','stats'=>'&#128202; My Stats','log'=>'&#128203; Combat Log ('.count($recentPvp).')'] as $tid=>$tl): ?>
   <a href="index.php?p=pvp&tab=<?= $tid ?>" class="pvp-tab <?= $tab===$tid ? 'on' : '' ?>"><?= $tl ?></a>
   <?php endforeach; ?>
@@ -667,30 +667,55 @@ if (!empty($arenaLatest) && !$battleResult): ?>
     &middot; <?= number_format((int)$logDetail['credits_looted']) ?>¢ looted
     <?php endif; ?>
   </div>
-  <?php if ($ldAtkS): ?>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;padding:10px;background:rgba(0,0,0,.15);border-radius:6px">
-    <?php foreach ([[$logDetail['atk_name'],$ldAtkS,'var(--accent)'],[$logDetail['def_name'],$ldDefS,'var(--neon2)']] as [$un,$us,$uc]): ?>
-    <div style="font-size:11px">
-      <div style="color:<?= $uc ?>;font-weight:700;margin-bottom:3px"><?= e($un) ?></div>
-      <div style="color:var(--muted)">STR <?= (int)($us['str']??0) ?> &middot; END <?= (int)($us['end']??0) ?> &middot; SPD <?= (int)($us['spd']??0) ?></div>
-      <div style="color:var(--muted)">ATK <?= (int)($us['atk']??0) ?> &middot; DEF <?= (int)($us['def']??0) ?> &middot; HP <?= (int)($us['hp']??0) ?></div>
-      <?php if (!empty($us['weapon_name'])): ?><div>&#9876; <?= e($us['weapon_name']) ?> <span style="color:var(--neon2)">+<?= (int)$us['weapon_atk'] ?> ATK</span></div><?php endif; ?>
-      <?php if (!empty($us['armor_name'])): ?><div>&#128737; <?= e($us['armor_name']) ?> <span style="color:var(--accent)">+<?= (int)$us['armor_def'] ?> DEF</span></div><?php endif; ?>
+  <?php if ($ldAtkS):
+    $ldSides = [
+      ['name'=>$logDetail['atk_name'], 'stats'=>$ldAtkS, 'isYou'=>$ldIAtk],
+      ['name'=>$logDetail['def_name'], 'stats'=>$ldDefS, 'isYou'=>!$ldIAtk],
+    ];
+  ?>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+    <?php foreach ($ldSides as $side):
+      $us = $side['stats'];
+      $sc = $side['isYou'] ? 'var(--accent)' : 'var(--neon2)';
+      $sBg = $side['isYou'] ? 'rgba(25,240,199,.05)' : 'rgba(255,45,149,.05)';
+      $sBd = $side['isYou'] ? 'rgba(25,240,199,.25)' : 'rgba(255,45,149,.25)';
+      $hasGear = !empty($us['weapon_name']) || !empty($us['armor_name']);
+    ?>
+    <div style="background:<?= $sBg ?>;border:1px solid <?= $sBd ?>;border-radius:8px;padding:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <div style="width:32px;height:32px;border-radius:50%;flex:none;background:var(--panel2);border:2px solid <?= $sc ?>;display:flex;align-items:center;justify-content:center;font-family:'Orbitron',sans-serif;font-weight:900;font-size:13px;color:<?= $sc ?>"><?= e(mb_strtoupper(mb_substr($side['name'],0,1))) ?></div>
+        <div style="font-weight:700;font-size:13px;color:<?= $sc ?>"><?= e($side['name']) ?><?php if ($side['isYou']): ?> <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:uppercase;letter-spacing:.4px">(you)</span><?php endif; ?></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;<?= $hasGear ? 'margin-bottom:8px' : '' ?>">
+        <?php foreach ([['STR',(int)($us['str']??0),'var(--neon2)'],['END',(int)($us['end']??0),'var(--accent)'],['SPD',(int)($us['spd']??0),'#e8a33d'],['ATK',(int)($us['atk']??0),'var(--neon2)'],['DEF',(int)($us['def']??0),'var(--accent)'],['HP',(int)($us['hp']??0),'#3bcf63']] as [$stl,$stv,$stc]): ?>
+        <div style="text-align:center;background:rgba(0,0,0,.25);border-radius:5px;padding:5px 2px">
+          <div style="font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:<?= $stc ?>"><?= $stv ?></div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px"><?= $stl ?></div>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      <?php if (!empty($us['weapon_name'])): ?><div style="font-size:11px;margin-top:3px">&#9876; <?= e($us['weapon_name']) ?> <span style="color:var(--neon2)">+<?= (int)$us['weapon_atk'] ?> ATK</span></div><?php endif; ?>
+      <?php if (!empty($us['armor_name'])): ?><div style="font-size:11px;margin-top:2px">&#128737; <?= e($us['armor_name']) ?> <span style="color:var(--accent)">+<?= (int)$us['armor_def'] ?> DEF</span></div><?php endif; ?>
     </div>
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
   <?php if ($ldRounds): ?>
-  <div style="max-height:400px;overflow-y:auto;border:1px solid var(--line);border-radius:6px;padding:10px">
+  <div style="max-height:420px;overflow-y:auto;border:1px solid var(--line);border-radius:6px;padding:10px;background:rgba(0,0,0,.12)">
     <?php foreach ($ldRounds as $rnd): ?>
-    <div style="margin-bottom:10px">
-      <div style="font-size:10px;font-family:'Orbitron',sans-serif;color:var(--muted);text-transform:uppercase;margin-bottom:3px">Round <?= $rnd['num'] ?></div>
-      <?php foreach ($rnd['events'] as $ev): ?>
-      <div style="font-size:12px;color:<?= $ev['color'] ?>;margin-bottom:2px;padding-left:10px">&#8250; <?= e($ev['text']) ?></div>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 10px;margin-bottom:8px">
+      <div style="font-size:10px;font-family:'Orbitron',sans-serif;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,.06)">&#9876; Round <?= $rnd['num'] ?></div>
+      <?php foreach ($rnd['events'] as $ev):
+        $evText = $ev['text'] ?? '';
+        $evIsYou = mb_strpos($evText, $player['username'] . ' ') === 0;
+        $evColor = $evIsYou ? 'var(--accent)' : 'var(--neon2)';
+        $evIsDodge = ($ev['type'] ?? '') === 'dodge';
+      ?>
+      <div style="font-size:12px;color:<?= $evColor ?>;font-weight:<?= $evIsDodge ? 400 : 600 ?>;font-style:<?= $evIsDodge ? 'italic' : 'normal' ?>;margin-bottom:3px;padding-left:10px"><?= $evIsDodge ? '&#8635;' : '&#8250;' ?> <?= e($evText) ?></div>
       <?php endforeach; ?>
-      <div style="font-size:10px;color:var(--muted);margin-top:2px;padding-left:10px">
-        <?= e($logDetail['atk_name']) ?>: <?= max(0,(int)$rnd['atk_hp']) ?> HP &nbsp;|&nbsp;
-        <?= e($logDetail['def_name']) ?>: <?= max(0,(int)$rnd['def_hp']) ?> HP
+      <div style="font-size:10px;color:var(--muted);margin-top:5px;padding-left:10px;padding-top:5px;border-top:1px solid rgba(255,255,255,.06)">
+        <span style="color:<?= $ldIAtk ? 'var(--accent)' : 'var(--neon2)' ?>;font-weight:700"><?= e($logDetail['atk_name']) ?></span>: <?= max(0,(int)$rnd['atk_hp']) ?> HP &nbsp;|&nbsp;
+        <span style="color:<?= !$ldIAtk ? 'var(--accent)' : 'var(--neon2)' ?>;font-weight:700"><?= e($logDetail['def_name']) ?></span>: <?= max(0,(int)$rnd['def_hp']) ?> HP
       </div>
     </div>
     <?php endforeach; ?>

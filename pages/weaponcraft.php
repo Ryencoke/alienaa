@@ -170,10 +170,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     } elseif ($action === 'salvage') {
       $gid = (int)($_POST['gear_id'] ?? 0);
-      $ownQ = $pdo->prepare('SELECT recipe_id, name FROM player_gear WHERE id=? AND player_id=?');
+      $ownQ = $pdo->prepare('SELECT recipe_id, name, loan_id FROM player_gear WHERE id=? AND player_id=?');
       $ownQ->execute([$gid, $pid]);
       $gitem = $ownQ->fetch();
       if (!$gitem) throw new RuntimeException('Item not found.');
+      // Loaned gear belongs to the Syndicate's Armoury, not the player — it can
+      // only be returned (guilds.php return_item), never salvaged for ore.
+      if ((int)($gitem['loan_id'] ?? 0) > 0) throw new RuntimeException('This is on loan from your Syndicate — return it from the Armoury instead of salvaging.');
       // Can't salvage equipped items
       if ($gid === $equippedWeapon || $gid === $equippedArmor) throw new RuntimeException('Unequip the item before salvaging.');
       // Find recipe, return 40% of ore cost
@@ -245,7 +248,7 @@ $wcounts = ['weapons'=>0,'armor'=>0,'arsenal'=>count($myGear)];
 foreach ($RECIPES as $r) { if ($r[2]==='weapon') $wcounts['weapons']++; else $wcounts['armor']++; }
 ?>
 <!-- Tab Nav -->
-<div style="display:flex;gap:8px;flex-wrap:wrap">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
   <?php foreach (['weapons'=>'&#128299; Weapons ('.$wcounts['weapons'].')','armor'=>'&#128737; Armor ('.$wcounts['armor'].')','arsenal'=>'&#127863; Your Arsenal ('.$wcounts['arsenal'].')'] as $tk=>$tl): ?>
   <a href="index.php?p=weaponcraft&tab=<?= $tk ?>" style="padding:7px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $wctab===$tk?'var(--accent)':'var(--line)' ?>;background:<?= $wctab===$tk?'rgba(25,240,199,.1)':'var(--panel2)' ?>;color:<?= $wctab===$tk?'var(--accent)':'var(--muted)' ?>"><?= $tl ?></a>
   <?php endforeach; ?>
@@ -335,6 +338,9 @@ foreach ($RECIPES as $r) { if ($r[2]==='weapon') $wcounts['weapons']++; else $wc
       <?php if ($isEquipped): ?>
         <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">&#9654; Equipped</div>
       <?php endif; ?>
+      <?php if ((int)($g['loan_id'] ?? 0) > 0): ?>
+        <div style="font-size:10px;font-weight:700;color:#e8a33d;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">&#9874; Guild Loan</div>
+      <?php endif; ?>
       <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:3px"><?= e($g['name']) ?></div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px"><?= $g['gear_type'] === 'weapon' ? 'Weapon' : 'Armor' ?></div>
       <?php if ($g['atk_bonus'] > 0): ?>
@@ -357,7 +363,7 @@ foreach ($RECIPES as $r) { if ($r[2]==='weapon') $wcounts['weapons']++; else $wc
             <button class="btn btn-sm btn-ghost" type="submit">Unequip</button>
           </form>
         <?php endif; ?>
-        <?php if (!$isEquipped): ?>
+        <?php if (!$isEquipped && (int)($g['loan_id'] ?? 0) === 0): ?>
           <form method="post" style="margin:0" onsubmit="return confirm('Salvage this item for ~40% ore refund?')">
             <input type="hidden" name="action" value="salvage">
             <input type="hidden" name="gear_id" value="<?= (int)$g['id'] ?>">

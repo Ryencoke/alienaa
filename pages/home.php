@@ -11,16 +11,16 @@ try {
   $geq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
   $geq->execute(['equipped_weapon:'.$pid]); $wid = (int)($geq->fetchColumn() ?: 0);
   if ($wid > 0) {
-    $gq = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def FROM player_gear WHERE id=? AND player_id=?');
+    $gq = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def,loan_id FROM player_gear WHERE id=? AND player_id=?');
     $gq->execute([$wid,$pid]); $ew = $gq->fetch() ?: null;
-    if (!$ew) { $gq2 = $pdo->prepare('SELECT i.id,i.name,i.atk,0 AS def FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq2->execute([$pid,$wid]); $ew = $gq2->fetch() ?: null; }
+    if (!$ew) { $gq2 = $pdo->prepare('SELECT i.id,i.name,i.atk,0 AS def,0 AS loan_id FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq2->execute([$pid,$wid]); $ew = $gq2->fetch() ?: null; }
     $gearAtk = $ew ? (int)$ew['atk'] : 0;
   }
   $geq->execute(['equipped_armor:'.$pid]); $aid = (int)($geq->fetchColumn() ?: 0);
   if ($aid > 0) {
-    $gq = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def FROM player_gear WHERE id=? AND player_id=?');
+    $gq = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def,loan_id FROM player_gear WHERE id=? AND player_id=?');
     $gq->execute([$aid,$pid]); $ea = $gq->fetch() ?: null;
-    if (!$ea) { $gq2 = $pdo->prepare('SELECT i.id,i.name,0 AS atk,i.def FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq2->execute([$pid,$aid]); $ea = $gq2->fetch() ?: null; }
+    if (!$ea) { $gq2 = $pdo->prepare('SELECT i.id,i.name,0 AS atk,i.def,0 AS loan_id FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq2->execute([$pid,$aid]); $ea = $gq2->fetch() ?: null; }
     $gearDef = $ea ? (int)$ea['def'] : 0;
   }
 } catch (Throwable $e) {}
@@ -277,7 +277,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
       <span style="font-size:20px;opacity:<?= $item?'1':'.2' ?>;flex:none"><?= $icon ?></span>
       <div style="flex:1;min-width:0">
         <?php if ($item): ?>
-          <div style="font-weight:700;font-size:13px"><?= e($item['name']) ?></div>
+          <div style="font-weight:700;font-size:13px"><?= e($item['name']) ?><?php if ((int)($item['loan_id'] ?? 0) > 0): ?> <span style="font-size:9px;font-weight:700;color:#e8a33d;text-transform:uppercase;letter-spacing:.4px;border:1px solid rgba(232,163,61,.4);border-radius:4px;padding:1px 5px;vertical-align:middle">&#9874; Guild Loan</span><?php endif; ?></div>
           <div style="font-size:11px;color:var(--muted);margin-top:1px"><?= $slot==='weapon'?'+'.((int)$item['atk']).' ATK':'+'.((int)$item['def']).' DEF' ?></div>
         <?php else: ?>
           <div style="color:var(--muted);font-size:12px;font-style:italic">No <?= $label ?> equipped</div>

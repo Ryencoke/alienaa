@@ -46,16 +46,16 @@ try {
   $gq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
   $gq->execute(["equipped_weapon:{$pid}"]); $wid = (int)$gq->fetchColumn();
   if ($wid > 0) {
-    $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def FROM player_gear WHERE id=? AND player_id=?');
+    $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def,loan_id FROM player_gear WHERE id=? AND player_id=?');
     $gq2->execute([$wid,$pid]); $ew = $gq2->fetch() ?: null;
-    if (!$ew) { $gq3 = $pdo->prepare('SELECT i.id,i.name,i.atk,0 AS def FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq3->execute([$pid,$wid]); $ew = $gq3->fetch() ?: null; }
+    if (!$ew) { $gq3 = $pdo->prepare('SELECT i.id,i.name,i.atk,0 AS def,0 AS loan_id FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq3->execute([$pid,$wid]); $ew = $gq3->fetch() ?: null; }
     $gearAtk = $ew ? (int)$ew['atk'] : 0;
   }
   $gq->execute(["equipped_armor:{$pid}"]); $aid = (int)$gq->fetchColumn();
   if ($aid > 0) {
-    $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def FROM player_gear WHERE id=? AND player_id=?');
+    $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def,loan_id FROM player_gear WHERE id=? AND player_id=?');
     $gq2->execute([$aid,$pid]); $ea = $gq2->fetch() ?: null;
-    if (!$ea) { $gq3 = $pdo->prepare('SELECT i.id,i.name,0 AS atk,i.def FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq3->execute([$pid,$aid]); $ea = $gq3->fetch() ?: null; }
+    if (!$ea) { $gq3 = $pdo->prepare('SELECT i.id,i.name,0 AS atk,i.def,0 AS loan_id FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq3->execute([$pid,$aid]); $ea = $gq3->fetch() ?: null; }
     $gearDef = $ea ? (int)$ea['def'] : 0;
   }
 } catch (Throwable $e) {}
@@ -85,7 +85,7 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
     <div style="flex:1;min-width:180px;background:<?= $bg ?>;border:1px solid <?= $bord ?>;border-radius:7px;padding:10px 13px;display:flex;align-items:center;gap:10px">
       <span style="font-size:22px"><?= $icon ?></span>
       <div style="flex:1">
-        <div style="font-weight:700;font-size:13px"><?= e($it['name']) ?></div>
+        <div style="font-weight:700;font-size:13px"><?= e($it['name']) ?><?php if ((int)($it['loan_id'] ?? 0) > 0): ?> <span style="font-size:9px;font-weight:700;color:#e8a33d;text-transform:uppercase;letter-spacing:.4px;border:1px solid rgba(232,163,61,.4);border-radius:4px;padding:1px 5px;vertical-align:middle">&#9874; Guild Loan</span><?php endif; ?></div>
         <div style="font-size:11px;color:var(--muted)">+<?= $bonus ?> <?= $stat ?></div>
       </div>
       <form method="post" style="margin:0">

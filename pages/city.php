@@ -33,7 +33,7 @@ $DISTRICTS = [
     ['vats', 'Grow Vats'],
   ]],
   ['The Stacks',        '&#127968;', '#6fb3e0', 'Home, such as it is.', [
-    ['home', 'Your Hideout'], ['guilds', 'Syndicates'],
+    ['home', 'Your Hideout'], ['guilds', 'Syndicates'], ['guilds&tab=search', 'Syndicate Directory'],
   ]],
   ['The Grid Authority','&#127963;', '#e8d44d', 'Bureaucracy with teeth.', [
     ['cityhall', 'Admin Spire'], ['registry', 'ID Registry'], ['tickets', 'Customer Service'],

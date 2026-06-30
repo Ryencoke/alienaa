@@ -266,7 +266,7 @@ $totalStims = array_sum($myStims);
 </div>
 
 <!-- Tabs -->
-<div style="display:flex;gap:8px;flex-wrap:wrap">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
   <?php $tabs = ['gather'=>'&#127807; Acquire ('.number_format($totalComps).')','brew'=>'&#9879; Brew Potions','stims'=>'&#128138; My Stims ('.$totalStims.')']; foreach ($tabs as $tid=>$tl): ?>
   <a href="index.php?p=synth&tab=<?= $tid ?>" class="syn-tab <?= $tab===$tid ? 'on' : '' ?>"><?= $tl ?></a>
   <?php endforeach; ?>

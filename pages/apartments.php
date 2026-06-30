@@ -237,7 +237,7 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
 <div style="background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.25);border-radius:6px;padding:10px 14px;font-size:13px"><?= e($msg) ?></div>
 <?php endif; ?>
 
-<div style="display:flex;gap:8px;flex-wrap:wrap">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
   <?php foreach (['mine'=>'&#127968; My Properties ('.count($myApts).')','buy'=>'&#128722; Buy New','market'=>'&#127974; Market ('.count($marketListings).')'] as $tid=>$tl): ?>
   <a href="index.php?p=apartments&tab=<?= $tid ?>" style="padding:7px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $tab===$tid ? '#e8a33d' : 'var(--line)' ?>;background:<?= $tab===$tid ? 'rgba(232,163,61,.1)' : 'var(--panel2)' ?>;color:<?= $tab===$tid ? '#e8a33d' : 'var(--muted)' ?>"><?= $tl ?></a>
   <?php endforeach; ?>

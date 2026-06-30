@@ -264,7 +264,7 @@ foreach ($stocks as $s) {
   </div>
 </div>
 
-<div style="display:flex;gap:8px">
+<div style="display:flex;gap:8px;margin-bottom:16px">
   <?php foreach (['market'=>'&#128202; Market','portfolio'=>'&#128218; My Portfolio ('.count($portfolio).')'] as $tid=>$tl): ?>
   <a href="index.php?p=stockex&tab=<?= $tid ?>" class="sx-tab <?= $tab===$tid ? 'on' : '' ?>"><?= $tl ?></a>
   <?php endforeach; ?>

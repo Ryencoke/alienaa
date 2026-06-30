@@ -242,7 +242,7 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab']
 <div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>
 <?php endif; ?>
 
-<div style="display:flex;gap:8px;flex-wrap:wrap">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
   <?php foreach (['pending'=>'&#128260; Pending Trades ('.( count($incoming)+count($outgoing)).')','new'=>'&#43; New Trade','transfer'=>'&#128178; Direct Transfer'] as $tid=>$tl): ?>
   <a href="index.php?p=trade&tab=<?= $tid ?>" style="padding:7px 14px;border-radius:6px;font-size:12px;text-decoration:none;border:1px solid <?= $tab===$tid?'#e8a33d':'var(--line)' ?>;background:<?= $tab===$tid?'rgba(232,163,61,.1)':'var(--panel2)' ?>;color:<?= $tab===$tid?'#e8a33d':'var(--muted)' ?>"><?= $tl ?></a>
   <?php endforeach; ?>

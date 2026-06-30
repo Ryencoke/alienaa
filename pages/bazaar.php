@@ -176,7 +176,7 @@ function bsort_link($key, $label, $cur, $tab, $cat) {
     <button id="bz-mute" onclick="toggleBzSound()" title="Toggle sound" style="position:absolute;top:8px;right:10px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
   </div>
   <?php if ($msg): ?><div class="flash flash-<?= $msgType ?>" style="margin:10px 14px 0"><?= e($msg) ?></div><?php endif; ?>
-  <div class="tabs" style="margin:12px 0 0;border-top:1px solid var(--line)">
+  <div class="tabs" style="margin:12px 0 16px;border-top:1px solid var(--line)">
     <a class="tab <?= $tab==='browse'?'is-active':'' ?>" href="index.php?p=bazaar&tab=browse">
       &#128269; Browse<?php if(count($listings)): ?> <span class="bz-count"><?= count($listings) ?></span><?php endif; ?>
     </a>

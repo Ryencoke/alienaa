@@ -370,8 +370,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($act === 'stockpile_remove') {
       if (!$mySyn || !syn_can($myRank,'manage_stockpile')) throw new RuntimeException('No permission.');
       $iid = (int)($_POST['item_id'] ?? 0);
-      $ck = $pdo->prepare('SELECT item_name,available FROM syndicate_stockpile WHERE id=? AND syndicate_id=?'); $ck->execute([$iid,$mySyn['syndicate_id']]); $si = $ck->fetch();
+      $ck = $pdo->prepare('SELECT item_name,available,gear_type FROM syndicate_stockpile WHERE id=? AND syndicate_id=?'); $ck->execute([$iid,$mySyn['syndicate_id']]); $si = $ck->fetch();
       if (!$si) throw new RuntimeException('Item not found.');
+      // Weapons/armor are Armoury assets — they can only be loaned out and returned,
+      // never permanently deleted, so a loan can't be undercut by deleting the source.
+      if (in_array($si['gear_type'] ?? '', ['weapon','armor'], true)) throw new RuntimeException('Weapons and armor can only be loaned, not removed from the Armoury.');
       if (!$si['available']) throw new RuntimeException('Item is currently loaned out. Return it first.');
       $pdo->prepare('DELETE FROM syndicate_stockpile WHERE id=? AND syndicate_id=?')->execute([$iid,$mySyn['syndicate_id']]);
       syn_log($pdo,$mySyn['syndicate_id'],null,$pid,'stockpile_remove','Removed "'.$si['item_name'].'" from stockpile');
@@ -487,7 +490,7 @@ if ($mySyn) {
 </div>
 
 <!-- Tabs -->
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
   <?php
   $membersLabel = '&#128101; Members' . ($pendingApps ? ' <span style="background:var(--neon2);color:#000;border-radius:10px;padding:1px 6px;font-size:9px;font-weight:700">'.$pendingApps.'</span>' : '');
   $tabDefs = $mySyn
@@ -1080,9 +1083,6 @@ elseif ($tab === 'armoury' && $mySyn):
       <button type="submit" style="font-size:10px;padding:3px 8px">Loan</button>
     </form>
     <?php endif; ?>
-    <?php if ($canManageStock && $si['available']): ?>
-    <form method="post" style="margin:0"><input type="hidden" name="action" value="stockpile_remove"><input type="hidden" name="item_id" value="<?= (int)$si['id'] ?>"><button type="submit" style="font-size:10px;padding:3px 8px;background:rgba(226,59,59,.1);border-color:rgba(226,59,59,.3);color:#e23b3b" onclick="return confirm('Remove this item?')">Remove</button></form>
-    <?php endif; ?>
   </div>
   <?php endforeach; endif; ?>
 </div>
@@ -1100,8 +1100,10 @@ elseif ($tab === 'armoury' && $mySyn):
       </div>
       <div style="font-size:11px;color:var(--muted)">Loaned to <b style="color:var(--accent)"><?= e($ln['borrower_name']) ?></b> &middot; <?= e(date('M j',strtotime($ln['loaned_at']))) ?></div>
     </div>
-    <?php if ($canLoan || (int)$ln['player_id']===$pid): ?>
-    <form method="post" style="margin:0"><input type="hidden" name="action" value="return_item"><input type="hidden" name="loan_id" value="<?= (int)$ln['id'] ?>"><button type="submit" style="font-size:11px;padding:4px 12px" onclick="return confirm('Return this item to armoury?')">&#9100; Return</button></form>
+    <?php if ($canLoan || (int)$ln['player_id']===$pid):
+      $isSelfReturn = (int)$ln['player_id'] === $pid;
+    ?>
+    <form method="post" style="margin:0"><input type="hidden" name="action" value="return_item"><input type="hidden" name="loan_id" value="<?= (int)$ln['id'] ?>"><button type="submit" style="font-size:11px;padding:4px 12px" onclick="return confirm('<?= $isSelfReturn ? 'Return this item to the Armoury?' : 'Recall this item from '.e($ln['borrower_name']).'?' ?>')"><?= $isSelfReturn ? '&#9100; Return' : '&#8634; Recall' ?></button></form>
     <?php endif; ?>
   </div>
   <?php endforeach; ?>

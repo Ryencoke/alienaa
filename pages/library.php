@@ -65,7 +65,7 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
       <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">All items, weapons, armor, and skills available in The Sprawl.</p>
     </div>
   </div>
-  <div class="tabs" style="margin:0;border-top:1px solid var(--line)">
+  <div class="tabs" style="margin:0 0 16px;border-top:1px solid var(--line)">
     <a class="tab <?= $tab==='weapons'?'is-active':'' ?>"     href="index.php?p=library&tab=weapons">&#9876; Weapons</a>
     <a class="tab <?= $tab==='armor'?'is-active':'' ?>"       href="index.php?p=library&tab=armor">&#128737; Armor</a>
     <a class="tab <?= $tab==='consumables'?'is-active':'' ?>" href="index.php?p=library&tab=consumables">&#128138; Consumables</a>

@@ -278,7 +278,7 @@ if ($tab === 'myhistory') {
 </div>
 
 <!-- Tabs -->
-<div style="display:flex;gap:8px;flex-wrap:wrap">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
   <?php $tabs=['browse'=>'&#128269; Live ('.count($active).')','mine'=>'&#128230; My Listings ('.count($myListings).')','create'=>'&#43; Post Listing','history'=>'&#128196; History','myhistory'=>'&#128203; My History']; foreach ($tabs as $tid=>$tl): ?>
   <a href="index.php?p=auction&tab=<?= $tid ?>" class="au-tab <?= $tab===$tid ? 'on' : '' ?>"><?= $tl ?></a>
   <?php endforeach; ?>

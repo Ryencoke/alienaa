@@ -125,7 +125,7 @@ $pocket  = (int)$player['creds_pocket'];
     <button id="forge-mute" onclick="toggleForgeSound()" title="Toggle sound" style="position:absolute;top:8px;right:10px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
   </div>
   <?php if ($msg): ?><div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>" style="margin:10px 14px 0"><?= $msg ?></div><?php endif; ?>
-  <div class="tabs" style="margin:12px 0 0;border-top:1px solid var(--line)">
+  <div class="tabs" style="margin:12px 0 16px;border-top:1px solid var(--line)">
     <a class="tab <?= $tab==='weapons'?'is-active':'' ?>" href="index.php?p=blacksmith&tab=weapons">&#9876; Weapons <span class="bz-count"><?= count($weapons) ?></span></a>
     <a class="tab <?= $tab==='armor'?'is-active':'' ?>"   href="index.php?p=blacksmith&tab=armor">&#128737; Armor <span class="bz-count"><?= count($armor) ?></span></a>
   </div>
