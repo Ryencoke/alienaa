@@ -201,7 +201,7 @@ function uvote($uid, $dir, $glyph, $myVote) {
               <b style="color:var(--accent)">Staff</b>
             <?php endif; ?>
           </span>
-          <?php if (trim($r['credit']) !== ''): ?><span style="font-style:italic">&#128172; Thanks to <b style="color:#e8d44d"><?= e($r['credit']) ?></b></span><?php endif; ?>
+          <?php if (trim($r['credit']) !== ''): ?><span style="font-style:italic">&#128172; Thanks to <b style="color:var(--text)"><?= e($r['credit']) ?></b></span><?php endif; ?>
         </div>
       </div>
     </div>
