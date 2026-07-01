@@ -274,6 +274,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $msg = $ex->getMessage(); $msgType = 'err';
     $fxEvent = null; // failed plays get no reveal/celebration
+    // Some actions (e.g. slots) roll their result before the bet is actually
+    // charged, so a failure partway through (insufficient creds) can leave a
+    // stray result set with no matching $fxEvent to reveal it — reset it too,
+    // otherwise the reel display (hidden until the reveal script restores it)
+    // would stay invisible forever with nothing left to trigger the reveal.
+    $slotReels = null;
   }
 }
 
@@ -448,7 +454,12 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
 <div class="game-pane <?= $activeTab==='slots'?'active':'' ?>" id="pane-slots">
   <div class="panel">
     <div class="felt">
-      <div class="reel-display">
+      <?php // The true result is baked into this HTML the instant the server renders it —
+            // without hiding it here, the browser can paint the finished reels for a frame
+            // before the JS below ever runs, so the result flashes ahead of the spin
+            // animation. Start it invisible and let the reveal script (below) restore
+            // visibility the moment it takes over and starts faking the spin. ?>
+      <div class="reel-display"<?= $slotReels ? ' style="opacity:0"' : '' ?>>
         <?php $display = $slotReels ?? ['&#127920;','&#127920;','&#127920;'];
               $isResult = (bool)$slotReels;
               foreach ($display as $sym): ?>
@@ -974,11 +985,13 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
     }
   }
   else if(ev.g==='slots'){
+    var reelDisplay=document.querySelector('#pane-slots .reel-display');
     var reels=document.querySelectorAll('#pane-slots .reel-box');
     if(reels.length===3){
       var syms=['🍒','🔔','💎','⚡','7️⃣'];
       var rFinals=[],rCls=[];
       reels.forEach(function(r){ rFinals.push(r.innerHTML); rCls.push(r.className); r.className='reel-box idle rolling'; });
+      if(reelDisplay) reelDisplay.style.opacity='1'; // now safe to show — content is randomized, not the real result
       hideResultUntil('#pane-slots',1500);
       var stopped=0;
       var spinIv=setInterval(function(){
