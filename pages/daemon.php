@@ -1,4 +1,18 @@
 <?php /* pages/daemon.php — The Undervolt: The Lucky Daemon */
+// Result messages are one long sentence ("Rolled 7 — you called Seven. Won
+// +500 creds!") that reads as a cramped single line at 16px Orbitron bold.
+// This pulls the credit amount out and renders it as its own larger line
+// below the rest, giving the number visual weight without having to
+// restructure every $msg assignment into separate headline/amount parts.
+// Runs on the already-escaped string, so it's safe to inject the wrapping
+// span tags afterward.
+function daemon_fmt_result(string $msg): string {
+  $esc = e($msg);
+  if (preg_match('/^(.*?)(\s*[+\-][\d,]+\s*creds?!?)\s*$/i', $esc, $m)) {
+    return trim($m[1]) . '<span class="dr-amt">' . trim($m[2]) . '</span>';
+  }
+  return $esc;
+}
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
@@ -167,7 +181,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $win = (int)round($bet * 1.5);
           $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$bet + $win, $pid]);
           settle($pid, 'blackjack', $bet, 'Natural Blackjack', $bet + $win);
-          $msg = "&#127881; Blackjack! +".number_format($win)." creds!";
+          $msg = "Blackjack! +".number_format($win)." creds!";
         }
         $activeTab = 'blackjack';
         $fxEvent = ['g'=>'bj','ev'=>'deal','result'=>($pv===21&&$dv===21)?'push':($dv===21?'lose':'bigwin')];
@@ -258,7 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $bet = (int)$vp['bet']; $payout = $bet * $mult;
       settle($pid, 'video_poker', $bet, $hName, $payout);
       $net = $payout - $bet;
-      if ($net > 0)      $msg = "&#9654; {$hName}! Won +".number_format($net)." creds!";
+      if ($net > 0)      $msg = "{$hName}! Won +".number_format($net)." creds!";
       elseif ($net === 0) $msg = "{$hName} — push. Bet returned.";
       else               { $msg = "{$hName}. The Daemon takes your ".number_format($bet)."."; $msgType = 'err'; }
       $fxEvent = ['g'=>'vp','ev'=>'draw','mult'=>$mult,'net'=>$net,'name'=>$hName,'jackpot'=>$mult>=25,'big'=>$mult>=6];
@@ -288,7 +302,16 @@ $bj = $_SESSION['daemon_bj'] ?? null;
 $vp = $_SESSION['daemon_vp'] ?? null;
 
 // History + stats — casino_log ships in schema_casino.sql; guard so a missing
-// table degrades to an empty history instead of failing the whole page
+// table degrades to an empty history instead of failing the whole page.
+// schema_casino.sql's original CREATE TABLE never specified a charset, so it
+// inherited whatever the database's default was. Slots' detail column
+// stores emoji reel symbols (🍒🔔💎 etc, 4-byte UTF-8) — on any charset
+// narrower than utf8mb4 those get silently replaced with "?" on insert,
+// which is why "Recent Plays" shows "???" for slots (and any other game
+// whose detail happens to include a 4-byte character). This only fixes
+// rows written AFTER the conversion — already-corrupted "?" bytes were
+// lost for good at insert time and can't be recovered by an ALTER.
+try { $pdo->exec("ALTER TABLE casino_log CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"); } catch (Throwable $e) {}
 $recent = [];
 try {
   $rl = $pdo->prepare('SELECT * FROM casino_log WHERE player_id = ? ORDER BY played_at DESC LIMIT 50');
@@ -420,10 +443,10 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
       <?php endif; ?>
     </div>
     <?php if ($msg && $activeTab === 'dice'): ?>
-    <div class="daemon-result daemon-result-<?= $msgType ?>"<?= $diceResult ? ' style="opacity:0"' : '' ?>><?= e($msg) ?></div>
+    <div class="daemon-result daemon-result-<?= $msgType ?>"<?= $diceResult ? ' style="opacity:0"' : '' ?>><?= daemon_fmt_result($msg) ?></div>
     <?php endif; ?>
 
-    <form method="post">
+    <form method="post" id="dice-form">
       <input type="hidden" name="action" value="dice">
       <input type="hidden" name="_tab" value="dice">
       <div class="dchoice-row">
@@ -473,7 +496,7 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
       </div>
     </div>
     <?php if ($msg && $activeTab === 'slots'): ?>
-    <div class="daemon-result daemon-result-<?= $msgType ?>"<?= $slotReels ? ' style="opacity:0"' : '' ?>><?= e($msg) ?></div>
+    <div class="daemon-result daemon-result-<?= $msgType ?>"<?= $slotReels ? ' style="opacity:0"' : '' ?>><?= daemon_fmt_result($msg) ?></div>
     <?php endif; ?>
 
     <form method="post" id="slots-form">
@@ -503,7 +526,7 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
 <div class="game-pane <?= $activeTab==='blackjack'?'active':'' ?>" id="pane-blackjack">
   <div class="panel">
     <?php if ($msg && $activeTab === 'blackjack'): ?>
-    <div class="daemon-result daemon-result-<?= $msgType ?>"><?= e($msg) ?></div>
+    <div class="daemon-result daemon-result-<?= $msgType ?>"><?= daemon_fmt_result($msg) ?></div>
     <?php endif; ?>
 
     <?php if ($bj && $bj['phase'] !== 'done'): ?>
@@ -605,12 +628,12 @@ $vpHandExamples = [
 ];
 ?>
 <div class="game-pane <?= $activeTab==='vp'?'active':'' ?>" id="pane-vp">
-  <div style="text-align:right;margin-bottom:6px">
-    <a href="javascript:void(0)" onclick="document.getElementById('vpRankModal').classList.add('show')" style="font-size:11px;color:var(--accent)">Hand Rankings &rarr;</a>
+  <div style="text-align:right;margin-bottom:8px">
+    <button type="button" onclick="document.getElementById('vpRankModal').classList.add('show')" style="font-size:11px;padding:6px 12px;border-radius:20px;background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.35);color:var(--accent)">&#9830; Hand Rankings</button>
   </div>
   <div class="panel">
     <?php if ($msg && $activeTab === 'vp'): ?>
-    <div class="daemon-result daemon-result-<?= $msgType ?>"><?= e($msg) ?></div>
+    <div class="daemon-result daemon-result-<?= $msgType ?>"><?= daemon_fmt_result($msg) ?></div>
     <?php endif; ?>
 
     <?php if ($vp && $vp['phase'] === 'hold'): ?>
@@ -970,6 +993,27 @@ $vpHandExamples = [
       document.querySelectorAll('.reel-box').forEach(function(r){ r.classList.add('rolling'); r.classList.remove('idle'); });
       var btn = document.getElementById('spin-btn');
       if (btn){ btn.disabled = true; btn.textContent = 'Spinning...'; }
+      // Hide the PREVIOUS spin's result text right away — nothing else was
+      // clearing it, so clicking Spin again left last spin's win/lose
+      // message fully visible on screen for the entire fake-spin animation
+      // that runs before the server even responds, which is exactly what
+      // looked like "the result shows before the reels finish spinning."
+      var prevRes = document.querySelector('#pane-slots .daemon-result');
+      if (prevRes) prevRes.style.opacity = '0';
+    });
+  }
+
+  /* Dice roll — same stale-result problem as slots: nothing hid the previous
+     roll's message before the server responds, so it sat fully visible on
+     screen (the swap to the actual roll animation only happens once the
+     response arrives) right up until the reveal script took over. */
+  var df = document.getElementById('dice-form');
+  if (df) {
+    df.addEventListener('submit', function(){
+      var prevRes = document.querySelector('#pane-dice .daemon-result');
+      if (prevRes) prevRes.style.opacity = '0';
+      var prevSum = document.querySelector('#pane-dice .dice-sum');
+      if (prevSum) prevSum.style.visibility = 'hidden';
     });
   }
 

@@ -116,10 +116,6 @@ $pocket  = (int)$player['creds_pocket'];
       <h2 style="margin:0">&#9874; The Forge</h2>
       <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">Forged in the underbelly. Tested in the Sprawl. No returns.</p>
     </div>
-    <div style="position:absolute;right:14px;bottom:10px;text-align:right">
-      <div class="muted" style="font-size:10px;text-shadow:0 1px 4px #000">POCKET</div>
-      <div id="bs-creds" style="font-size:19px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent);text-shadow:0 1px 6px #000"><?= number_format($pocket) ?> <span style="font-size:11px;font-weight:400">cr</span></div>
-    </div>
     <button id="forge-mute" onclick="toggleForgeSound()" title="Toggle sound" style="position:absolute;top:8px;right:10px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
   </div>
   <?php if ($msg): ?><div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>" style="margin:10px 14px 0"><?= $msg ?></div><?php endif; ?>
@@ -151,6 +147,20 @@ $pocket  = (int)$player['creds_pocket'];
 </div>
 
 <div class="panel">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <label for="bs-sort" style="font-size:11px;color:var(--muted)">Sort by</label>
+    <select id="bs-sort" style="width:auto;font-size:12px;padding:5px 8px">
+      <option value="default">Default</option>
+      <option value="price-asc">Price: Low to High</option>
+      <option value="price-desc">Price: High to Low</option>
+      <option value="lvl-asc">Level Required: Low to High</option>
+      <option value="lvl-desc">Level Required: High to Low</option>
+      <option value="atk-desc">Attack: High to Low</option>
+      <option value="def-desc">Defense: High to Low</option>
+      <option value="spd-desc">Speed: High to Low</option>
+      <option value="name-asc">Name: A to Z</option>
+    </select>
+  </div>
   <div class="shop-grid" id="bs-grid">
     <?php foreach ($items as $c):
       $isOwned = isset($owned[$c[0]]);
@@ -334,6 +344,27 @@ if(grid&&detail){
     }
     detail.style.display='block';
     detail.scrollIntoView({behavior:'smooth',block:'nearest'});
+  });
+}
+
+/* ── Sort ──────────────────────────────────────────────────────────────── */
+var sortSel=document.getElementById('bs-sort');
+if(sortSel&&grid){
+  var origOrder=Array.prototype.slice.call(grid.children);
+  var sorters={
+    'price-asc':  function(a,b){ return parseInt(a.dataset.price,10)-parseInt(b.dataset.price,10); },
+    'price-desc': function(a,b){ return parseInt(b.dataset.price,10)-parseInt(a.dataset.price,10); },
+    'lvl-asc':    function(a,b){ return parseInt(a.dataset.lvl,10)-parseInt(b.dataset.lvl,10); },
+    'lvl-desc':   function(a,b){ return parseInt(b.dataset.lvl,10)-parseInt(a.dataset.lvl,10); },
+    'atk-desc':   function(a,b){ return parseInt(b.dataset.atk,10)-parseInt(a.dataset.atk,10); },
+    'def-desc':   function(a,b){ return parseInt(b.dataset.def,10)-parseInt(a.dataset.def,10); },
+    'spd-desc':   function(a,b){ return parseInt(b.dataset.spd,10)-parseInt(a.dataset.spd,10); },
+    'name-asc':   function(a,b){ return a.dataset.name.localeCompare(b.dataset.name); }
+  };
+  sortSel.addEventListener('change',function(){
+    var v=sortSel.value;
+    var cards=v==='default'?origOrder.slice():Array.prototype.slice.call(grid.children).sort(sorters[v]);
+    cards.forEach(function(c){ grid.appendChild(c); });
   });
 }
 })();

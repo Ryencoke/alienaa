@@ -145,6 +145,46 @@ function sx_stock_boost(string $ticker, array $gm, float $actScore): array {
   }
 }
 
+// The actual raw game-economy numbers behind sx_stock_boost()'s prose
+// explanation — same per-ticker mapping, just surfaced as real stats
+// instead of a single sentence. Returns [['label'=>..,'value'=>..,'good'=>bool], ...].
+// 'good' drives the stat's color (green if it's currently pushing the price
+// up, muted if it's dragging it down) — deliberately mirrors the same
+// condition each ticker's case in sx_stock_boost() branches on.
+function sx_stock_factors(string $ticker, array $gm, float $actScore): array {
+  $activePct = round($actScore * 100);
+  switch ($ticker) {
+    case 'NXUS': case 'DATV':
+      return [
+        ['label'=>'Active Players (30m)', 'value'=>number_format($gm['active']), 'good'=>$actScore > 0.5],
+        ['label'=>'Network Load Index',   'value'=>$activePct.'%',               'good'=>$actScore > 0.5],
+      ];
+    case 'ARMX':
+      return [['label'=>'PvP Fights (1h)', 'value'=>number_format($gm['combats1h']), 'good'=>$gm['combats1h'] > 0]];
+    case 'CHEM': case 'PHRS':
+      return [
+        ['label'=>'PvP Fights (1h)',    'value'=>number_format($gm['combats1h']), 'good'=>$gm['combats1h'] > 0],
+        ['label'=>'Player Activity',    'value'=>$activePct.'%',                  'good'=>$actScore > 0.4],
+      ];
+    case 'NRGY':
+      $drivePct = round($gm['avgDrivePct'] * 100);
+      return [['label'=>'Avg. Drive Reserves', 'value'=>$drivePct.'%', 'good'=>$gm['avgDrivePct'] < 0.5]];
+    case 'GRDX':
+      return [
+        ['label'=>'Bazaar Sales (1h)',  'value'=>number_format($gm['sales1h']), 'good'=>$gm['sales1h'] > 0],
+        ['label'=>'Auction Bids (1h)',  'value'=>number_format($gm['bids1h']),  'good'=>$gm['bids1h'] > 0],
+      ];
+    case 'CRED':
+      return [['label'=>'Total Banked Wealth', 'value'=>number_format($gm['bankSum']).' cr', 'good'=>true]];
+    case 'INFX':
+      return [['label'=>'PvP Fights (1h)', 'value'=>number_format($gm['combats1h']), 'good'=>$gm['combats1h'] > 5]];
+    case 'SCRP':
+      return [['label'=>'Player Activity', 'value'=>$activePct.'%', 'good'=>$actScore > 0.5]];
+    default:
+      return [['label'=>'Player Activity', 'value'=>$activePct.'%', 'good'=>$actScore > 0.5]];
+  }
+}
+
 // Market fluctuation driven by game activity — log price every ~5 minutes
 try {
   $allStocks = $pdo->query("SELECT id, ticker, price FROM stocks")->fetchAll();
@@ -377,15 +417,19 @@ function sx_render_candles(array $candles, array $volByDay, int $w, int $h, int 
   $svg .= '<line x1="0" y1="'.($chartH+2).'" x2="'.$plotW.'" y2="'.($chartH+2).'" stroke="rgba(232,212,77,.15)" stroke-width="1"/>';
   $svg .= '<line x1="0" y1="'.$volBaseline.'" x2="'.$plotW.'" y2="'.$volBaseline.'" stroke="rgba(255,255,255,.08)" stroke-width="1"/>';
 
-  // Date ticks along the very bottom (popup view only — dateTicks=0 skips this)
+  // Date ticks along the very bottom (popup view only — dateTicks=0 skips
+  // this). The most recent date is always labeled separately (right-anchored
+  // so it can't run past the chart edge); periodic ticks close enough to
+  // collide with it are skipped rather than drawn on top of it.
   if ($dateTicks > 0) {
     $dateY = $chartH + $volH + $dateH;
     $step = max(1, (int)floor(($n - 1) / max(1, $dateTicks - 1)));
+    $minGapPx = 30; // approx width of a "Mon DD" label at this font size
     for ($i = 0; $i < $n; $i += $step) {
+      if ($cx($n - 1) - $cx($i) < $minGapPx) break; // too close to the final label — stop early
       $x = $cx($i);
       $svg .= '<text x="'.$x.'" y="'.($dateY-2).'" font-size="9" fill="#6b7490" font-family="monospace" text-anchor="middle">'.e(date('M j', strtotime($candles[$i]['d']))).'</text>';
     }
-    // always label the final candle too, even if it doesn't land on a step
     $lastX = $cx($n - 1);
     $svg .= '<text x="'.$lastX.'" y="'.($dateY-2).'" font-size="9" fill="#6b7490" font-family="monospace" text-anchor="end">'.e(date('M j', strtotime(end($candles)['d']))).'</text>';
   }
@@ -420,7 +464,7 @@ foreach ($stocks as $s) {
 }
 
 // ── Detail page data (tab=detail&id=N) ──
-$detailStock = null; $detailCandles = []; $detailVolByDay = []; $detailReason = ''; $detailHold = null;
+$detailStock = null; $detailCandles = []; $detailVolByDay = []; $detailReason = ''; $detailFactors = []; $detailHold = null;
 $detailVol24h = ['buy'=>0,'sell'=>0]; $detailVol7d = ['buy'=>0,'sell'=>0];
 if ($tab === 'detail') {
   $did = (int)($_GET['id'] ?? 0);
@@ -448,6 +492,7 @@ if ($tab === 'detail') {
       foreach ($v7 as $row) $detailVol7d[$row['side']] = (int)$row['q'];
     } catch (Throwable $e) {}
     [, $detailReason] = sx_stock_boost($detailStock['ticker'], $gm, $actScore);
+    $detailFactors = sx_stock_factors($detailStock['ticker'], $gm, $actScore);
     foreach ($portfolio as $ph) { if ($ph['stock_id'] == $detailStock['id']) { $detailHold = $ph; break; } }
   }
 }
@@ -662,7 +707,17 @@ if ($tab === 'detail') {
 
     <div class="panel" style="border:1px solid rgba(232,212,77,.25);background:rgba(232,212,77,.04);margin-top:14px">
       <div style="font-size:11px;color:#e8d44d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Why it's moving right now</div>
-      <p style="margin:0;font-size:13px;line-height:1.6"><?= e($detailReason) ?></p>
+      <p style="margin:0 0 <?= $detailFactors ? '10px' : '0' ?>;font-size:13px;line-height:1.6"><?= e($detailReason) ?></p>
+      <?php if ($detailFactors): ?>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;border-top:1px dashed rgba(232,212,77,.2);padding-top:10px">
+        <?php foreach ($detailFactors as $f): ?>
+        <div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em"><?= e($f['label']) ?></div>
+          <div style="font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:<?= $f['good'] ? '#3bcf63' : 'var(--muted)' ?>"><?= e($f['value']) ?></div>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
     </div>
 
     <div class="panel" style="margin-top:14px">
@@ -708,17 +763,86 @@ if ($tab === 'detail') {
 <div class="modal-bg" id="sxChartModal">
   <div class="modal" style="max-width:920px;width:94vw">
     <span class="x" onclick="document.getElementById('sxChartModal').classList.remove('show')">&times;</span>
-    <h3><?= e($ds['ticker']) ?> &mdash; 30-Day Chart</h3>
-    <svg width="100%" viewBox="0 0 900 420" style="display:block;aspect-ratio:900/420;background:#08070d;border-radius:6px">
-      <?= sx_render_candles($detailCandles, $detailVolByDay, 900, 420, 8) ?>
-    </svg>
-    <div style="font-size:10px;color:var(--muted);margin-top:8px">&#9632;<span style="color:#3bcf63">&nbsp;up</span> &nbsp;&#9632;<span style="color:var(--neon2)">&nbsp;down</span> &nbsp;&middot;&nbsp; volume &amp; dates below each candle</div>
+    <h3 style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <span><?= e($ds['ticker']) ?> &mdash; 30-Day Chart</span>
+      <span style="display:flex;gap:4px">
+        <button type="button" id="sxZoomOut" style="font-size:12px;padding:4px 10px" title="Zoom out">&minus;</button>
+        <button type="button" id="sxZoomReset" style="font-size:11px;padding:4px 10px" title="Reset view">Reset</button>
+        <button type="button" id="sxZoomIn" style="font-size:12px;padding:4px 10px" title="Zoom in">+</button>
+      </span>
+    </h3>
+    <div id="sxChartViewport" style="overflow:hidden;border-radius:6px;background:#08070d;aspect-ratio:900/420;cursor:grab">
+      <svg id="sxChartSvg" width="100%" height="100%" viewBox="0 0 900 420" style="display:block;transform-origin:0 0">
+        <?= sx_render_candles($detailCandles, $detailVolByDay, 900, 420, 8) ?>
+      </svg>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px">&#9632;<span style="color:#3bcf63">&nbsp;up</span> &nbsp;&#9632;<span style="color:var(--neon2)">&nbsp;down</span> &nbsp;&middot;&nbsp; volume &amp; dates below each candle &nbsp;&middot;&nbsp; scroll to zoom, drag to pan</div>
   </div>
 </div>
 <script>
 (function(){
   var m=document.getElementById('sxChartModal');
   if(m) m.addEventListener('click',function(e){ if(e.target===this) m.classList.remove('show'); });
+
+  /* Pan/zoom — a CSS transform on the SVG itself inside a clipped viewport,
+     not a re-render of the underlying chart data. Simplest way to give a
+     "move it around, zoom in/out" feel over a chart that's otherwise a
+     fixed, server-rendered picture. */
+  var vp=document.getElementById('sxChartViewport'), svg=document.getElementById('sxChartSvg');
+  if(vp&&svg){
+    var scale=1, tx=0, ty=0, MIN=1, MAX=6;
+    function apply(){
+      // clamp pan so the image can't be dragged fully out of view
+      var w=vp.clientWidth, h=vp.clientHeight;
+      var maxX=Math.max(0,(scale-1)*w), maxY=Math.max(0,(scale-1)*h);
+      tx=Math.min(0,Math.max(-maxX,tx));
+      ty=Math.min(0,Math.max(-maxY,ty));
+      svg.style.transform='translate('+tx+'px,'+ty+'px) scale('+scale+')';
+    }
+    function zoomAt(factor,cx,cy){
+      var newScale=Math.min(MAX,Math.max(MIN,scale*factor));
+      if(newScale===scale) return;
+      var ratio=newScale/scale;
+      tx=cx-(cx-tx)*ratio; ty=cy-(cy-ty)*ratio;
+      scale=newScale;
+      apply();
+    }
+    vp.addEventListener('wheel',function(e){
+      e.preventDefault();
+      var r=vp.getBoundingClientRect();
+      zoomAt(e.deltaY<0?1.15:1/1.15, e.clientX-r.left, e.clientY-r.top);
+    },{passive:false});
+    var dragging=false, sx=0, sy=0, stx=0, sty=0;
+    vp.addEventListener('mousedown',function(e){ dragging=true; sx=e.clientX; sy=e.clientY; stx=tx; sty=ty; vp.style.cursor='grabbing'; });
+    window.addEventListener('mousemove',function(e){
+      if(!dragging) return;
+      tx=stx+(e.clientX-sx); ty=sty+(e.clientY-sy);
+      apply();
+    });
+    window.addEventListener('mouseup',function(){ dragging=false; vp.style.cursor='grab'; });
+    // touch: single-finger drag, two-finger pinch
+    var lastDist=null, lastMid=null;
+    vp.addEventListener('touchstart',function(e){
+      if(e.touches.length===1){ dragging=true; sx=e.touches[0].clientX; sy=e.touches[0].clientY; stx=tx; sty=ty; }
+      else if(e.touches.length===2){ dragging=false; lastDist=touchDist(e.touches); lastMid=touchMid(e.touches); }
+    },{passive:true});
+    vp.addEventListener('touchmove',function(e){
+      if(e.touches.length===1&&dragging){
+        tx=stx+(e.touches[0].clientX-sx); ty=sty+(e.touches[0].clientY-sy); apply();
+      } else if(e.touches.length===2){
+        var d=touchDist(e.touches), mid=touchMid(e.touches), r=vp.getBoundingClientRect();
+        if(lastDist) zoomAt(d/lastDist, mid.x-r.left, mid.y-r.top);
+        lastDist=d; lastMid=mid;
+      }
+    },{passive:true});
+    vp.addEventListener('touchend',function(){ dragging=false; lastDist=null; });
+    function touchDist(t){ var dx=t[0].clientX-t[1].clientX, dy=t[0].clientY-t[1].clientY; return Math.sqrt(dx*dx+dy*dy); }
+    function touchMid(t){ return {x:(t[0].clientX+t[1].clientX)/2, y:(t[0].clientY+t[1].clientY)/2}; }
+
+    document.getElementById('sxZoomIn').addEventListener('click',function(){ zoomAt(1.3, vp.clientWidth/2, vp.clientHeight/2); });
+    document.getElementById('sxZoomOut').addEventListener('click',function(){ zoomAt(1/1.3, vp.clientWidth/2, vp.clientHeight/2); });
+    document.getElementById('sxZoomReset').addEventListener('click',function(){ scale=1; tx=0; ty=0; apply(); });
+  }
 })();
 </script>
 <?php endif; ?>
@@ -996,7 +1120,7 @@ document.querySelectorAll('.sx-qty').forEach(function(inp){
     var gross=qty*price;
     var fee=Math.max(1,Math.ceil(gross*0.01));
     var total=side==='BUY'?gross+fee:gross-fee;
-    var o=document.createElement('div'); o.id='sxfx';
+    var o=document.createElement('div'); o.id='sxfx'; o.style.pointerEvents='auto';
     o.style.setProperty('--sx-col',col);
     o.style.setProperty('--sx-col-a',hexA(col,.35));
     o.innerHTML='<div class="sxfx-ticket">'
@@ -1007,6 +1131,7 @@ document.querySelectorAll('.sx-qty').forEach(function(inp){
       +'<div class="sxfx-line"><span>FEE 1%</span><b>'+fee.toLocaleString('en-US')+' credits</b></div>'
       +'<div class="sxfx-line" style="border-top:1px dashed rgba(255,255,255,.14);margin-top:4px;padding-top:5px"><span>'+(side==='BUY'?'TOTAL':'NET')+'</span><b style="color:'+col+'">'+total.toLocaleString('en-US')+' credits</b></div>'
       +'<div class="sxfx-stamp">FILLED</div>'
+      +'<button type="button" class="sxfx-ok" style="width:100%;margin-top:12px;color:'+col+';border-color:'+col+'55;background:'+hexA(col,.1)+'">Okay</button>'
       +'</div>';
     document.body.appendChild(o);
     requestAnimationFrame(function(){o.classList.add('show');});
@@ -1016,7 +1141,11 @@ document.querySelectorAll('.sx-qty').forEach(function(inp){
       if(side==='BUY'){ tone(523,.09,'sine',.045); setTimeout(function(){tone(784,.13,'sine',.045);},80); }
       else { tone(659,.09,'sine',.045); setTimeout(function(){tone(440,.13,'sine',.045);},80); }
     },560);
-    setTimeout(function(){o.classList.remove('show');setTimeout(function(){o.remove();},220);},1900);
+    // Stays open until the user dismisses it — no auto-hide timer. Dismiss
+    // via the Okay button or by clicking the dimmed backdrop.
+    function dismiss(){ o.classList.remove('show'); setTimeout(function(){ o.remove(); },220); }
+    o.querySelector('.sxfx-ok').addEventListener('click',dismiss);
+    o.addEventListener('click',function(e){ if(e.target===o) dismiss(); });
   }
 
   document.addEventListener('submit',function(ev){

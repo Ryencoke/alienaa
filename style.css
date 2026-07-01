@@ -437,15 +437,17 @@ code{color:var(--neon2);font-size:12px}
 .bet-input{width:120px!important;text-align:center}
 .daemon-go-btn{padding:12px;font-size:14px;letter-spacing:.5px;margin-top:2px}
 
-.daemon-result{text-align:center;font-size:16px;font-weight:bold;
-  padding:14px 20px;border-radius:var(--radius);margin:10px 0;
-  font-family:'Orbitron',sans-serif;letter-spacing:.5px;
+.daemon-result{text-align:center;font-size:14px;font-weight:bold;
+  padding:16px 22px;border-radius:var(--radius);margin:10px 0;
+  font-family:'Orbitron',sans-serif;letter-spacing:.3px;line-height:1.6;
+  max-width:420px;margin-left:auto;margin-right:auto;
   animation:dresult-in .3s cubic-bezier(.2,.8,.3,1) both}
 @keyframes dresult-in{from{opacity:0;transform:scale(.92) translateY(-6px)}to{opacity:1;transform:none}}
 .daemon-result-ok{background:rgba(25,240,199,.12);border:1px solid rgba(25,240,199,.5);
   color:var(--accent);text-shadow:0 0 14px rgba(25,240,199,.5)}
 .daemon-result-err{background:rgba(255,45,149,.1);border:1px solid rgba(255,45,149,.45);
   color:var(--neon2);text-shadow:0 0 12px rgba(255,45,149,.4)}
+.daemon-result .dr-amt{display:block;font-size:20px;margin-top:4px}
 
 .daemon-pays{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;
   font-size:11px;color:var(--muted);margin-top:14px;padding-top:12px;

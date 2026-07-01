@@ -363,6 +363,19 @@ function blacksmith_catalog(): array {
     ['railgun',           'Railgun',              '&#128299;','weapon', 'Heavy',  21,  0, -3, 26000,  'Magnetic acceleration to hypersonic velocity.', 26],
     ['graviton_hammer',   'Graviton Hammer',      '&#9876;',  'weapon', 'Heavy',  23,  0, -2, 32000,  'Bends local gravity before impact.', 32],
     ['oblivion_edge',     'Oblivion Edge',        '&#9876;',  'weapon', 'Legendary',26, 2, 3, 50000,  'The last blade some corporations ever see.', 50],
+    // ---- new additions (levels 58-100) ----
+    ['neural_saber',     'Neural Saber',         '&#9876;',  'weapon', 'Melee',    29, 1, 2, 58000,  'Bioelectric edge that reads muscle intent a half-second early.', 58],
+    ['quake_driver',     'Quake Driver',         '&#128299;','weapon', 'Heavy',    32, 0, -3, 64000, 'Seismic impact driver. Cracks pavement on the backswing.', 64],
+    ['phase_reaper',     'Phase Reaper',         '&#9876;',  'weapon', 'Stealth',  35, 0, 3, 70000,  'Cuts a half-step out of phase. Armor doesn\'t help.', 68],
+    ['solar_lance',      'Solar Lance',          '&#128299;','weapon', 'Ranged',   38, 0, -1, 78000, 'Focused photonic beam. Rated for outdoor use only.', 72],
+    ['cataclysm_blade',  'Cataclysm Blade',      '&#9876;',  'weapon', 'Legendary',40, 2, 1, 86000,  'Forged in a reactor breach. Still radiating, still cutting.', 76],
+    ['void_ripper',      'Void Ripper',          '&#9876;',  'weapon', 'Heavy',    44, 0, -2, 95000, 'Tears a seam in local space. Whatever\'s inside doesn\'t come back.', 80],
+    ['nova_edge',        'Nova Edge',            '&#9876;',  'weapon', 'Melee',    47, 0, 3, 105000, 'A blade that burns brighter with every kill.', 84],
+    ['apex_carbine',     'Apex Carbine',         '&#128299;','weapon', 'Ranged',   50, 0, 0, 115000, 'Prototype smart-rifle. Never left the black budget program.', 88],
+    ['eclipse_fang',     'Eclipse Fang',         '&#9876;',  'weapon', 'Legendary',54, 1, 4, 128000, 'Strikes from wherever the light isn\'t.', 92],
+    ['titan_breaker',    'Titan Breaker',        '&#128299;','weapon', 'Heavy',    58, 0, -3, 142000,'Built to end sieges. Occasionally ends buildings.', 96],
+    ['singularity_edge', 'Singularity Edge',     '&#9876;',  'weapon', 'Legendary',62, 3, 2, 158000, 'The last few atoms of a collapsed star, still sharp.', 100],
+    ['omega_cannon',     'Omega Cannon',         '&#128299;','weapon', 'Legendary',65, 0, -2, 175000,'Every prototype before it is classified as a failure. This one isn\'t.', 100],
     // ==================== ARMOR ====================
     ['ferro_coat',      'Ferro Coat',         '&#129413;','armor', 'Light',    0,  5,  0,  1200,  'Ferromagnetic fiber coat. Deflects shrapnel and debris.', 1],
     ['combat_vest',     'Combat Vest',        '&#128737;','armor', 'Light',    0,  3,  1,   600,  'Lightweight ballistic weave. Move fast, take a hit.', 1],
@@ -402,6 +415,20 @@ function blacksmith_catalog(): array {
     ['titan_plate',         'Titan Plate',         '&#128737;','armor', 'Heavy',    0, 21, -3, 24000,  'Corporate siege armor. You are now a bunker.', 24],
     ['specter_weave',       'Specter Weave',       '&#128737;','armor', 'Legendary',0, 24,  3, 34000,  'Bends light around every seam. Ghosts wear this.', 34],
     ['bastion_carapace',    'Bastion Carapace',    '&#128737;','armor', 'Legendary',0, 30, -2, 48000,  'Salvaged megacorp prototype. Rated for orbital debris.', 48],
+    // ---- new additions (levels 55-100) ----
+    ['reflex_plate',        'Reflex Plate',        '&#128737;','armor', 'Tech',     0, 32,  1, 55000,  'Predictive plating shifts density microseconds before impact.', 55],
+    ['ashfall_coat',        'Ashfall Coat',        '&#128737;','armor', 'Heavy',    0, 34, -1, 60000,  'Cinder-resistant weave, standard issue after the Forge Quarter fires.', 60],
+    ['wraithskin',          'Wraithskin',          '&#128737;','armor', 'Stealth',  0, 33,  3, 66000,  'Doesn\'t block hits. Makes sure they land somewhere else.', 64],
+    ['dreadnought_frame',   'Dreadnought Frame',   '&#129302;','armor', 'Heavy',    0, 40, -3, 74000,  'A one-person bunker you can technically still walk in.', 68],
+    ['mirage_cloak',        'Mirage Cloak',        '&#128737;','armor', 'Legendary',1, 38,  3, 82000,  'Bends the last three photons that would\'ve spotted you.', 72],
+    ['bulwark_exo',         'Bulwark Exo',         '&#129302;','armor', 'Heavy',    0, 46, -2, 92000,  'Corporate riot-suppression armor, repurposed for personal use.', 76],
+    ['solaris_weave',       'Solaris Weave',       '&#128737;','armor', 'Tech',     0, 44,  2, 102000, 'Draws a static charge that arcs incoming rounds off-target.', 80],
+    ['obsidian_plate',      'Obsidian Plate',      '&#128737;','armor', 'Legendary',0, 52, -1, 114000, 'Volcanic glass over ceramic weave. Looks fragile. Isn\'t.', 84],
+    ['specter_husk',        'Specter Husk',        '&#128737;','armor', 'Stealth',  0, 50,  3, 126000, 'A shell that was never quite where you last saw it.', 88],
+    ['gravitic_harness',    'Gravitic Harness',    '&#129302;','armor', 'Heavy',    0, 58, -3, 140000, 'Warps incoming force around the wearer instead of absorbing it.', 92],
+    ['aegis_prime',         'Aegis Prime',         '&#128737;','armor', 'Legendary',0, 64,  0, 155000, 'The last suit standing after every corporate trial run.', 96],
+    ['eventide_shell',      'Eventide Shell',      '&#128737;','armor', 'Legendary',0, 62,  4, 168000, 'Phases half a second behind reality. Nothing quite catches it.', 100],
+    ['omega_bastion',       'Omega Bastion',       '&#128737;','armor', 'Legendary',0, 70, -2, 185000, 'Built from salvage nobody was supposed to find. Immovable.', 100],
   ];
 }
 

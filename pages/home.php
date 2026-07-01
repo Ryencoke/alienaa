@@ -178,8 +178,8 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
   ?>
   <div class="hm-notif" style="animation-delay:<?= min(10, $nfI = ($nfI ?? 0) + 1) * 45 ?>ms;display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">
     <span style="font-size:13px;flex:none;color:<?= $ncol ?>;margin-top:2px"><?= $nicon ?></span>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:12px"><?= $rawHtml ? $item['text'] : e($item['text']) ?></div>
+    <div style="flex:1;min-width:0;overflow-wrap:break-word;word-break:break-word">
+      <div style="font-size:12px;line-height:1.4"><?= $rawHtml ? $item['text'] : e($item['text']) ?></div>
       <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= !empty($item['ts']) ? e(fmt_game_time($item['ts'], 'M j, g:ia', $__mysqlNow)) : '' ?></div>
     </div>
     <?php if ($canDismiss): ?>
@@ -505,9 +505,9 @@ function render(items) {
     row.appendChild(icon);
 
     var body = document.createElement('div');
-    body.style.cssText = 'flex:1;min-width:0';
+    body.style.cssText = 'flex:1;min-width:0;overflow-wrap:break-word;word-break:break-word';
     var textEl = document.createElement('div');
-    textEl.style.fontSize = '12px';
+    textEl.style.cssText = 'font-size:12px;line-height:1.4';
     if (item.raw) textEl.innerHTML = item.text; else textEl.textContent = item.text; // server-controlled HTML only for the synthetic levelup entry
     var tsEl = document.createElement('div');
     tsEl.style.cssText = 'font-size:10px;color:var(--muted);margin-top:1px';

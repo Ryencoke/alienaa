@@ -13,4 +13,7 @@ CREATE TABLE casino_log (
   played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_player (player_id, played_at),
   FOREIGN KEY (player_id) REFERENCES players(id)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- detail must be utf8mb4 (not the table default in older MySQL configs) —
+-- slots stores emoji reel symbols there, which need 4-byte UTF-8 support or
+-- they get silently replaced with "?" on insert.
