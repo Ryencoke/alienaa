@@ -150,7 +150,6 @@ $pocket  = (int)$player['creds_pocket'];
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
     <label for="bs-sort" style="font-size:11px;color:var(--muted)">Sort by</label>
     <select id="bs-sort" style="width:auto;font-size:12px;padding:5px 8px">
-      <option value="default">Default</option>
       <option value="price-asc">Price: Low to High</option>
       <option value="price-desc">Price: High to Low</option>
       <option value="lvl-asc">Level Required: Low to High</option>
@@ -356,7 +355,6 @@ if(grid&&detail){
 /* ── Sort ──────────────────────────────────────────────────────────────── */
 var sortSel=document.getElementById('bs-sort');
 if(sortSel&&grid){
-  var origOrder=Array.prototype.slice.call(grid.children);
   var sorters={
     'price-asc':  function(a,b){ return parseInt(a.dataset.price,10)-parseInt(b.dataset.price,10); },
     'price-desc': function(a,b){ return parseInt(b.dataset.price,10)-parseInt(a.dataset.price,10); },
@@ -368,7 +366,7 @@ if(sortSel&&grid){
     'name-asc':   function(a,b){ return a.dataset.name.localeCompare(b.dataset.name); }
   };
   function applySort(v){
-    var cards=v==='default'?origOrder.slice():Array.prototype.slice.call(grid.children).sort(sorters[v]);
+    var cards=Array.prototype.slice.call(grid.children).sort(sorters[v]);
     cards.forEach(function(c){ grid.appendChild(c); });
   }
   sortSel.addEventListener('change',function(){ applySort(sortSel.value); });

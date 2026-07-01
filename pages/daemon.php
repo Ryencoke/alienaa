@@ -863,6 +863,12 @@ $vpHandExamples = [
 
 <script>
 (function(){
+  /* Shared symbol sets — used both by the pre-submit reset (so old results
+     never sit visible during the network round-trip) and by the post-
+     response reveal animation. One source of truth so they can't drift. */
+  var SLOT_SYMS = ['🍒','🔔','💎','⚡','7️⃣'];
+  var DICE_FACES = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+
   /* Mute button icon (button re-renders on every swap; pref persists) */
   var mb=document.getElementById('dmn-mute');
   if(mb) mb.innerHTML=localStorage.getItem('daemonMuted')==='1'?'&#128263;':'&#128266;';
@@ -990,26 +996,41 @@ $vpHandExamples = [
   var sf = document.getElementById('slots-form');
   if (sf) {
     sf.addEventListener('submit', function(){
-      document.querySelectorAll('.reel-box').forEach(function(r){ r.classList.add('rolling'); r.classList.remove('idle'); });
+      // This is the gap that survived 5 previous fixes: this handler only
+      // ever added a CSS blur class ('rolling') to the EXISTING reel boxes —
+      // it never touched their innerHTML or their reel-win/reel-lose class,
+      // so the PREVIOUS spin's actual symbols, still tinted with that
+      // spin's win/lose glow color, sat there fully legible-under-blur for
+      // the entire network round-trip (however long that takes) before the
+      // server even responds and the real hidden-then-revealed sequence
+      // (fixed in an earlier pass) ever takes over. From the player's POV
+      // that reads as "it shows the result before the reels finish," because
+      // visually there are two back-to-back "reveals": this stale one, then
+      // the real one. Reset content AND class to a neutral random state
+      // immediately, synchronously, so nothing real is ever on screen here.
+      document.querySelectorAll('#pane-slots .reel-box').forEach(function(r){
+        r.innerHTML = SLOT_SYMS[Math.floor(Math.random()*SLOT_SYMS.length)];
+        r.className = 'reel-box idle rolling';
+      });
       var btn = document.getElementById('spin-btn');
       if (btn){ btn.disabled = true; btn.textContent = 'Spinning...'; }
-      // Hide the PREVIOUS spin's result text right away — nothing else was
-      // clearing it, so clicking Spin again left last spin's win/lose
-      // message fully visible on screen for the entire fake-spin animation
-      // that runs before the server even responds, which is exactly what
-      // looked like "the result shows before the reels finish spinning."
       var prevRes = document.querySelector('#pane-slots .daemon-result');
       if (prevRes) prevRes.style.opacity = '0';
     });
   }
 
-  /* Dice roll — same stale-result problem as slots: nothing hid the previous
-     roll's message before the server responds, so it sat fully visible on
-     screen (the swap to the actual roll animation only happens once the
-     response arrives) right up until the reveal script took over. */
+  /* Dice roll — same gap as slots, and actually worse here: this handler
+     hid the previous result TEXT but never touched the dice boxes at all,
+     so the previous roll's actual dice faces (with their win/lose color)
+     stayed fully visible, completely unblurred, for the entire network
+     round-trip. Reset to a neutral random state immediately, same as slots. */
   var df = document.getElementById('dice-form');
   if (df) {
     df.addEventListener('submit', function(){
+      document.querySelectorAll('#pane-dice .dice-box').forEach(function(b){
+        b.innerHTML = DICE_FACES[Math.floor(Math.random()*DICE_FACES.length)];
+        b.className = 'dice-box idle rolling';
+      });
       var prevRes = document.querySelector('#pane-dice .daemon-result');
       if (prevRes) prevRes.style.opacity = '0';
       var prevSum = document.querySelector('#pane-dice .dice-sum');
@@ -1053,7 +1074,6 @@ $vpHandExamples = [
     var boxes=document.querySelectorAll('#pane-dice .dice-box');
     var sum=document.querySelector('#pane-dice .dice-sum');
     if(boxes.length===2){
-      var faces=['⚀','⚁','⚂','⚃','⚄','⚅'];
       var finals=[boxes[0].innerHTML,boxes[1].innerHTML];
       var finalCls=[boxes[0].className,boxes[1].className];
       if(sum) sum.style.visibility='hidden';
@@ -1063,12 +1083,12 @@ $vpHandExamples = [
       // the true result for a full 100ms (until the first setInterval tick)
       // before any randomization ever touched it. Randomize the content HERE,
       // synchronously, before it's ever shown.
-      boxes.forEach(function(b){ b.innerHTML=faces[Math.floor(Math.random()*6)]; b.className='dice-box idle rolling'; });
+      boxes.forEach(function(b){ b.innerHTML=DICE_FACES[Math.floor(Math.random()*DICE_FACES.length)]; b.className='dice-box idle rolling'; });
       if(diceDisplay) diceDisplay.style.opacity='1'; // now actually safe — content is randomized, not the real result
       var n=0;
       var iv=setInterval(function(){
         n++;
-        boxes.forEach(function(b){ b.innerHTML=faces[Math.floor(Math.random()*6)]; });
+        boxes.forEach(function(b){ b.innerHTML=DICE_FACES[Math.floor(Math.random()*DICE_FACES.length)]; });
         FX.tick();
         if(n>=9){
           clearInterval(iv);
@@ -1085,19 +1105,18 @@ $vpHandExamples = [
     var reelDisplay=document.querySelector('#pane-slots .reel-display');
     var reels=document.querySelectorAll('#pane-slots .reel-box');
     if(reels.length===3){
-      var syms=['🍒','🔔','💎','⚡','7️⃣'];
       var rFinals=[],rCls=[];
       // Same gap as the dice: the real final symbol was still in each reel's
       // innerHTML here — only className was reset — so opacity:1 below was
       // revealing the true result (readable win/lose just from the symbols)
       // for a full 90ms until the first setInterval tick randomized it.
       // Randomize synchronously, in the same pass that captures the finals.
-      reels.forEach(function(r){ rFinals.push(r.innerHTML); rCls.push(r.className); r.innerHTML=syms[Math.floor(Math.random()*5)]; r.className='reel-box idle rolling'; });
+      reels.forEach(function(r){ rFinals.push(r.innerHTML); rCls.push(r.className); r.innerHTML=SLOT_SYMS[Math.floor(Math.random()*SLOT_SYMS.length)]; r.className='reel-box idle rolling'; });
       if(reelDisplay) reelDisplay.style.opacity='1'; // now actually safe to show — content is randomized, not the real result
       hideResultUntil('#pane-slots',1500);
       var stopped=0;
       var spinIv=setInterval(function(){
-        reels.forEach(function(r,i){ if(i>=stopped) r.innerHTML=syms[Math.floor(Math.random()*5)]; });
+        reels.forEach(function(r,i){ if(i>=stopped) r.innerHTML=SLOT_SYMS[Math.floor(Math.random()*SLOT_SYMS.length)]; });
         FX.tick();
       },90);
       [550,950,1350].forEach(function(ms,i){

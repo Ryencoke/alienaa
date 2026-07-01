@@ -257,9 +257,9 @@ $totalStims = array_sum($myStims);
         <h2 style="margin:0 0 2px">&#9879; The Synthesis Den</h2>
         <p class="muted" style="margin:0;font-size:12px">Acquire compounds, brew herbs from the <a href="index.php?p=vats" style="color:#3bcf63">Hydrofarms</a> into potions, stay alive longer.</p>
       </div>
-      <div style="display:flex;gap:12px;font-size:12px">
-        <span>Drive: <b style="color:#e8a33d"><?= number_format($cycles) ?></b></span>
-        <span>Streetchem: <b style="color:var(--accent)">Lv <?= $biochem ?></b></span>
+      <div style="display:flex;flex-direction:column;align-items:center;padding:6px 18px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.3);border-radius:8px;box-shadow:0 0 12px rgba(25,240,199,.08)">
+        <div style="font-family:'Orbitron',sans-serif;font-size:20px;font-weight:700;color:var(--accent);text-shadow:0 0 10px rgba(25,240,199,.4)">Lv <?= $biochem ?></div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:1px">&#9879; Streetchem</div>
       </div>
     </div>
   </div>

@@ -659,6 +659,44 @@ if ($sec === 'casino' && $canAdmin) {
       <?php endforeach; ?>
     </table>
     <?php else: ?><p class="muted">No plays logged yet.</p><?php endif; ?>
+
+    <h3 style="margin:20px 0 8px">Play Log</h3>
+    <p class="muted" style="font-size:12px;margin:0 0 10px">Every individual play with bet and payout — search a handle to check a specific claim ("I didn't get my credits").</p>
+    <form method="get" action="index.php?p=admin" style="display:flex;gap:8px;margin-bottom:12px;max-width:340px">
+      <input type="hidden" name="sec" value="casino">
+      <input type="text" name="who" placeholder="Player handle (blank = everyone)" value="<?= e($_GET['who'] ?? '') ?>" style="flex:1">
+      <button type="submit" style="flex:none">Search</button>
+    </form>
+    <?php
+      $casinoWho = trim($_GET['who'] ?? '');
+      $casinoLog = [];
+      try {
+        if ($casinoWho !== '') {
+          $clq = $pdo->prepare("SELECT c.*, p.username, p.role FROM casino_log c JOIN players p ON p.id=c.player_id WHERE p.username LIKE ? ORDER BY c.played_at DESC LIMIT 100");
+          $clq->execute(['%' . $casinoWho . '%']);
+        } else {
+          $clq = $pdo->query("SELECT c.*, p.username, p.role FROM casino_log c JOIN players p ON p.id=c.player_id ORDER BY c.played_at DESC LIMIT 100");
+        }
+        $casinoLog = $clq->fetchAll();
+      } catch (Throwable $e) {}
+    ?>
+    <?php if ($casinoLog): ?>
+    <table>
+      <tr><th>When</th><th>Player</th><th>Game</th><th>Detail</th><th>Bet</th><th>Payout</th><th>Net</th></tr>
+      <?php foreach ($casinoLog as $cl): ?>
+      <tr>
+        <td class="muted" style="font-size:11px"><?= e($cl['played_at']) ?></td>
+        <td><a href="index.php?p=profile&id=<?= (int)$cl['player_id'] ?>" style="color:<?= e(chat_color($cl['role'],'')) ?>"><?= e($cl['username']) ?></a></td>
+        <td><?= e(ucfirst($cl['game'])) ?></td>
+        <td class="muted" style="font-size:11px"><?= e($cl['detail']) ?></td>
+        <td><?= number_format($cl['bet']) ?></td>
+        <td><?= number_format($cl['payout']) ?></td>
+        <td style="color:<?= $cl['net']>=0?'#3bcf63':'var(--neon2)' ?>;font-weight:700"><?= $cl['net']>=0?'+':'' ?><?= number_format($cl['net']) ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </table>
+    <?php elseif ($casinoWho !== ''): ?><p class="muted">No plays found for "<?= e($casinoWho) ?>".</p>
+    <?php else: ?><p class="muted">No plays logged yet.</p><?php endif; ?>
     <?php endif; ?>
   </div>
   <?php return;
@@ -1372,31 +1410,6 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
 </div>
 
 <?php if ($canAdmin): ?>
-<div class="panel">
-  <h3 style="margin:0 0 10px">&#128202; Server Overview</h3>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">
-    <?php foreach ([
-      ['Total Players', number_format((int)($hubStats['total'] ?? 0)), 'var(--text)'],
-      ['Online Now',    number_format((int)($hubStats['online_now'] ?? 0)), '#3bcf63'],
-      ['Subscribers',   number_format((int)($hubStats['subs'] ?? 0)), '#e8d44d'],
-      ['New (24h)',     number_format((int)($hubStats['new_today'] ?? 0)), 'var(--accent)'],
-      ['New (7d)',      number_format((int)($hubStats['new_week'] ?? 0)), 'var(--accent)'],
-      ['Avg Level',     number_format((float)($hubStats['avg_level'] ?? 0), 1), 'var(--text)'],
-      ['Max Level',     number_format((int)($hubStats['max_level'] ?? 0)), 'var(--text)'],
-      ['Credits (Pocket)', number_format((int)($hubStats['total_pocket'] ?? 0)), 'var(--accent)'],
-      ['Credits (Bank)',   number_format((int)($hubStats['total_bank'] ?? 0)), 'var(--accent)'],
-      ['Outstanding Loans', number_format((int)($hubStats['total_loans'] ?? 0)), 'var(--neon2)'],
-      ['Good Alignment', number_format((int)($hubStats['good_players'] ?? 0)), '#e8d44d'],
-      ['Evil Alignment', number_format((int)($hubStats['evil_players'] ?? 0)), 'var(--neon2)'],
-    ] as [$lbl, $v, $c]): ?>
-    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;text-align:center">
-      <div style="font-size:14px;font-weight:700;font-family:'Orbitron',sans-serif;color:<?= $c ?>"><?= $v ?></div>
-      <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:2px"><?= $lbl ?></div>
-    </div>
-    <?php endforeach; ?>
-  </div>
-</div>
-
 <div class="panel">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
     <h3 style="margin:0">&#128220; Latest Staff Actions <span class="muted" style="font-size:11px;font-weight:400">(<?= count($feedAdmin) ?>)</span></h3>

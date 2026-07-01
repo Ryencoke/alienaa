@@ -2,6 +2,62 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-07-01 BATCH-68 ---
+
+BUGFIX — DAEMON.PHP SPIN/ROLL RESULT-BEFORE-REVEAL (6th report, new root
+cause found — the pre-submit gap)
+------------------------------------------------------
+Five prior fixes (BATCH-61 through BATCH-66) each fixed a real bug in the
+POST-response reveal sequence, but the user kept seeing the same symptom.
+Found a SEPARATE, previously-unaddressed gap in the PRE-submit phase: the
+click handlers on the Spin/Roll buttons only ever added a CSS blur class
+("rolling") to the EXISTING reel/dice elements — they never touched
+innerHTML or the reel-win/reel-lose/win/lose class already applied from
+the previous play. So the moment you clicked Spin or Roll, the PREVIOUS
+result's actual symbols and win/lose glow color sat there, blurred but
+still legible, for the entire network round-trip (however long that
+takes) before the server even responds and the already-fixed hidden-then-
+revealed sequence takes over. From the player's view that's two back-to-
+back "reveals" — the stale blurred one right on click, then the real one
+— which reads exactly like "it shows the result before the reels finish."
+Fixed by having both pre-submit handlers reset content AND class to a
+genuinely random neutral state immediately, synchronously, the instant
+Spin/Roll is clicked — never leaving any real result on screen at any
+point between click and the deliberate reveal. Hoisted the symbol/face
+arrays (SLOT_SYMS/DICE_FACES) to a shared scope so the pre-submit reset
+and the post-response reveal can't drift out of sync with each other.
+Not independently verified against a live browser (none available here)
+-- flagged, not declared certain, given the history on this one.
+
+BLACKSMITH.PHP — SORT DROPDOWN
+------------------------------------------------------
+Removed the "Default" option (selecting it reset to catalog-insertion
+order, which visibly did nothing different from the already-active
+level-ascending sort and read as broken). Level: Low to High is now
+simply the page's starting state, no separate "Default" choice needed.
+
+SYNTH.PHP (tab=brew) — HEADER
+------------------------------------------------------
+Removed the small "Drive: N" text chip from the top header. Restyled
+Streetchem level into a proper bordered/glowing stat chip (matching the
+weight other pages give their headline stat) instead of small inline text.
+
+ADMIN.PHP — SERVER OVERVIEW REMOVED, CASINO OVERSIGHT EXPANDED
+------------------------------------------------------
+Removed the Server Overview stats panel added last session (not wanted).
+Casino Oversight (sec=casino) now includes a searchable Play Log —
+every individual casino_log row (player, game, bet, payout, net,
+timestamp), filterable by player handle — specifically so staff can
+verify a player's claim that they didn't receive credits from a play,
+rather than only seeing aggregate top-winner totals.
+
+APARTMENTS.PHP — FURNISHING PANEL SPACING
+------------------------------------------------------
+Tightened up the alignment inside each placed-furnishing chip (icon/name
+next to the Sell button) and added clearer separation (spacing + a
+section label) between the "already placed" furnishings list and the
+"available to place" catalog grid below it.
+
 --- SESSION: 2026-07-01 BATCH-67 ---
 
 BUGFIX — TRANSIT.PHP FATAL SYNTAX ERROR

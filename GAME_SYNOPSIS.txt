@@ -208,6 +208,21 @@ Typical session workflow:
 4. Changes are committed to git
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECENTLY COMPLETED (2026-07-01 BATCH-68)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- daemon.php spin/roll bug: found a 6th-time root cause — the pre-submit
+  click handler only blurred the previous result via CSS, never cleared its
+  actual content/win-lose class, so it sat visible (blurred) through the
+  whole network round-trip before the already-fixed post-response reveal
+  ever ran. Reset content synchronously on click now. Unverified live —
+  five prior "fixed" claims on this exact bug were each wrong or incomplete.
+- admin.php: removed the Server Overview panel; Casino Oversight now has a
+  searchable per-play log (bet/payout/net per row) to verify player claims
+- blacksmith.php sort dropdown lost its no-op "Default" option
+- synth.php brew tab: Drive header chip removed, Streetchem restyled larger
+Full detail in CHANGELOG.txt BATCH-68.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RECENTLY COMPLETED (2026-07-01 BATCH-64 through BATCH-67)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - transit.php Cargo Runs overhauled from a single-click instant result into a

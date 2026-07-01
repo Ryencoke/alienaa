@@ -623,22 +623,23 @@ try {
       try { $dq = $pdo->prepare('SELECT * FROM apartment_decor WHERE apt_id=? ORDER BY placed_at ASC'); $dq->execute([$a['id']]); $aptDecor = $dq->fetchAll(); } catch (Throwable $e) {}
     ?>
     <div class="decor-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
-      <div style="font-size:12px;font-weight:700;margin-bottom:8px">&#128268; Furnishings</div>
+      <div style="font-size:12px;font-weight:700;margin-bottom:10px">&#128268; Furnishings</div>
       <?php if (!empty($aptDecor)): ?>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
         <?php foreach ($aptDecor as $d): $di = $DECOR_ITEMS[$d['decor_key']] ?? null; if (!$di) continue;
           $dRefund = (int)floor($di['price'] / 2);
         ?>
-        <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:11px;display:flex;align-items:center;gap:6px">
-          <span><?= $di['icon'] ?> <?= e($di['name']) ?></span>
-          <form method="post" style="margin:0" onsubmit="return confirm('Sell back <?= e($di['name']) ?> for <?= number_format($dRefund) ?> credits?')"><input type="hidden" name="action" value="decor_remove"><input type="hidden" name="decor_id" value="<?= (int)$d['id'] ?>"><button type="submit" style="font-size:10px;padding:2px 6px" title="Sell back for <?= number_format($dRefund) ?> credits">Sell (<?= number_format($dRefund) ?>)</button></form>
+        <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:7px 10px;font-size:11px;display:flex;align-items:center;gap:10px;line-height:1">
+          <span style="display:inline-flex;align-items:center;gap:4px"><?= $di['icon'] ?> <?= e($di['name']) ?></span>
+          <form method="post" style="margin:0;line-height:1" onsubmit="return confirm('Sell back <?= e($di['name']) ?> for <?= number_format($dRefund) ?> credits?')"><input type="hidden" name="action" value="decor_remove"><input type="hidden" name="decor_id" value="<?= (int)$d['id'] ?>"><button type="submit" style="font-size:10px;padding:3px 7px;line-height:1;vertical-align:middle" title="Sell back for <?= number_format($dRefund) ?> credits">Sell (<?= number_format($dRefund) ?>)</button></form>
         </div>
         <?php endforeach; ?>
       </div>
       <?php else: ?>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">No furnishings yet.</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px">No furnishings yet.</p>
       <?php endif; ?>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Available to Place</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">
         <?php foreach ($DECOR_ITEMS as $dk => $di):
           $alreadyPlaced = !empty(array_filter($aptDecor, fn($d) => $d['decor_key'] === $dk));
           $canAfford = (int)$player['creds_pocket'] >= $di['price'];
