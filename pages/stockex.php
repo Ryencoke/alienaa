@@ -35,27 +35,36 @@ try {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (Throwable $e) {}
 
-// Seed stocks if empty. shares_total is a per-ticker float size — blue-chip,
-// established companies (CRED, NRGY) carry a large float; smaller/riskier
-// ones (SCRP, CHEM) are deliberately thin, which is part of why they're more
-// volatile — scarcity itself is a mechanic, not just flavor.
+// Seed stocks if empty. Every ticker carries a flat 1,000,000-share float —
+// scarcity was tuned much tighter at first (thin floats on riskier tickers)
+// but that made "sold out" too easy to hit, so it's now a uniform large pool
+// across the board; shares_available can still trend toward zero on a very
+// popular ticker, it just takes real sustained demand to get there.
+const SX_SHARE_FLOAT = 1000000;
 try {
   $count = (int)$pdo->query("SELECT COUNT(*) FROM stocks")->fetchColumn();
   if ($count === 0) {
     $seeds = [
-      ['NXUS','Nexus Corp','tech',500,50000],['ARMX','ArmaTech Industries','weapons',320,35000],
-      ['PHRS','Pharmasynth Co','pharma',180,25000],['NRGY','NeonGrid Energy','energy',240,60000],
-      ['DATV','DataVault Ltd','tech',410,40000],['SCRP','Scrapyard Holdings','manufacturing',90,15000],
-      ['CHEM','StreetChem Inc','pharma',150,20000],['CRED','CreditFlow Bank','finance',600,80000],
-      ['INFX','Infect-X Security','security',280,30000],['GRDX','Grid Exchange','finance',380,45000],
+      ['NXUS','Nexus Corp','tech',500],['ARMX','ArmaTech Industries','weapons',320],
+      ['PHRS','Pharmasynth Co','pharma',180],['NRGY','NeonGrid Energy','energy',240],
+      ['DATV','DataVault Ltd','tech',410],['SCRP','Scrapyard Holdings','manufacturing',90],
+      ['CHEM','StreetChem Inc','pharma',150],['CRED','CreditFlow Bank','finance',600],
+      ['INFX','Infect-X Security','security',280],['GRDX','Grid Exchange','finance',380],
     ];
     $ins = $pdo->prepare('INSERT IGNORE INTO stocks (ticker,name,category,price,prev_price,shares_total,shares_available) VALUES (?,?,?,?,?,?,?)');
-    foreach ($seeds as $s) $ins->execute([$s[0],$s[1],$s[2],$s[3],$s[3],$s[4],$s[4]]);
+    foreach ($seeds as $s) $ins->execute([$s[0],$s[1],$s[2],$s[3],$s[3],SX_SHARE_FLOAT,SX_SHARE_FLOAT]);
   }
-  // Backfill: any pre-existing row from before shares_total existed (the
-  // ALTER above defaults new columns to 0, which would otherwise make every
-  // stock permanently "sold out").
-  $pdo->exec("UPDATE stocks SET shares_total = 30000, shares_available = 30000 WHERE shares_total = 0");
+  // Bump every existing ticker's float up to the new 1,000,000 flat size —
+  // preserves how much has already been bought (shares_available only rises
+  // by the same delta the total rose by, so no one's holdings look "returned").
+  // This also covers rows from before shares_total existed at all (the
+  // ALTER above defaults new columns to 0, which shares_total < 1,000,000
+  // already catches) — no separate zero-backfill needed.
+  $curTotals = $pdo->query("SELECT id, shares_total, shares_available FROM stocks WHERE shares_total < " . SX_SHARE_FLOAT)->fetchAll();
+  if ($curTotals) {
+    $bump = $pdo->prepare("UPDATE stocks SET shares_available = shares_available + ?, shares_total = ? WHERE id = ?");
+    foreach ($curTotals as $ct) $bump->execute([SX_SHARE_FLOAT - (int)$ct['shares_total'], SX_SHARE_FLOAT, $ct['id']]);
+  }
 } catch (Throwable $e) {}
 
 // Gather game-activity metrics for price drift
@@ -297,64 +306,90 @@ function sx_daily_candles(array $rows): array {
 }
 
 // Inline SVG candlestick chart, TradingView-style: right-side price axis
-// with gridlines, a dashed current-price line, and a buy/sell volume strip
-// underneath — same hand-rolled style as sx_sparkpath(), no charting
-// library in this codebase. $volByDay: ['Y-m-d' => ['buy'=>int,'sell'=>int]].
-function sx_render_candles(array $candles, array $volByDay, int $w, int $h): string {
+// with gridlines, a dashed current-price line, date ticks along the bottom,
+// and a buy/sell volume strip underneath — same hand-rolled style as
+// sx_sparkpath(), no charting library in this codebase.
+// $volByDay: ['Y-m-d' => ['buy'=>int,'sell'=>int]]. $dateTicks: how many
+// evenly-spaced date labels to draw along the bottom (0 = none, used for
+// the small inline preview; the popup passes more).
+function sx_render_candles(array $candles, array $volByDay, int $w, int $h, int $dateTicks = 0): string {
   $n = count($candles);
   if ($n < 2) return '';
-  $axisW = 54; $plotW = $w - $axisW;
-  $volH = 40; $chartH = $h - $volH - 10;
+  $axisW = 56; $plotW = $w - $axisW;
+  $volH = 36; $dateH = $dateTicks > 0 ? 18 : 0;
+  $chartH = $h - $volH - $dateH - 8;
   $allPrices = [];
   foreach ($candles as $c) { $allPrices[] = $c['h']; $allPrices[] = $c['l']; }
   $mn = min($allPrices); $mx = max($allPrices);
-  $pad = max(1, ($mx - $mn) * 0.08); $mn -= $pad; $mx += $pad; // headroom so wicks never touch the frame edge
+  $pad = max(1, ($mx - $mn) * 0.1); $mn -= $pad; $mx += $pad; // headroom so wicks never touch the frame edge
   $rng = max(1, $mx - $mn);
-  $slot = $plotW / $n; $bodyW = max(2, min(10, $slot * 0.6));
+  $slot = $plotW / $n; $bodyW = max(2, min(12, $slot * 0.62));
 
   $maxVol = 1;
   foreach ($volByDay as $v) $maxVol = max($maxVol, (int)$v['buy'], (int)$v['sell']);
 
   $y = fn($p) => round($chartH - ($p - $mn) / $rng * $chartH, 1);
+  $cx = fn($i) => round($i * $slot + $slot / 2, 1);
 
-  $svg = '<rect x="0" y="0" width="'.$plotW.'" height="'.$chartH.'" fill="rgba(255,255,255,.015)"/>';
+  $svg = '';
 
-  // Horizontal price gridlines + right-axis labels (4 evenly spaced levels)
+  // Horizontal price gridlines + right-axis labels (4 evenly spaced levels) —
+  // drawn first, behind everything else, kept faint so they read as a grid
+  // rather than competing with the candles for attention.
   $levels = 4;
   for ($li = 0; $li <= $levels; $li++) {
     $p = $mn + $rng * $li / $levels;
     $ly = $y($p);
-    $svg .= '<line x1="0" y1="'.$ly.'" x2="'.$plotW.'" y2="'.$ly.'" stroke="rgba(255,255,255,.06)" stroke-width="1"/>';
-    $svg .= '<text x="'.($plotW+8).'" y="'.($ly+3).'" font-size="9" fill="#5d6680" font-family="monospace">'.number_format((int)round($p)).'</text>';
+    $svg .= '<line x1="0" y1="'.$ly.'" x2="'.$plotW.'" y2="'.$ly.'" stroke="rgba(255,255,255,.05)" stroke-width="1"/>';
+    $svg .= '<text x="'.($plotW+7).'" y="'.($ly+3).'" font-size="9" fill="#6b7490" font-family="monospace">'.number_format((int)round($p)).'</text>';
   }
 
-  // Current price — dashed line + boxed label pinned to the last close
-  $lastClose = end($candles)['c'];
-  $cpy = $y($lastClose);
-  $cpCol = $lastClose >= $candles[0]['o'] ? '#3bcf63' : '#ff2d95';
-  $svg .= '<line x1="0" y1="'.$cpy.'" x2="'.$plotW.'" y2="'.$cpy.'" stroke="'.$cpCol.'" stroke-width="1" stroke-dasharray="3 3" opacity="0.6"/>';
-  $svg .= '<rect x="'.$plotW.'" y="'.($cpy-7).'" width="'.$axisW.'" height="14" fill="'.$cpCol.'"/>';
-  $svg .= '<text x="'.($plotW+6).'" y="'.($cpy+3).'" font-size="9" font-weight="700" fill="#05050c" font-family="monospace">'.number_format((int)$lastClose).'</text>';
-
+  // Candles + their per-day volume bars
   foreach ($candles as $i => $c) {
-    $cx = round($i * $slot + $slot / 2, 1);
-    $col = $c['c'] >= $c['o'] ? '#3bcf63' : '#ff2d95';
-    $svg .= '<line x1="'.$cx.'" y1="'.$y($c['h']).'" x2="'.$cx.'" y2="'.$y($c['l']).'" stroke="'.$col.'" stroke-width="1"/>';
+    $x = $cx($i);
+    $col = $c['c'] >= $c['o'] ? '#3bcf63' : '#ff3b6f';
+    $svg .= '<line x1="'.$x.'" y1="'.$y($c['h']).'" x2="'.$x.'" y2="'.$y($c['l']).'" stroke="'.$col.'" stroke-width="1.2"/>';
     $bodyTop = $y(max($c['o'], $c['c']));
     $bodyBot = $y(min($c['o'], $c['c']));
-    $bodyH   = max(1, $bodyBot - $bodyTop);
-    $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.$bodyTop.'" width="'.round($bodyW,1).'" height="'.$bodyH.'" fill="'.$col.'" rx="1"/>';
+    $bodyH   = max(1.5, $bodyBot - $bodyTop);
+    $svg .= '<rect x="'.round($x - $bodyW/2,1).'" y="'.$bodyTop.'" width="'.round($bodyW,1).'" height="'.$bodyH.'" fill="'.$col.'" rx="1"/>';
 
     $v = $volByDay[$c['d']] ?? ['buy'=>0,'sell'=>0];
     $buyH  = round(($v['buy']  / $maxVol) * ($volH/2 - 2), 1);
     $sellH = round(($v['sell'] / $maxVol) * ($volH/2 - 2), 1);
-    $baseY = $chartH + 10 + $volH/2;
-    if ($buyH  > 0) $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.round($baseY - $buyH,1).'" width="'.round($bodyW,1).'" height="'.$buyH.'" fill="#3bcf63" opacity="0.75" rx="1"/>';
-    if ($sellH > 0) $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.$baseY.'" width="'.round($bodyW,1).'" height="'.$sellH.'" fill="#ff2d95" opacity="0.75" rx="1"/>';
+    $volBaseY = $chartH + 8 + $volH/2;
+    if ($buyH  > 0) $svg .= '<rect x="'.round($x - $bodyW/2,1).'" y="'.round($volBaseY - $buyH,1).'" width="'.round($bodyW,1).'" height="'.$buyH.'" fill="#3bcf63" opacity="0.7" rx="1"/>';
+    if ($sellH > 0) $svg .= '<rect x="'.round($x - $bodyW/2,1).'" y="'.$volBaseY.'" width="'.round($bodyW,1).'" height="'.$sellH.'" fill="#ff3b6f" opacity="0.7" rx="1"/>';
   }
-  $baseline = $chartH + 10 + $volH/2;
-  $svg .= '<line x1="0" y1="'.$baseline.'" x2="'.$plotW.'" y2="'.$baseline.'" stroke="rgba(255,255,255,.1)" stroke-width="1"/>';
+
+  // Current price — dashed line + a small pinned label, drawn ON TOP of the
+  // candles (unlike before) so it reads as an overlay marker, not another
+  // competing shape at the same visual weight.
+  $lastClose = end($candles)['c'];
+  $cpy = $y($lastClose);
+  $cpCol = $lastClose >= $candles[0]['o'] ? '#3bcf63' : '#ff3b6f';
+  $svg .= '<line x1="0" y1="'.$cpy.'" x2="'.$plotW.'" y2="'.$cpy.'" stroke="'.$cpCol.'" stroke-width="1" stroke-dasharray="4 3" opacity="0.55"/>';
+  $svg .= '<rect x="'.$plotW.'" y="'.($cpy-7).'" width="'.$axisW.'" height="14" rx="2" fill="'.$cpCol.'"/>';
+  $svg .= '<text x="'.($plotW+6).'" y="'.($cpy+3).'" font-size="9" font-weight="700" fill="#05050c" font-family="monospace">'.number_format((int)$lastClose).'</text>';
+
+  // Volume-section divider + baseline
+  $volBaseline = $chartH + 8 + $volH/2;
   $svg .= '<line x1="0" y1="'.($chartH+2).'" x2="'.$plotW.'" y2="'.($chartH+2).'" stroke="rgba(232,212,77,.15)" stroke-width="1"/>';
+  $svg .= '<line x1="0" y1="'.$volBaseline.'" x2="'.$plotW.'" y2="'.$volBaseline.'" stroke="rgba(255,255,255,.08)" stroke-width="1"/>';
+
+  // Date ticks along the very bottom (popup view only — dateTicks=0 skips this)
+  if ($dateTicks > 0) {
+    $dateY = $chartH + $volH + $dateH;
+    $step = max(1, (int)floor(($n - 1) / max(1, $dateTicks - 1)));
+    for ($i = 0; $i < $n; $i += $step) {
+      $x = $cx($i);
+      $svg .= '<text x="'.$x.'" y="'.($dateY-2).'" font-size="9" fill="#6b7490" font-family="monospace" text-anchor="middle">'.e(date('M j', strtotime($candles[$i]['d']))).'</text>';
+    }
+    // always label the final candle too, even if it doesn't land on a step
+    $lastX = $cx($n - 1);
+    $svg .= '<text x="'.$lastX.'" y="'.($dateY-2).'" font-size="9" fill="#6b7490" font-family="monospace" text-anchor="end">'.e(date('M j', strtotime(end($candles)['d']))).'</text>';
+  }
+
   return $svg;
 }
 
@@ -460,12 +495,8 @@ if ($tab === 'detail') {
   <div style="position:relative">
     <canvas id="sx-canvas"></canvas>
     <div style="position:absolute;left:16px;top:10px;pointer-events:none">
-      <h2 style="margin:0">&#128200; Stock Exchange</h2>
+      <h2 style="margin:0">Stock Exchange</h2>
       <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">Game-tied stocks. Prices update every 5 minutes. 1% brokerage fee on all trades.</p>
-    </div>
-    <div style="position:absolute;right:14px;top:12px;text-align:right">
-      <div class="muted" style="font-size:10px;text-shadow:0 1px 4px #000">POCKET</div>
-      <div style="font-size:17px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent);text-shadow:0 1px 6px #000"><?= number_format($player['creds_pocket']) ?> <span style="font-size:11px;font-weight:400">credits</span></div>
     </div>
     <?php if (count($composite) >= 2): ?>
     <div style="position:absolute;left:16px;bottom:22px;pointer-events:none">
@@ -474,7 +505,7 @@ if ($tab === 'detail') {
       <span style="font-size:10px;color:<?= end($composite) >= $composite[0] ? '#3bcf63' : 'var(--neon2)' ?>"><?= end($composite) >= $composite[0] ? '▲' : '▼' ?> <?= abs(round((end($composite) - $composite[0]) / max(.01, $composite[0]) * 100, 2)) ?>% / 7d</span>
     </div>
     <?php endif; ?>
-    <button id="sx-mute" onclick="toggleSxSound()" title="Toggle sound" style="position:absolute;top:8px;right:120px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
+    <button id="sx-mute" onclick="toggleSxSound()" title="Toggle sound" style="position:absolute;top:8px;right:14px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
   </div>
 </div>
 
@@ -529,7 +560,7 @@ if ($tab === 'detail') {
     $soldOut = $avail <= 0;
   ?>
   <div style="border-bottom:1px solid rgba(255,255,255,.04)">
-    <div class="sx-row sx-grid<?= $rowAnim ?>" style="padding:10px 14px;cursor:pointer" onclick="window.location.href='index.php?p=stockex&tab=detail&id=<?= (int)$s['id'] ?>'">
+    <div class="sx-row sx-grid<?= $rowAnim ?>" data-sx-id="<?= (int)$s['id'] ?>" style="padding:10px 14px;cursor:pointer" onclick="window.location.href='index.php?p=stockex&tab=detail&id=<?= (int)$s['id'] ?>'">
       <div>
         <div><span style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:<?= $catCol ?>"><?= e($s['ticker']) ?></span>
         <span style="font-size:12px;color:var(--text);margin-left:6px"><?= e($s['name']) ?></span>
@@ -541,9 +572,9 @@ if ($tab === 'detail') {
         <svg width="58" height="20" style="display:block;margin:0 auto"><path d="<?= sx_sparkpath($spark, 58, 20) ?>" fill="none" stroke="<?= $sparkCol ?>" stroke-width="1.3" stroke-linejoin="round"/></svg>
         <?php else: ?><span style="font-size:9px;color:var(--muted)">—</span><?php endif; ?>
       </div>
-      <div style="text-align:right;font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;color:var(--text)"><?= number_format($s['price']) ?></div>
+      <div class="sx-price-val" style="text-align:right;font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;color:var(--text)"><?= number_format($s['price']) ?></div>
       <div style="text-align:right">
-        <span class="sx-pill <?= $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'flat') ?>"><?= $diff > 0 ? '&#9650;' : ($diff < 0 ? '&#9660;' : '&bull;') ?> <?= number_format(abs($diffPct), 1) ?>%</span>
+        <span class="sx-pill sx-change-pill <?= $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'flat') ?>"><?= $diff > 0 ? '&#9650;' : ($diff < 0 ? '&#9660;' : '&bull;') ?> <?= number_format(abs($diffPct), 1) ?>%</span>
       </div>
       <div onclick="event.stopPropagation()">
         <?php if ($soldOut): ?>
@@ -575,7 +606,7 @@ if ($tab === 'detail') {
   $avail = (int)$ds['shares_available']; $total = (int)$ds['shares_total'];
   $availPct = $total > 0 ? round($avail / $total * 100) : 0;
 ?>
-<div class="panel">
+<div class="panel" id="sx-detail-root" data-sx-id="<?= (int)$ds['id'] ?>">
   <a href="index.php?p=stockex&tab=market" style="font-size:11px;color:var(--muted);text-decoration:none">&larr; Back to Market</a>
   <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-top:8px">
     <div>
@@ -590,16 +621,16 @@ if ($tab === 'detail') {
     </div>
     <div style="text-align:right;flex:none">
       <div style="display:flex;align-items:baseline;justify-content:flex-end;gap:8px">
-        <span style="font-family:'Orbitron',sans-serif;font-size:26px;font-weight:700;color:var(--text)"><?= number_format($ds['price']) ?></span>
+        <span class="sx-detail-price" style="font-family:'Orbitron',sans-serif;font-size:26px;font-weight:700;color:var(--text)"><?= number_format($ds['price']) ?></span>
         <span style="font-size:12px;font-weight:400;color:var(--muted)">credits</span>
       </div>
-      <div style="margin-top:4px"><span class="sx-pill" style="width:auto;padding:3px 10px;<?= $diff > 0 ? 'color:#3bcf63;background:rgba(59,207,99,.1);border:1px solid rgba(59,207,99,.3)' : ($diff < 0 ? 'color:var(--neon2);background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.3)' : 'color:var(--muted);border:1px solid var(--line)') ?>"><?= $diff > 0 ? '&#9650;' : ($diff < 0 ? '&#9660;' : '&bull;') ?> <?= number_format(abs($diffPct),1) ?>% since last tick</span></div>
+      <div style="margin-top:4px"><span class="sx-pill sx-detail-pill" style="width:auto;padding:3px 10px;<?= $diff > 0 ? 'color:#3bcf63;background:rgba(59,207,99,.1);border:1px solid rgba(59,207,99,.3)' : ($diff < 0 ? 'color:var(--neon2);background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.3)' : 'color:var(--muted);border:1px solid var(--line)') ?>"><span class="sx-detail-arrow"><?= $diff > 0 ? '&#9650;' : ($diff < 0 ? '&#9660;' : '&bull;') ?></span> <span class="sx-detail-pct"><?= number_format(abs($diffPct),1) ?>%</span> since last tick</span></div>
     </div>
   </div>
 </div>
 
 <div class="sx-stat-row" style="margin:14px 0">
-  <div class="sx-stat"><div class="lbl">Shares Available</div><div class="val" style="color:<?= $avail<=0?'var(--neon2)':(($availPct<20)?'#e8a33d':'var(--text)') ?>"><?= number_format($avail) ?></div></div>
+  <div class="sx-stat"><div class="lbl">Shares Available</div><div class="val sx-detail-avail" style="color:<?= $avail<=0?'var(--neon2)':(($availPct<20)?'#e8a33d':'var(--text)') ?>"><?= number_format($avail) ?></div></div>
   <div class="sx-stat"><div class="lbl">Total Float</div><div class="val"><?= number_format($total) ?></div></div>
   <div class="sx-stat"><div class="lbl">Today's Range</div><div class="val" style="font-size:12px"><?= number_format($dayLow) ?>&ndash;<?= number_format($dayHigh) ?></div></div>
   <div class="sx-stat"><div class="lbl">24h Volume</div><div class="val" style="font-size:12px"><span style="color:#3bcf63">&#9650;<?= number_format($detailVol24h['buy']) ?></span> / <span style="color:var(--neon2)">&#9660;<?= number_format($detailVol24h['sell']) ?></span></div></div>
@@ -614,13 +645,14 @@ if ($tab === 'detail') {
         <div style="font-size:10px;color:var(--muted)">&#9632;<span style="color:#3bcf63">&nbsp;up</span> &nbsp;&#9632;<span style="color:var(--neon2)">&nbsp;down</span> &nbsp;&middot;&nbsp; volume below</div>
       </div>
       <?php if (count($detailCandles) >= 2): ?>
-      <div style="position:relative">
-        <svg width="100%" viewBox="0 0 760 280" style="display:block;aspect-ratio:760/280">
-          <?= sx_render_candles($detailCandles, $detailVolByDay, 760, 280) ?>
+      <div style="position:relative;cursor:zoom-in" onclick="document.getElementById('sxChartModal').classList.add('show')" title="Click to expand">
+        <svg width="100%" viewBox="0 0 760 240" style="display:block;aspect-ratio:760/240">
+          <?= sx_render_candles($detailCandles, $detailVolByDay, 760, 240) ?>
         </svg>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:4px">
         <span><?= e(date('M j', strtotime($detailCandles[0]['d']))) ?></span>
+        <span style="cursor:pointer;color:var(--accent)" onclick="document.getElementById('sxChartModal').classList.add('show')">Click chart to expand &#8599;</span>
         <span><?= e(date('M j', strtotime(end($detailCandles)['d']))) ?></span>
       </div>
       <?php else: ?>
@@ -671,6 +703,25 @@ if ($tab === 'detail') {
     <?php endif; ?>
   </div>
 </div>
+
+<?php if (count($detailCandles) >= 2): ?>
+<div class="modal-bg" id="sxChartModal">
+  <div class="modal" style="max-width:920px;width:94vw">
+    <span class="x" onclick="document.getElementById('sxChartModal').classList.remove('show')">&times;</span>
+    <h3><?= e($ds['ticker']) ?> &mdash; 30-Day Chart</h3>
+    <svg width="100%" viewBox="0 0 900 420" style="display:block;aspect-ratio:900/420;background:#08070d;border-radius:6px">
+      <?= sx_render_candles($detailCandles, $detailVolByDay, 900, 420, 8) ?>
+    </svg>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px">&#9632;<span style="color:#3bcf63">&nbsp;up</span> &nbsp;&#9632;<span style="color:var(--neon2)">&nbsp;down</span> &nbsp;&middot;&nbsp; volume &amp; dates below each candle</div>
+  </div>
+</div>
+<script>
+(function(){
+  var m=document.getElementById('sxChartModal');
+  if(m) m.addEventListener('click',function(e){ if(e.target===this) m.classList.remove('show'); });
+})();
+</script>
+<?php endif; ?>
 
 <?php elseif ($tab === 'portfolio'): // portfolio tab ?>
 <div class="panel">
@@ -979,5 +1030,70 @@ document.querySelectorAll('.sx-qty').forEach(function(inp){
     if(kind==='buy') ticket('BUY',ticker,qty,price,'#3bcf63');
     else ticket('SELL',ticker,qty,price,'#ff2d95');
   },true);
+})();
+</script>
+
+<script>
+/* Live quote polling — reflects other players' trades and the periodic
+   price-drift tick without the viewer reloading. Read-only snapshot from
+   stockex_api.php; the price-drift engine itself only runs from a normal
+   page load of this file, this just displays whatever it last computed. */
+(function(){
+  var timer=null;
+  function poll(){
+    // Self-terminates once these elements leave the DOM (navigated away via
+    // the sitewide AJAX swap) — same pattern as this file's composite-chart
+    // canvas loop, since nothing here ever calls clearInterval otherwise.
+    if(!document.querySelector('[data-sx-id]')){ clearInterval(timer); return; }
+    fetch('stockex_api.php',{credentials:'same-origin'})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d.ok||!d.quotes) return;
+        document.querySelectorAll('[data-sx-id]').forEach(function(el){
+          var q=d.quotes[el.getAttribute('data-sx-id')];
+          if(!q) return;
+          var arrow=q.dir==='up'?'&#9650;':(q.dir==='down'?'&#9660;':'&bull;');
+          var pct=Math.abs(q.diffPct).toFixed(1)+'%';
+          if(el.classList.contains('sx-row')){
+            var priceEl=el.querySelector('.sx-price-val');
+            if(priceEl) priceEl.textContent=q.price.toLocaleString('en-US');
+            var pillEl=el.querySelector('.sx-change-pill');
+            if(pillEl){
+              pillEl.classList.remove('up','down','flat');
+              pillEl.classList.add(q.dir);
+              pillEl.innerHTML=arrow+' '+pct;
+            }
+            var availEl=el.querySelector('.sx-avail');
+            if(availEl){
+              var soldOut=q.avail<=0;
+              availEl.classList.toggle('sold-out',soldOut);
+              availEl.innerHTML=soldOut?'Sold out':'<b>'+q.avail.toLocaleString('en-US')+'</b> available';
+            }
+            var qtyInp=el.querySelector('.sx-qty');
+            if(qtyInp) qtyInp.max=q.avail;
+          } else if(el.id==='sx-detail-root'){
+            var pEl=el.querySelector('.sx-detail-price');
+            if(pEl) pEl.textContent=q.price.toLocaleString('en-US');
+            var pill=el.querySelector('.sx-detail-pill');
+            if(pill){
+              var col=q.dir==='up'?'#3bcf63':(q.dir==='down'?'var(--neon2)':'var(--muted)');
+              var bg=q.dir==='up'?'rgba(59,207,99,.1)':(q.dir==='down'?'rgba(255,45,149,.08)':'transparent');
+              var bd=q.dir==='up'?'rgba(59,207,99,.3)':(q.dir==='down'?'rgba(255,45,149,.3)':'var(--line)');
+              pill.style.color=col; pill.style.background=bg; pill.style.borderColor=bd;
+              var a=pill.querySelector('.sx-detail-arrow'); if(a) a.innerHTML=arrow;
+              var p=pill.querySelector('.sx-detail-pct'); if(p) p.textContent=pct;
+            }
+            var av=el.querySelector('.sx-detail-avail');
+            if(av){
+              av.textContent=q.avail.toLocaleString('en-US');
+              av.style.color=q.avail<=0?'var(--neon2)':((q.total>0&&(q.avail/q.total)<0.2)?'#e8a33d':'var(--text)');
+            }
+            document.querySelectorAll('.sx-qty:not(.sell)').forEach(function(i){ i.max=q.avail; });
+          }
+        });
+      })
+      .catch(function(){});
+  }
+  timer=setInterval(poll,8000);
 })();
 </script>

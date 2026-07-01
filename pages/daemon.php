@@ -1048,11 +1048,20 @@ $vpHandExamples = [
       },90);
       [550,950,1350].forEach(function(ms,i){
         setTimeout(function(){
-          reels[i].innerHTML=rFinals[i]; reels[i].className=rCls[i]+' landed';
+          // Land in a NEUTRAL state — rCls[i] (captured pre-spin) already
+          // carries reel-win/reel-lose, and .reel-win/.reel-lose each have
+          // their own distinct glow color (style.css) — applying that per
+          // reel as it individually stops telegraphs the outcome as soon as
+          // the FIRST reel lands, well before the other two finish spinning.
+          // The symbol itself is fine to reveal one at a time; the outcome
+          // styling is not, so it's held back and applied to all three at
+          // once below, only once every reel has actually stopped.
+          reels[i].innerHTML=rFinals[i]; reels[i].className='reel-box landed';
           FX.thud();
           stopped++;
           if(stopped===3){
             clearInterval(spinIv);
+            reels.forEach(function(r,ri){ r.className=rCls[ri]+' landed'; });
             if(ev.jackpot) celebrate('jackpot',ev.net,'#pane-slots .felt');
             else if(ev.big) celebrate('bigwin',ev.net,'#pane-slots .felt');
             else if(ev.mult===1) celebrate('push',0,null);

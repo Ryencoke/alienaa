@@ -32,15 +32,27 @@ try {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (Throwable $e) {}
 
-// Apartment type definitions
+// Apartment type definitions. district: a coarse wealth tier for the
+// neighborhood each region belongs to (poor/working/affluent/elite) — used
+// to group the Buy tab and to tint the placeholder building art, so poorer
+// districts visibly look rougher and richer ones look nicer, not just
+// differently priced. max_units: how many of this type exist citywide —
+// once every unit is owned, nobody can buy a new one (existing owners can
+// still resell theirs on the player market).
+$DISTRICT_META = [
+  'poor'     => ['label'=>'Poor District',     'col'=>'#8a8fa8'],
+  'working'  => ['label'=>'Working District',  'col'=>'#4d9be8'],
+  'affluent' => ['label'=>'Affluent District', 'col'=>'#e8a33d'],
+  'elite'    => ['label'=>'Elite District',    'col'=>'#e8d44d'],
+];
 $APT_TYPES = [
-  1  => ['name'=>'Coffin Cube',      'region'=>'The Undervolt',   'price'=>500,   'rarity'=>'common',    'perks'=>'+5 max Drive',                'perk_key'=>'cycles_max','perk_val'=>5],
-  2  => ['name'=>'Stack Unit',       'region'=>'The Stacks',      'price'=>1200,  'rarity'=>'common',    'perks'=>'+10 max Drive',               'perk_key'=>'cycles_max','perk_val'=>10],
-  3  => ['name'=>'Grid Node Flat',   'region'=>'The Datacore',    'price'=>3000,  'rarity'=>'uncommon',  'perks'=>'+5% XP gain',                  'perk_key'=>'xp_bonus','perk_val'=>5],
-  4  => ['name'=>'Neon Strip Loft',  'region'=>'Neon Strip',      'price'=>6000,  'rarity'=>'uncommon',  'perks'=>'+10 max Signal',               'perk_key'=>'signal_max','perk_val'=>10],
-  5  => ['name'=>'Forge Quarter Den','region'=>'The Forge Quarter','price'=>9000, 'rarity'=>'rare',      'perks'=>'+10% Foundry yield',           'perk_key'=>'foundry_bonus','perk_val'=>10],
-  6  => ['name'=>'Exchange Penthouse','region'=>'The Exchange Block','price'=>25000,'rarity'=>'rare',    'perks'=>'+0.25% extra bank interest',   'perk_key'=>'bank_bonus','perk_val'=>25],
-  7  => ['name'=>'Spire Suite',      'region'=>'The Grid Authority','price'=>75000,'rarity'=>'legendary','perks'=>'+20 max Signal, +20 max Drive','perk_key'=>'dual_boost','perk_val'=>20],
+  1  => ['name'=>'Coffin Cube',      'region'=>'The Undervolt',   'district'=>'poor',     'price'=>500,   'rarity'=>'common',    'perks'=>'+5 max Drive',                'perk_key'=>'cycles_max','perk_val'=>5,  'max_units'=>300],
+  2  => ['name'=>'Stack Unit',       'region'=>'The Stacks',      'district'=>'poor',     'price'=>1200,  'rarity'=>'common',    'perks'=>'+10 max Drive',               'perk_key'=>'cycles_max','perk_val'=>10, 'max_units'=>200],
+  3  => ['name'=>'Grid Node Flat',   'region'=>'The Datacore',    'district'=>'working',  'price'=>3000,  'rarity'=>'uncommon',  'perks'=>'+5% XP gain',                  'perk_key'=>'xp_bonus','perk_val'=>5,   'max_units'=>120],
+  4  => ['name'=>'Neon Strip Loft',  'region'=>'Neon Strip',      'district'=>'working',  'price'=>6000,  'rarity'=>'uncommon',  'perks'=>'+10 max Signal',               'perk_key'=>'signal_max','perk_val'=>10,'max_units'=>90],
+  5  => ['name'=>'Forge Quarter Den','region'=>'The Forge Quarter','district'=>'affluent','price'=>9000, 'rarity'=>'rare',      'perks'=>'+10% Foundry yield',           'perk_key'=>'foundry_bonus','perk_val'=>10,'max_units'=>50],
+  6  => ['name'=>'Exchange Penthouse','region'=>'The Exchange Block','district'=>'affluent','price'=>25000,'rarity'=>'rare',    'perks'=>'+0.25% extra bank interest',   'perk_key'=>'bank_bonus','perk_val'=>25,'max_units'=>25],
+  7  => ['name'=>'Spire Suite',      'region'=>'The Grid Authority','district'=>'elite',  'price'=>75000,'rarity'=>'legendary','perks'=>'+20 max Signal, +20 max Drive','perk_key'=>'dual_boost','perk_val'=>20,'max_units'=>10],
 ];
 
 $REGIONS = array_unique(array_column($APT_TYPES, 'region'));
@@ -52,14 +64,19 @@ $RARITY_FLOORS = ['common'=>4,'uncommon'=>5,'rare'=>7,'legendary'=>9];
 // exists, same approach as render_avatar_inner() for the Chrome Boutique.
 // Deterministic per-type window pattern (seeded off the type id) so a given
 // apartment's "photo" looks the same every time it's rendered, not random
-// noise on every page load.
-function apt_building_art(string $rc, int $seed, int $floors): string {
+// noise on every page load. $district tints how "kept up" the building
+// looks — poorer districts have fewer lit windows and a duller base tone,
+// richer ones are brighter and busier, so the wealth gap reads visually,
+// not just via the price tag.
+function apt_building_art(string $rc, int $seed, int $floors, string $district = 'working'): string {
   $cols = 6; $ww = 15; $wh = 11; $gap = 5;
+  $litChance = ['poor' => 35, 'working' => 50, 'affluent' => 65, 'elite' => 80][$district] ?? 50;
+  $baseFill  = ['poor' => '#0d0c10', 'working' => '#0a0a14', 'affluent' => '#0a0d16', 'elite' => '#0a0c1a'][$district] ?? '#0a0a14';
   mt_srand($seed);
   $windows = '';
   for ($f = 0; $f < $floors; $f++) {
     for ($c = 0; $c < $cols; $c++) {
-      $lit = mt_rand(0, 100) < 55;
+      $lit = mt_rand(0, 100) < $litChance;
       $x = $c * ($ww + $gap) + $gap;
       $y = $f * ($wh + $gap) + $gap;
       $windows .= '<rect x="'.$x.'" y="'.$y.'" width="'.$ww.'" height="'.$wh.'" rx="1.5" fill="'.($lit ? $rc : 'rgba(255,255,255,.05)').'" opacity="'.($lit ? '0.9' : '1').'"/>';
@@ -70,7 +87,7 @@ function apt_building_art(string $rc, int $seed, int $floors): string {
   return '<svg viewBox="0 0 '.$w.' '.$h.'" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style="display:block">'
        . '<defs><linearGradient id="apgrad'.$seed.'" x1="0" y1="0" x2="0" y2="1">'
        . '<stop offset="0%" stop-color="'.$rc.'" stop-opacity="0.12"/><stop offset="100%" stop-color="#05050c" stop-opacity="0"/></linearGradient></defs>'
-       . '<rect width="'.$w.'" height="'.$h.'" fill="#0a0a14"/>'
+       . '<rect width="'.$w.'" height="'.$h.'" fill="'.$baseFill.'"/>'
        . '<rect width="'.$w.'" height="'.$h.'" fill="url(#apgrad'.$seed.')"/>'
        . $windows . '</svg>';
 }
@@ -128,6 +145,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $qc = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND apt_type_id=?');
       $qc->execute([$pid, $typeId]);
       if ($qc->fetchColumn() >= 1) { $pdo->rollBack(); throw new RuntimeException('You already own one of this apartment type.'); }
+
+      // Citywide supply cap — once every unit of this type is owned, no new
+      // ones can be bought (existing owners can still resell theirs on the
+      // player market, which is how a sold-out type becomes available again).
+      $maxUnits = (int)($apt['max_units'] ?? 0);
+      if ($maxUnits > 0) {
+        $qu = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE apt_type_id=?');
+        $qu->execute([$typeId]);
+        if ((int)$qu->fetchColumn() >= $maxUnits) { $pdo->rollBack(); throw new RuntimeException('Every ' . $apt['name'] . ' in the city is currently owned — check the Market tab for a resale.'); }
+      }
 
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([$price, $pid, $price]);
@@ -221,9 +248,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $aptId    = (int)($_POST['apt_id'] ?? 0);
       $mktPrice = max(1, (int)($_POST['market_price'] ?? 0));
       $currency = ($_POST['market_currency'] ?? 'credits') === 'shards' ? 'shards' : 'credits';
+      // This used to also require no OTHER player anywhere already had a
+      // listing for the same apartment type — a global one-per-type cap
+      // across the whole market, not per-player. With only 7 types total,
+      // that meant the market filled up almost immediately and nobody else
+      // could ever list theirs. Removed; a real market allows multiple
+      // independent sellers listing the same type.
       $qa = $pdo->prepare('SELECT * FROM player_apartments WHERE id=? AND player_id=? AND rented_to IS NULL AND on_market=0'); $qa->execute([$aptId, $pid]); $aptRow = $qa->fetch(); if (!$aptRow) throw new RuntimeException('Cannot list — not found or unavailable.');
-      $ml = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE apt_type_id=? AND on_market=1 AND id != ?'); $ml->execute([$aptRow['apt_type_id'], $aptId]);
-      if ((int)$ml->fetchColumn() >= 1) throw new RuntimeException('A listing for this apartment type is already on the market. Only one per type allowed.');
       $pdo->prepare('UPDATE player_apartments SET on_market=1, market_price=?, market_currency=? WHERE id=?')->execute([$mktPrice, $currency, $aptId]);
       $msg = 'Listed on the apartment market for ' . number_format($mktPrice) . ' ' . $currency . '. Manage or cancel it any time from My Properties.';
 
@@ -275,6 +306,8 @@ $myApts = [];
 try { $q = $pdo->prepare('SELECT * FROM player_apartments WHERE player_id=? ORDER BY is_primary DESC, id ASC'); $q->execute([$pid]); $myApts = $q->fetchAll(); } catch (Throwable $e) {}
 $marketListings = [];
 try { $mlq = $pdo->prepare("SELECT pa.*, p.username AS seller_name FROM player_apartments pa JOIN players p ON p.id=pa.player_id WHERE pa.on_market=1 AND pa.player_id != ? ORDER BY pa.market_price ASC LIMIT 50"); $mlq->execute([$pid]); $marketListings = $mlq->fetchAll(); } catch (Throwable $e) {}
+$unitsOwned = [];
+try { foreach ($pdo->query('SELECT apt_type_id, COUNT(*) AS cnt FROM player_apartments GROUP BY apt_type_id') as $r) $unitsOwned[(int)$r['apt_type_id']] = (int)$r['cnt']; } catch (Throwable $e) {}
 ?>
 <style>
 .apt-art{width:100%;height:130px;border-radius:9px 9px 0 0;overflow:hidden;position:relative;border-bottom:1px solid var(--line)}
@@ -319,7 +352,7 @@ try { $mlq = $pdo->prepare("SELECT pa.*, p.username AS seller_name FROM player_a
   <div class="apt-card<?= $a['is_primary'] ? ' primary' : '' ?>">
     <div style="display:flex;flex-wrap:wrap">
       <div class="apt-art" style="width:150px;flex:none;height:auto;border-radius:9px 0 0 9px;border-right:1px solid var(--line);border-bottom:none">
-        <?= apt_building_art($rc, (int)$a['apt_type_id'], $floors) ?>
+        <?= apt_building_art($rc, (int)$a['apt_type_id'], $floors, $atype['district'] ?? 'working') ?>
         <?php if ($a['is_primary']): ?><span class="apt-badge" style="color:#e8a33d;background:rgba(0,0,0,.5);border:1px solid #e8a33d">Primary</span><?php endif; ?>
       </div>
       <div class="apt-body" style="flex:1;min-width:220px">
@@ -440,24 +473,43 @@ try { $mlq = $pdo->prepare("SELECT pa.*, p.username AS seller_name FROM player_a
 <?php endif; ?>
 
 <!-- ── BUY NEW ── -->
-<?php elseif ($tab === 'buy'): ?>
+<?php elseif ($tab === 'buy'):
+  $typesByDistrict = [];
+  foreach ($APT_TYPES as $tid => $atype) $typesByDistrict[$atype['district'] ?? 'working'][$tid] = $atype;
+?>
+<?php foreach (['poor','working','affluent','elite'] as $dk):
+  if (empty($typesByDistrict[$dk])) continue;
+  $dm = $DISTRICT_META[$dk];
+?>
+<div style="display:flex;align-items:center;gap:8px;margin:18px 0 10px">
+  <span style="font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;color:<?= $dm['col'] ?>;text-transform:uppercase;letter-spacing:.08em"><?= e($dm['label']) ?></span>
+  <span style="flex:1;height:1px;background:linear-gradient(90deg,<?= $dm['col'] ?>33,transparent)"></span>
+</div>
 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
-  <?php foreach ($APT_TYPES as $tid => $atype):
+  <?php foreach ($typesByDistrict[$dk] as $tid => $atype):
     $rc = $RARITY_COLORS[$atype['rarity']];
     $owned = false; foreach ($myApts as $a) { if ($a['apt_type_id'] === $tid) { $owned = true; break; } }
     $floors = $RARITY_FLOORS[$atype['rarity']] ?? 4;
+    $maxUnits = (int)($atype['max_units'] ?? 0);
+    $ownedCnt = $unitsOwned[$tid] ?? 0;
+    $soldOutCity = $maxUnits > 0 && $ownedCnt >= $maxUnits;
   ?>
   <div class="apt-card" style="border-color:<?= $atype['rarity']==='legendary'?'rgba(232,212,77,.4)':($atype['rarity']==='rare'?'rgba(255,45,149,.25)':'var(--line)') ?>">
-    <div class="apt-art"><?= apt_building_art($rc, $tid, $floors) ?>
+    <div class="apt-art"><?= apt_building_art($rc, $tid, $floors, $dk) ?>
       <?php if ($atype['rarity'] !== 'common'): ?><span class="apt-badge" style="color:<?= $rc ?>;background:rgba(0,0,0,.5);border:1px solid <?= $rc ?>"><?= $atype['rarity'] ?></span><?php endif; ?>
       <span class="apt-region">&#128205; <?= e($atype['region']) ?></span>
     </div>
     <div class="apt-body">
       <div style="font-weight:700;font-size:15px;color:<?= $rc ?>;margin-bottom:6px"><?= e($atype['name']) ?></div>
-      <div style="font-size:12px;color:#3bcf63;margin-bottom:12px">&#10003; <?= e($atype['perks']) ?></div>
+      <div style="font-size:12px;color:#3bcf63;margin-bottom:8px">&#10003; <?= e($atype['perks']) ?></div>
+      <?php if ($maxUnits > 0): ?>
+      <div style="font-size:10px;color:<?= $soldOutCity ? 'var(--neon2)' : 'var(--muted)' ?>;margin-bottom:10px"><?= $soldOutCity ? 'Sold out citywide — check the Market' : number_format($maxUnits - $ownedCnt) . ' of ' . number_format($maxUnits) . ' left citywide' ?></div>
+      <?php endif; ?>
       <div style="font-family:'Orbitron',sans-serif;font-size:19px;font-weight:700;color:var(--accent);margin-bottom:12px"><?= number_format($atype['price']) ?> <span style="font-size:11px;font-weight:400;color:var(--muted)">credits</span></div>
       <?php if ($owned): ?>
         <button disabled style="width:100%;opacity:.4;font-size:12px">Already Owned</button>
+      <?php elseif ($soldOutCity): ?>
+        <button disabled style="width:100%;opacity:.4;font-size:12px">Sold Out</button>
       <?php else: ?>
         <form method="post" class="apt-buy-form" style="margin:0" data-apt-name="<?= e($atype['name']) ?>" data-apt-price="<?= (int)$atype['price'] ?>">
           <input type="hidden" name="action" value="buy"><input type="hidden" name="type_id" value="<?= $tid ?>">
@@ -468,6 +520,7 @@ try { $mlq = $pdo->prepare("SELECT pa.*, p.username AS seller_name FROM player_a
   </div>
   <?php endforeach; ?>
 </div>
+<?php endforeach; ?>
 
 <!-- Purchase confirmation popup — this is a real-estate purchase, worth a moment's pause -->
 <div class="modal-bg" id="aptBuyModal">
@@ -524,7 +577,7 @@ try { $mlq = $pdo->prepare("SELECT pa.*, p.username AS seller_name FROM player_a
   ?>
   <div class="apt-card" style="display:flex;flex-wrap:wrap">
     <div class="apt-art" style="width:120px;flex:none;height:auto;border-radius:9px 0 0 9px;border-right:1px solid var(--line);border-bottom:none">
-      <?= apt_building_art($rc, (int)$l['apt_type_id'], $floors) ?>
+      <?= apt_building_art($rc, (int)$l['apt_type_id'], $floors, $atype['district'] ?? 'working') ?>
     </div>
     <div class="apt-body" style="flex:1;min-width:220px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
       <div>
