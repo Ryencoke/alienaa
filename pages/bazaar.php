@@ -131,7 +131,6 @@ try {
 } catch (Throwable $e) {}
 $tickerStr = '';
 foreach ($tickerSales as $ts) $tickerStr .= '  '.$ts['name'].' ×'.(int)$ts['qty'].' @ '.number_format((int)$ts['unit_price']).'cr  ///';
-if ($tickerStr === '') $tickerStr = '  NO TRADES YET — BE THE FIRST  ///';
 
 // Category badge colors (stable per category name)
 function bz_cat_col(string $c): string {

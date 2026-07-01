@@ -616,6 +616,46 @@ if ($sec === 'editlog' && $canAdmin) {
   <?php return;
 }
 
+/* ============================ LOG ENTRY DETAIL ============================ */
+if ($sec === 'logentry' && $canAdmin) {
+  $lid2 = (int)($_GET['id'] ?? 0);
+  $entry = null;
+  try {
+    $leq = $pdo->prepare("SELECT l.*, a.username AS admin_name, a.role AS admin_role, t.username AS target_name, t.role AS target_role
+                          FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id LEFT JOIN players t ON t.id=l.target_id
+                          WHERE l.id=?");
+    $leq->execute([$lid2]); $entry = $leq->fetch();
+  } catch (Throwable $e) {}
+  ?>
+  <div class="panel">
+    <h2>&#128220; Staff Action Detail</h2>
+    <?= $back ?>
+    <?php if (!$entry): ?>
+    <p class="muted">Log entry not found.</p>
+    <?php else: ?>
+    <table>
+      <tr><th style="width:140px">When</th><td><?= e($entry['created_at']) ?></td></tr>
+      <tr><th>Staff member</th><td>
+        <?php if ($entry['admin_name']): ?>
+          <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$entry['admin_id'] ?>" style="color:<?= e(chat_color($entry['admin_role'] ?? '', '')) ?>;font-weight:700"><?= e($entry['admin_name']) ?></a>
+          <?= role_tag($entry['admin_role'] ?? '', 'font-size:10px;margin-left:4px') ?>
+        <?php else: ?><span class="muted">&mdash;</span><?php endif; ?>
+      </td></tr>
+      <tr><th>Target player</th><td>
+        <?php if ($entry['target_name']): ?>
+          <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$entry['target_id'] ?>" style="color:<?= e(chat_color($entry['target_role'] ?? '', '')) ?>;font-weight:700"><?= e($entry['target_name']) ?></a>
+        <?php else: ?><span class="muted">&mdash;</span><?php endif; ?>
+      </td></tr>
+      <tr><th>Field</th><td><?= e($entry['field']) ?></td></tr>
+      <tr><th>Old value</th><td class="muted"><?= $entry['old_value'] === '' ? '&empty; (blank)' : e($entry['old_value']) ?></td></tr>
+      <tr><th>New value</th><td><b style="color:var(--accent)"><?= $entry['new_value'] === '' ? '&empty; (blank)' : e($entry['new_value']) ?></b></td></tr>
+      <tr><th>Log ID</th><td class="muted">#<?= (int)$entry['id'] ?></td></tr>
+    </table>
+    <?php endif; ?>
+  </div>
+  <?php return;
+}
+
 /* ============================ MODERATION ============================ */
 if ($sec === 'moderation') {
   ?>
@@ -1179,7 +1219,7 @@ try {
 // Activity feed
 $feedSignups = []; $feedAdmin = [];
 try { $feedSignups = db()->query("SELECT id, username, level, created_at FROM players ORDER BY id DESC LIMIT 6")->fetchAll(); } catch (Throwable $e) {}
-try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, t.username target_name FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id LEFT JOIN players t ON t.id=l.target_id ORDER BY l.id DESC LIMIT 6")->fetchAll(); } catch (Throwable $e) {}
+try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_role, t.username target_name FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id LEFT JOIN players t ON t.id=l.target_id ORDER BY l.id DESC LIMIT 20")->fetchAll(); } catch (Throwable $e) {}
 ?>
 <style>
 #adm-canvas{display:block;width:100%;height:96px;border-radius:9px 9px 0 0}
@@ -1217,77 +1257,47 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, t.username ta
   </div>
 </div>
 
-<?php if ($canAdmin && $hubStats): ?>
+<?php if ($canAdmin): ?>
 <div class="panel">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
-    <h3 style="margin:0">&#128196; Records Hall</h3>
-    <a href="index.php?p=admin&sec=records&filter=total" style="font-size:11px;color:var(--muted)">View all players &rarr;</a>
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    <h3 style="margin:0">&#128220; Latest Staff Actions</h3>
+    <a href="index.php?p=admin&sec=editlog" style="font-size:11px;color:var(--muted)">View full log &rarr;</a>
   </div>
-  <div class="admin-stats-row">
-    <div class="admin-stat-box">
-      <a href="index.php?p=admin&sec=records&filter=total" style="text-decoration:none">
-        <div class="asb-val"><?= number_format($hubStats['total']) ?></div>
-      </a>
-      <div class="asb-lbl">Total Players</div>
-      <div class="asb-sub">
-        <a href="index.php?p=admin&sec=records&filter=new_today" style="color:var(--muted)">+<?= (int)$hubStats['new_today'] ?> today</a>
-        &middot;
-        <a href="index.php?p=admin&sec=records&filter=new_week" style="color:var(--muted)">+<?= (int)$hubStats['new_week'] ?> this week</a>
-      </div>
-    </div>
-    <div class="admin-stat-box">
-      <a href="index.php?p=admin&sec=records&filter=online" style="text-decoration:none">
-        <div class="asb-val" style="color:#3bcf63"><?= number_format($hubStats['online_now']) ?></div>
-      </a>
-      <div class="asb-lbl">Online Now</div>
-      <div class="asb-sub">Last 5 minutes</div>
-    </div>
-    <div class="admin-stat-box">
-      <a href="index.php?p=admin&sec=records&filter=subs" style="text-decoration:none">
-        <div class="asb-val" style="color:#e8d44d"><?= number_format($hubStats['subs']) ?></div>
-      </a>
-      <div class="asb-lbl">Subscribers</div>
-      <div class="asb-sub">Active subscriptions</div>
-    </div>
-    <div class="admin-stat-box">
-      <div class="asb-val"><?= number_format($hubStats['total_pocket'] + $hubStats['total_bank']) ?></div>
-      <div class="asb-lbl">Total Credits</div>
-      <div class="asb-sub">Pocket + bank combined</div>
-    </div>
-    <div class="admin-stat-box">
-      <div class="asb-val"><?= round($hubStats['avg_level'] ?? 0, 1) ?></div>
-      <div class="asb-lbl">Avg Level</div>
-      <div class="asb-sub">Max: <?= (int)$hubStats['max_level'] ?></div>
-    </div>
-    <div class="admin-stat-box">
-      <canvas id="adm-spark" width="130" height="34" style="display:block;margin:2px auto 0"></canvas>
-      <div class="asb-lbl">Signups &middot; 14d</div>
-      <div class="asb-sub"><?= array_sum($signupSeries) ?> total</div>
-    </div>
-    <div class="admin-stat-box" style="border-color:rgba(232,212,77,.3)">
-      <a href="index.php?p=admin&sec=records&filter=good" style="text-decoration:none">
-        <div class="asb-val" style="color:#e8d44d">&#9728; <?= number_format($hubStats['good_players']) ?></div>
-      </a>
-      <div class="asb-lbl">Good Players</div>
-      <div class="asb-sub">Positive mortality</div>
-    </div>
-    <div class="admin-stat-box" style="border-color:rgba(255,45,149,.3)">
-      <a href="index.php?p=admin&sec=records&filter=evil" style="text-decoration:none">
-        <div class="asb-val" style="color:var(--neon2)">&#9760; <?= number_format($hubStats['evil_players']) ?></div>
-      </a>
-      <div class="asb-lbl">Evil Players</div>
-      <div class="asb-sub">Negative mortality</div>
-    </div>
-    <?php if ($openReports): ?>
-    <div class="admin-stat-box" style="border-color:var(--neon2)">
-      <div class="asb-val" style="color:var(--neon2)"><?= $openReports ?></div>
-      <div class="asb-lbl">Open Reports</div>
-      <div class="asb-sub">Needs attention</div>
-    </div>
-    <?php endif; ?>
-  </div>
+  <?php if (empty($feedAdmin)): ?>
+  <p class="muted" style="font-size:12px">No admin actions logged yet.</p>
+  <?php else: foreach ($feedAdmin as $fa): ?>
+  <a href="index.php?p=admin&sec=logentry&id=<?= (int)$fa['id'] ?>" class="adm-feed-row" style="text-decoration:none;color:inherit">
+    <span class="muted" style="font-size:10px;flex:none;width:82px"><?= e(date('M j g:ia', strtotime($fa['created_at'] ?? 'now'))) ?></span>
+    <b style="color:<?= e(chat_color($fa['admin_role'] ?? '', '')) ?>;flex:none"><?= e($fa['admin_name'] ?? '?') ?></b>
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= e($fa['field']) ?><?= $fa['target_name'] ? ' &rarr; '.e($fa['target_name']) : '' ?></span>
+  </a>
+  <?php endforeach; endif; ?>
 </div>
 <?php endif; ?>
+
+<div class="adm-cat">&#128737; Moderation</div>
+<div class="staffgrid">
+  <a class="staffcard" href="index.php?p=admin&sec=moderation" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
+    <span class="ic">&#128737;</span><h4>Moderation</h4>
+    <p>Delete chat messages, board posts and topics.</p>
+    <?php if ($openReports): ?><p style="color:var(--neon2);font-weight:bold">&#9888; <?= $openReports ?> open report(s)</p><?php endif; ?>
+    <span class="req">Mod+</span>
+  </a>
+  <?php if (in_array($role, ['moderator','admin','manager'], true)): ?>
+  <a class="staffcard" href="index.php?p=admin&sec=iplog" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
+    <span class="ic">&#127758;</span><h4>IP &amp; Access Log</h4>
+    <p>Track logins, IP addresses, and flag suspicious session activity.</p>
+    <span class="req">Mod+</span>
+  </a>
+  <?php endif; ?>
+  <?php if ($canAdmin): ?>
+  <a class="staffcard" href="index.php?p=jail" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
+    <span class="ic">&#128274;</span><h4>Confinement Grid</h4>
+    <p>Jail players for violations. Set reason and duration. Release early.</p>
+    <span class="req">Admin+</span>
+  </a>
+  <?php endif; ?>
+</div>
 
 <?php if ($canAdmin): ?>
 <div class="adm-cat">&#128101; Players</div>
@@ -1295,11 +1305,6 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, t.username ta
   <a class="staffcard" href="index.php?p=admin&sec=editplayer" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
     <span class="ic">&#128101;</span><h4>Players</h4>
     <p>Search and edit player accounts &mdash; stats, role &amp; subscription.</p>
-    <span class="req">Admin+</span>
-  </a>
-  <a class="staffcard" href="index.php?p=admin&sec=records&filter=total" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
-    <span class="ic">&#128196;</span><h4>Records Hall</h4>
-    <p>Browse the full player registry. Filter by alignment, activity, subscriptions, and more.</p>
     <span class="req">Admin+</span>
   </a>
   <?php if ($isManager): ?>
@@ -1334,33 +1339,7 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, t.username ta
     <span class="req">Admin+</span>
   </a>
 </div>
-<?php endif; ?>
 
-<div class="adm-cat">&#128737; Moderation</div>
-<div class="staffgrid">
-  <a class="staffcard" href="index.php?p=admin&sec=moderation" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
-    <span class="ic">&#128737;</span><h4>Moderation</h4>
-    <p>Delete chat messages, board posts and topics.</p>
-    <?php if ($openReports): ?><p style="color:var(--neon2);font-weight:bold">&#9888; <?= $openReports ?> open report(s)</p><?php endif; ?>
-    <span class="req">Mod+</span>
-  </a>
-  <?php if (in_array($role, ['moderator','admin','manager'], true)): ?>
-  <a class="staffcard" href="index.php?p=admin&sec=iplog" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
-    <span class="ic">&#127758;</span><h4>IP &amp; Access Log</h4>
-    <p>Track logins, IP addresses, and flag suspicious session activity.</p>
-    <span class="req">Mod+</span>
-  </a>
-  <?php endif; ?>
-  <?php if ($canAdmin): ?>
-  <a class="staffcard" href="index.php?p=jail" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
-    <span class="ic">&#128274;</span><h4>Confinement Grid</h4>
-    <p>Jail players for violations. Set reason and duration. Release early.</p>
-    <span class="req">Admin+</span>
-  </a>
-  <?php endif; ?>
-</div>
-
-<?php if ($canAdmin): ?>
 <div class="adm-cat">&#9881; System</div>
 <div class="staffgrid">
   <?php if ($isManager): ?>
@@ -1395,30 +1374,16 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, t.username ta
 </div>
 
 <!-- Activity feed -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
-  <div class="panel" style="margin:0">
-    <h3 style="margin-top:0;font-size:13px">&#128075; Newest Ghosts</h3>
-    <?php if (empty($feedSignups)): ?><p class="muted" style="font-size:12px">No players yet.</p>
-    <?php else: foreach ($feedSignups as $fs): ?>
-    <div class="adm-feed-row">
-      <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$fs['id'] ?>" style="flex:1"><?= e($fs['username']) ?></a>
-      <span class="muted" style="font-size:10px">Lv<?= (int)$fs['level'] ?></span>
-      <span class="muted" style="font-size:10px"><?= e(date('M j g:ia', strtotime($fs['created_at']))) ?></span>
-    </div>
-    <?php endforeach; endif; ?>
+<div class="panel" style="margin:0">
+  <h3 style="margin-top:0;font-size:13px">&#128075; Newest Ghosts</h3>
+  <?php if (empty($feedSignups)): ?><p class="muted" style="font-size:12px">No players yet.</p>
+  <?php else: foreach ($feedSignups as $fs): ?>
+  <div class="adm-feed-row">
+    <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$fs['id'] ?>" style="flex:1"><?= e($fs['username']) ?></a>
+    <span class="muted" style="font-size:10px">Lv<?= (int)$fs['level'] ?></span>
+    <span class="muted" style="font-size:10px"><?= e(date('M j g:ia', strtotime($fs['created_at']))) ?></span>
   </div>
-  <div class="panel" style="margin:0">
-    <h3 style="margin-top:0;font-size:13px">&#128220; Latest Staff Actions</h3>
-    <?php if (empty($feedAdmin)): ?><p class="muted" style="font-size:12px">No admin actions logged yet.</p>
-    <?php else: foreach ($feedAdmin as $fa): ?>
-    <div class="adm-feed-row">
-      <b style="color:var(--accent);flex:none"><?= e($fa['admin_name'] ?? '?') ?></b>
-      <span class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= e($fa['field']) ?><?= $fa['target_name'] ? ' → '.e($fa['target_name']) : '' ?></span>
-      <span class="muted" style="font-size:10px;flex:none"><?= e(date('M j', strtotime($fa['created_at'] ?? 'now'))) ?></span>
-    </div>
-    <?php endforeach; endif; ?>
-    <p style="margin:8px 0 0"><a href="index.php?p=admin&sec=editlog" style="font-size:11px;color:var(--muted)">Full edit log &rarr;</a></p>
-  </div>
+  <?php endforeach; endif; ?>
 </div>
 <?php endif; ?>
 

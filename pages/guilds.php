@@ -102,6 +102,13 @@ function syn_can($rank, $perm) {
 function syn_log($pdo, $sid, $pid, $actorId, $action, $detail = '') {
   try { $pdo->prepare('INSERT INTO syndicate_log (syndicate_id,player_id,actor_id,action,detail) VALUES (?,?,?,?,?)')->execute([$sid,$pid,$actorId,$action,$detail]); } catch (Throwable $e) {}
 }
+// Hideout notification (same table/shape pvp.php uses for combat notifications).
+function syn_notify($pdo, $playerId, $type, $body) {
+  try {
+    $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    $pdo->prepare('INSERT INTO player_notifications (player_id,type,body) VALUES (?,?,?)')->execute([$playerId,$type,$body]);
+  } catch (Throwable $e) {}
+}
 function syn_add_sidebar($pdo, $playerId, $key) {
   try {
     $sq = $pdo->prepare('SELECT sidebar FROM players WHERE id=?'); $sq->execute([$playerId]);
@@ -386,6 +393,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Verify item belongs to this syndicate and is available
       $sq = $pdo->prepare('SELECT * FROM syndicate_stockpile WHERE id=? AND syndicate_id=? AND available=1'); $sq->execute([$iid,$mySyn['syndicate_id']]); $si = $sq->fetch();
       if (!$si) throw new RuntimeException('Item not found or already loaned.');
+      // Only weapons/armor are loanable — general stockpile items stay donated outright.
+      if (!in_array($si['gear_type'] ?? '', ['weapon','armor'], true)) throw new RuntimeException('Only weapons and armor can be loaned.');
       // Verify borrower is in syndicate
       $bq = $pdo->prepare('SELECT rank FROM syndicate_members WHERE player_id=? AND syndicate_id=?'); $bq->execute([$borrower,$mySyn['syndicate_id']]); if (!$bq->fetchColumn()) throw new RuntimeException('Not a syndicate member.');
       // Insert into borrower's player_gear
@@ -400,6 +409,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('UPDATE syndicate_stockpile SET available=0 WHERE id=?')->execute([$iid]);
       $bname = $pdo->prepare('SELECT username FROM players WHERE id=?'); $bname->execute([$borrower]); $bn = $bname->fetchColumn() ?: '?';
       syn_log($pdo,$mySyn['syndicate_id'],$borrower,$pid,'loan_out','"'.$si['item_name'].'" loaned to '.$bn);
+      syn_notify($pdo, $borrower, 'guild_loan', '"'.$si['item_name'].'" was loaned to you from the Armoury by '.$player['username'].'.');
       $msg = '"' . $si['item_name'] . '" loaned to ' . $bn . '.';
 
     } elseif ($act === 'return_item') {
@@ -408,13 +418,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $lq = $pdo->prepare('SELECT * FROM syndicate_loans WHERE id=? AND syndicate_id=? AND returned_at IS NULL'); $lq->execute([$lid,$mySyn['syndicate_id']]); $ln = $lq->fetch();
       if (!$ln) throw new RuntimeException('Loan not found.');
       // Only the borrower or armourers+ can return
-      if ((int)$ln['player_id'] !== $pid && !syn_can($myRank,'loan_items')) throw new RuntimeException('No permission.');
+      $isSelfReturn = (int)$ln['player_id'] === $pid;
+      if (!$isSelfReturn && !syn_can($myRank,'loan_items')) throw new RuntimeException('No permission.');
       // Remove from borrower's player_gear
       syn_unequip_and_delete_gear($pdo, (int)$ln['player_id'], (int)$ln['player_gear_id']);
       $pdo->prepare('UPDATE syndicate_loans SET returned_at=NOW() WHERE id=?')->execute([$lid]);
       $pdo->prepare('UPDATE syndicate_stockpile SET available=1 WHERE id=?')->execute([$ln['stockpile_id']]);
       $sq = $pdo->prepare('SELECT item_name FROM syndicate_stockpile WHERE id=?'); $sq->execute([$ln['stockpile_id']]); $sname = $sq->fetchColumn() ?: '?';
       syn_log($pdo,$mySyn['syndicate_id'],$ln['player_id'],$pid,'returned','"'.$sname.'" returned to stockpile');
+      // Only notify on an officer-initiated recall — a player returning their own
+      // loan already knows, so a notification would just be noise.
+      if (!$isSelfReturn) syn_notify($pdo, (int)$ln['player_id'], 'guild_loan', '"'.$sname.'" was recalled to the Armoury by '.$player['username'].'.');
       $msg = '"' . $sname . '" returned to stockpile.';
     }
   } catch (Throwable $ex) {
@@ -915,9 +929,7 @@ elseif ($tab === 'stockpile' && $mySyn):
   $activeLoans = [];
   try { $lq = $pdo->prepare("SELECT sl.*,sp.item_name,pl.username AS borrower_name FROM syndicate_loans sl JOIN syndicate_stockpile sp ON sp.id=sl.stockpile_id JOIN players pl ON pl.id=sl.player_id WHERE sl.syndicate_id=? AND sl.returned_at IS NULL AND sp.gear_type='item' ORDER BY sl.loaned_at DESC"); $lq->execute([$mySyn['syndicate_id']]); $activeLoans = $lq->fetchAll(); } catch (Throwable $e) {}
   $canManageStock = syn_can($myRank,'manage_stockpile');
-  $canLoan = syn_can($myRank,'loan_items');
-  $synMembers = [];
-  if ($canLoan) { try { $mq = $pdo->prepare('SELECT sm.player_id,p.username FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? ORDER BY p.username'); $mq->execute([$mySyn['syndicate_id']]); $synMembers = $mq->fetchAll(); } catch (Throwable $e) {} }
+  $canLoan = syn_can($myRank,'loan_items'); // still needed below for the legacy Return button
   // Player inventory — exclude weapons/armor (those go to Armoury)
   $playerInvStock = [];
   try { $piq = $pdo->prepare("SELECT pi.item_id,pi.qty,i.name,i.category FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.qty>0 AND (i.slot IS NULL OR i.slot NOT IN ('weapon','armor')) ORDER BY i.category,i.name"); $piq->execute([$pid]); $playerInvStock = $piq->fetchAll(); } catch (Throwable $e) {}
@@ -965,16 +977,6 @@ elseif ($tab === 'stockpile' && $mySyn):
       <?php if ($si['notes']): ?><div style="font-size:11px;color:var(--muted)"><?= e($si['notes']) ?></div><?php endif; ?>
     </div>
     <span style="font-size:11px;font-weight:700;color:<?= $si['available']?'#3bcf63':'#e8a33d' ?>"><?= $si['available']?'Available':'On Loan' ?></span>
-    <?php if ($canLoan && $si['available'] && !empty($synMembers)): ?>
-    <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
-      <input type="hidden" name="action" value="loan_item">
-      <input type="hidden" name="item_id" value="<?= (int)$si['id'] ?>">
-      <select name="borrower_id" style="font-size:11px;padding:2px 6px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px">
-        <?php foreach ($synMembers as $sm): ?><option value="<?= (int)$sm['player_id'] ?>"><?= e($sm['username']) ?></option><?php endforeach; ?>
-      </select>
-      <button type="submit" style="font-size:10px;padding:3px 8px">Loan</button>
-    </form>
-    <?php endif; ?>
     <?php if ($canManageStock && $si['available']): ?>
     <form method="post" style="margin:0"><input type="hidden" name="action" value="stockpile_remove"><input type="hidden" name="item_id" value="<?= (int)$si['id'] ?>"><button type="submit" style="font-size:10px;padding:3px 8px;background:rgba(226,59,59,.1);border-color:rgba(226,59,59,.3);color:#e23b3b" onclick="return confirm('Remove this item?')">Remove</button></form>
     <?php endif; ?>
@@ -982,7 +984,7 @@ elseif ($tab === 'stockpile' && $mySyn):
   <?php endforeach; endif; ?>
 </div>
 
-<!-- Active loans -->
+<!-- Active loans (legacy only — general items can no longer be loaned, only returned) -->
 <?php if (!empty($activeLoans)): ?>
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:12px 14px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700">Active Loans</div>

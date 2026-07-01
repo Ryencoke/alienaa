@@ -5,6 +5,8 @@ $msg = '';
 $msgErr = false;
 $isManager = (($player['role'] ?? 'member') === 'manager');
 
+try { $pdo->exec("ALTER TABLE updates ADD COLUMN credit_player_id INT NULL"); } catch (Throwable $e) {}
+
 const UPDATES_PER_PAGE = 25;
 $pg = max(1, (int)($_GET['pg'] ?? 1));
 
@@ -19,8 +21,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($body === '')               throw new RuntimeException('Write the update text.');
       if (mb_strlen($body) > 4000)    throw new RuntimeException('Update is too long.');
       if (mb_strlen($credit) > 64)    $credit = mb_substr($credit, 0, 64);
-      $pdo->prepare('INSERT INTO updates (author_id, body, credit) VALUES (?,?,?)')
-          ->execute([$pid, $body, $credit]);
+      $creditPlayerId = null;
+      if ($credit !== '') {
+        $cpq = $pdo->prepare('SELECT id, username FROM players WHERE username=?'); $cpq->execute([$credit]);
+        $cp = $cpq->fetch();
+        if (!$cp) throw new RuntimeException('"' . htmlspecialchars($credit, ENT_QUOTES) . '" is not a ghost in the Sprawl — pick a handle from the search.');
+        $creditPlayerId = (int)$cp['id']; $credit = $cp['username']; // canonical case
+      }
+      $pdo->prepare('INSERT INTO updates (author_id, body, credit, credit_player_id) VALUES (?,?,?,?)')
+          ->execute([$pid, $body, $credit, $creditPlayerId]);
       $msg = 'Update posted.';
       $pg = 1;
     }
@@ -53,11 +62,13 @@ $pages = max(1, (int)ceil($total / UPDATES_PER_PAGE));
 $pg    = min($pg, $pages);
 $off   = ($pg - 1) * UPDATES_PER_PAGE;
 
-$stmt = $pdo->prepare('SELECT u.id, u.body, u.credit, u.created_at,
+$stmt = $pdo->prepare('SELECT u.id, u.body, u.credit, u.credit_player_id, u.created_at,
                        p.id AS posted_id, p.username AS posted_by, p.role AS posted_role, p.chat_color AS posted_color,
+                       cp.id AS credit_pid, cp.username AS credit_username,
                        (SELECT COALESCE(SUM(value),0) FROM update_votes v WHERE v.update_id = u.id) AS score,
                        (SELECT COALESCE(value,0) FROM update_votes v WHERE v.update_id = u.id AND v.player_id = ?) AS my_vote
                      FROM updates u LEFT JOIN players p ON p.id = u.author_id
+                                     LEFT JOIN players cp ON cp.id = u.credit_player_id
                      ORDER BY u.created_at DESC, u.id DESC
                      LIMIT ' . (int)UPDATES_PER_PAGE . ' OFFSET ' . (int)$off);
 $stmt->execute([$pid]);
@@ -157,13 +168,46 @@ function uvote($uid, $dir, $glyph, $myVote) {
       <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:8px">
         <div class="field" style="max-width:260px;flex:1;margin:0">
           <span>Thanks to <span class="muted" style="text-transform:none;letter-spacing:0">(optional handle)</span></span>
-          <input type="text" name="credit" maxlength="64" data-no-counter>
+          <div class="ac-wrap" style="position:relative">
+            <input type="text" id="updCredit" name="credit" placeholder="Ghost's handle" autocomplete="off" maxlength="32" data-no-counter style="width:100%">
+            <div class="ac-list" id="updCreditAcList" style="display:none"></div>
+          </div>
         </div>
         <button type="submit" style="background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent);flex:none">&#128240; Publish</button>
       </div>
     </form>
   </div>
 </div>
+<script>
+(function(){
+  var inp=document.getElementById('updCredit'), list=document.getElementById('updCreditAcList');
+  if(!inp||!list) return;
+  var cur=-1, items=[];
+  function show(names){
+    items=names; cur=-1;
+    if(!names.length){ list.style.display='none'; return; }
+    list.innerHTML=''; names.forEach(function(n,i){
+      var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
+      d.addEventListener('mousedown',function(e){ e.preventDefault(); inp.value=n; list.style.display='none'; });
+      list.appendChild(d);
+    }); list.style.display='block';
+  }
+  inp.addEventListener('input',function(){
+    var q=inp.value.trim(); if(q.length<1){ list.style.display='none'; return; }
+    fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
+      .then(function(r){return r.json();}).then(show).catch(function(){});
+  });
+  inp.addEventListener('keydown',function(e){
+    if(!items.length) return;
+    var rows=list.querySelectorAll('.ac-item');
+    if(e.key==='ArrowDown'){ e.preventDefault(); cur=Math.min(cur+1,rows.length-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); cur=Math.max(cur-1,-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
+    else if(e.key==='Enter'&&cur>=0){ e.preventDefault(); inp.value=items[cur]; list.style.display='none'; }
+    else if(e.key==='Escape'){ list.style.display='none'; }
+  });
+  document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none'; });
+})();
+</script>
 <?php endif; ?>
 
 <div class="panel" style="padding:10px 14px 6px">
@@ -201,7 +245,10 @@ function uvote($uid, $dir, $glyph, $myVote) {
               <b style="color:var(--accent)">Staff</b>
             <?php endif; ?>
           </span>
-          <?php if (trim($r['credit']) !== ''): ?><span style="font-style:italic">&#128172; Thanks to <b style="color:var(--text)"><?= e($r['credit']) ?></b></span><?php endif; ?>
+          <?php if (trim($r['credit']) !== ''): ?><span style="font-style:italic">&#128172; Thanks to
+            <?php if ($r['credit_pid']): ?><a href="index.php?p=profile&id=<?= (int)$r['credit_pid'] ?>" style="color:var(--text);font-weight:700;text-decoration:none"><?= e($r['credit_username']) ?></a>
+            <?php else: ?><b style="color:var(--text)"><?= e($r['credit']) ?></b><?php endif; ?>
+          </span><?php endif; ?>
         </div>
       </div>
     </div>

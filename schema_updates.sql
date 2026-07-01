@@ -2,11 +2,12 @@
 --   run in phpMyAdmin SQL tab
 
 CREATE TABLE updates (
-  id         INT AUTO_INCREMENT PRIMARY KEY,
-  author_id  INT NOT NULL,
-  body       TEXT NOT NULL,
-  credit     VARCHAR(64) NOT NULL DEFAULT '',
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  author_id        INT NOT NULL,
+  body             TEXT NOT NULL,
+  credit           VARCHAR(64) NOT NULL DEFAULT '',
+  credit_player_id INT NULL,
+  created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_created (created_at),
   FOREIGN KEY (author_id) REFERENCES players(id)
 ) ENGINE=InnoDB;
