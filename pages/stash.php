@@ -169,8 +169,8 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
         <option value="default">Default</option>
         <option value="name-asc">Name: A to Z</option>
         <option value="qty-desc">Quantity: High to Low</option>
-        <option value="atk-desc">Attack: High to Low</option>
-        <option value="def-desc">Defense: High to Low</option>
+        <option value="atk-desc" data-cats="weapon,all">Attack: High to Low</option>
+        <option value="def-desc" data-cats="armor,all">Defense: High to Low</option>
         <option value="cat-asc">Category</option>
       </select>
     </div>
@@ -214,32 +214,57 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
   (function(){
     var bar=document.querySelector('.tabs'); if(!bar) return;
     var list=document.getElementById('invlist');
+    var sortSel=document.getElementById('inv-sort');
+    var origOrder=Array.prototype.slice.call(list.children);
+    var activeCat='all';
+    var sorters={
+      'name-asc': function(a,b){ return a.dataset.name.localeCompare(b.dataset.name); },
+      'qty-desc': function(a,b){ return parseInt(b.dataset.qty,10)-parseInt(a.dataset.qty,10); },
+      'atk-desc': function(a,b){ return parseInt(b.dataset.atk,10)-parseInt(a.dataset.atk,10); },
+      'def-desc': function(a,b){ return parseInt(b.dataset.def,10)-parseInt(a.dataset.def,10); },
+      'cat-asc':  function(a,b){ return a.dataset.cat.localeCompare(b.dataset.cat); }
+    };
+
+    // Sort options like "Attack" only mean something while viewing a category
+    // that actually has attack values — leaving them visible in every other
+    // category picked a sort that ties everything at 0 and visibly did
+    // nothing, which read as "sorting is broken." Hide the options that
+    // don't apply to the active tab instead, and fall back to Default if the
+    // currently-picked sort no longer applies.
+    function syncSortOptions(){
+      if(!sortSel) return;
+      Array.prototype.forEach.call(sortSel.options,function(opt){
+        var cats=opt.getAttribute('data-cats');
+        var show=!cats||cats.split(',').indexOf(activeCat)!==-1;
+        opt.hidden=!show;
+      });
+      if(sortSel.selectedOptions[0]&&sortSel.selectedOptions[0].hidden){
+        sortSel.value='default';
+      }
+    }
+
+    function apply(){
+      var v=sortSel?sortSel.value:'default';
+      var all=Array.prototype.slice.call(list.children);
+      var visible=all.filter(function(c){ return activeCat==='all'||c.getAttribute('data-cat')===activeCat; });
+      var hidden=all.filter(function(c){ return visible.indexOf(c)===-1; });
+      hidden.forEach(function(c){ c.style.display='none'; });
+      if(v!=='default'&&sorters[v]) visible.sort(sorters[v]);
+      else visible.sort(function(a,b){ return origOrder.indexOf(a)-origOrder.indexOf(b); });
+      visible.forEach(function(c){ c.style.display=''; list.appendChild(c); });
+    }
+
     bar.addEventListener('click',function(e){
       var t=e.target.closest('.tab'); if(!t) return;
       bar.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');});
       t.classList.add('active');
-      var cat=t.getAttribute('data-cat');
-      list.querySelectorAll('.itemcard').forEach(function(c){
-        c.style.display=(cat==='all'||c.getAttribute('data-cat')===cat)?'':'none';
-      });
+      activeCat=t.getAttribute('data-cat');
+      syncSortOptions();
+      apply();
     });
 
-    var sortSel=document.getElementById('inv-sort');
-    if(sortSel){
-      var origOrder=Array.prototype.slice.call(list.children);
-      var sorters={
-        'name-asc': function(a,b){ return a.dataset.name.localeCompare(b.dataset.name); },
-        'qty-desc': function(a,b){ return parseInt(b.dataset.qty,10)-parseInt(a.dataset.qty,10); },
-        'atk-desc': function(a,b){ return parseInt(b.dataset.atk,10)-parseInt(a.dataset.atk,10); },
-        'def-desc': function(a,b){ return parseInt(b.dataset.def,10)-parseInt(a.dataset.def,10); },
-        'cat-asc':  function(a,b){ return a.dataset.cat.localeCompare(b.dataset.cat); }
-      };
-      sortSel.addEventListener('change',function(){
-        var v=sortSel.value;
-        var cards=v==='default'?origOrder.slice():Array.prototype.slice.call(list.children).sort(sorters[v]);
-        cards.forEach(function(c){ list.appendChild(c); });
-      });
-    }
+    if(sortSel) sortSel.addEventListener('change',apply);
+    syncSortOptions();
   })();
   </script>
   <?php else: ?><p class="muted">Empty. The Sprawl gave you nothing and you kept all of it.</p><?php endif; ?>

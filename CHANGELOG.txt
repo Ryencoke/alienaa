@@ -2,6 +2,83 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-07-01 BATCH-67 ---
+
+BUGFIX — TRANSIT.PHP FATAL SYNTAX ERROR
+------------------------------------------------------
+BATCH-65's CHECKPOINT_ACTIONS array had an unescaped apostrophe inside a
+single-quoted string ("...if it's clear.") which closed the string early
+and broke the array literal -- "unexpected identifier 's', expecting ']'".
+Page was fully broken. Escaped it.
+
+PVP.PHP — SEARCH TAB FIXES + BLACKLIST
+------------------------------------------------------
+Fixed the Target Search filter grid's "Max Health remaining" field
+appearing misaligned relative to its row neighbors -- its label text wraps
+to 2 lines while the others don't, pushing its input down; every field
+wrapper is now a flex column with justify-content:flex-end so inputs
+bottom-align regardless of label height. Root-caused "clicking Attack from
+search does nothing": the link navigates fine, but landing on a disabled,
+unexplained Challenge form (attacker's own Health/Signal too low, or the
+target already flatlined by the time they click) looked like nothing
+happened -- now shows an explicit error banner explaining why. New
+Blacklist feature: add specific ghosts by handle (with an optional note)
+to a standing list that's always shown on the Target Search tab regardless
+of any filter, each with live attackability status and a direct Attack
+link when applicable.
+
+PROFILE.PHP — REVERTED
+------------------------------------------------------
+The BATCH-65 2-column redesign was reverted in full per explicit user
+feedback ("even worse, revert it back") -- restored the original
+single-column panel-stack layout from before BATCH-65.
+
+ACCOUNT.PHP (sec=sidebar) + INDEX.PHP — ADMIN PAGE PINNED LINK
+------------------------------------------------------
+The real sidebar already pinned an always-shown, non-removable "Admin"
+link for staff (outside the customizable order) -- restyled it red with a
+"Staff Only" label so it reads as a distinct staff-only entry rather than
+a regular quicklink. Added the same pinned, locked (non-draggable,
+non-removable) row to the sec=sidebar customization page itself so staff
+can see it's there even though it was never actually removable.
+
+STASH.PHP + BLACKSMITH.PHP — SORT/FILTER INTERACTION
+------------------------------------------------------
+stash.php: rewrote the category-tab filter and sort dropdown into one
+combined apply() function (same pattern as library.php's), and the
+Attack/Defense sort options are now hidden unless the active category tab
+is weapon/armor/all -- picking "Attack: High to Low" while viewing e.g.
+Consumables tied everything at 0 and visibly did nothing, which read as
+"sorting is broken." blacksmith.php: same fix -- the Defense sort option
+is hidden on the Weapons tab and vice versa (each tab is its own page
+load, so this is a plain PHP conditional, not JS).
+
+ADMIN.PHP — LATEST STAFF ACTIONS: CAP + COLLAPSE
+------------------------------------------------------
+Capped the query at 15 rows (was 20) and added a minimize/maximize toggle
+(persisted via localStorage) so the panel can be collapsed out of the way.
+
+BOARDS.PHP — REPLY BUTTON RESTYLED + REPLY-TARGET HIGHLIGHT
+------------------------------------------------------
+BATCH-65 converted the plain "&middot; Reply" text link into a
+<button type="button"> so a click could set the reply target without a
+page reload -- but a bare <button> picks up the sitewide teal-pill button
+style by default, which the user disliked. Reset .reply-trigger back to
+look like the original inline text link while keeping the no-reload
+click behavior. Also added the highlight the user asked for: clicking
+Reply now adds a brief pulse + highlight border to the specific post
+being replied to (id="post-N" added to each post's wrapper div), so it's
+visually clear which post in the thread the reply targets, not just the
+label in the reply form.
+
+MEMORY / WORKFLOW NOTES (not code changes, recorded for future sessions)
+------------------------------------------------------
+User gave explicit standing feedback: (1) never put emoji on submit/action
+button labels, (2) always update this changelog and GAME_SYNOPSIS.txt
+after making changes without being asked each time, (3) don't declare a
+client-side timing/animation bug fixed from static code reading alone,
+especially on a repeat report -- say plainly that it's unverified.
+
 --- SESSION: 2026-07-01 BATCH-65 ---
 
 NEW — STASH.PHP BACKPACK SORTING

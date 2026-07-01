@@ -60,9 +60,7 @@ syndicate board access if leader, apartment market, cosmetics.
 KEY PAGES (pages/*.php)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 home.php          → Hideout / dashboard; hero/XP bar, then notifications, then stats grid
-profile.php       → Public player profile; 2-column layout — stats/combat record/badges
-                    plus a Syndicate/Loadout(residence+gear)/Quick Actions sidebar
-                    (incl. always-visible Journal link)
+profile.php       → Public player profile; badges, combat record, quick actions
 account.php       → Settings: password, bio, sidebar customization, font, country
 messages.php      → Private messages; inbox + conversation thread; ID or handle search
 friends.php       → Friends list; search by username or player ID; online status
@@ -74,7 +72,8 @@ ledger.php        → Bank: deposit/withdraw/transfer credits; bank interest
 trade.php         → Secure Trade Post: escrow trades (items+credits+shards), direct transfer
 pvp.php           → Combat Arena: PvP fights using str/spd/end stats; Target Search tab
                     (level/HP%/alignment/syndicate filters, up to 5 saved searches,
-                    attack directly from results)
+                    attack directly from results) + a Blacklist of specific ghosts
+                    always shown regardless of search filters
 training.php      → Neural Training: spend Drive to gain STR/SPD/END; 30min cooldown
 datacore.php      → Skillsoft Lab: spend Drive on skills (combat, stealth, hack, etc.)
 mining.php        → The Sump: interactive cave crawler; proc-gen 5-depth mines; WASD/click movement; fog of war; ore harvesting costs Drive; Drone Ops skill gates depth access
@@ -158,6 +157,8 @@ pending_signups   → email verification codes for new accounts
 updates           → game update announcements
 pvp_saved_searches → up to 5 named Target Search filter presets per player
                     (player_id, slot 1-5, name, filters JSON)
+pvp_blacklist     → standing list of specific ghosts always shown on Target
+                    Search regardless of filters (player_id, target_id, note)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LAYOUT STRUCTURE (index.php)
@@ -207,28 +208,32 @@ Typical session workflow:
 4. Changes are committed to git
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RECENTLY COMPLETED (2026-07-01 BATCH-64/65)
+RECENTLY COMPLETED (2026-07-01 BATCH-64 through BATCH-67)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - transit.php Cargo Runs overhauled from a single-click instant result into a
   3-checkpoint interactive run — player approach choices (Push Through/Play It
   Safe/Scan & Reroute) shift ambush risk and payout per leg
 - pvp.php Target Search tab: multi-criteria filtering + up to 5 saved/named
-  searches + attack directly from results
-- profile.php redesigned into a 2-column layout with a new Loadout panel
-  (residence + equipped gear) and an always-visible Journal quick action
-- library.php now lists Fabrication Lab crafted gear (ore cost + link) and
-  mining ore alongside Blacksmith items, previously invisible there
-- boards.php replies/votes are now real-time (no page reload), via a new
-  standalone boards_vote_api.php endpoint
+  searches + attack directly from results, plus a standing Blacklist shown
+  regardless of filters
+- library.php now lists Fabrication Lab crafted gear (ore cost + link),
+  mining ore, and every apartment type (Housing tab) — previously invisible
+- boards.php replies/votes are real-time (no page reload) via a new
+  standalone boards_vote_api.php endpoint; clicking Reply highlights the
+  specific post being replied to
 - apartments.php: two-sided rental contracts (propose/accept/decline), 40-type
   catalog across 4 districts, detail-view modal with neighbors list
 - blacksmith.php catalog extended to level 100; stockex.php order popup stays
   open until dismissed, chart pan/zoom, live "why it's moving" stats
-- daemon.php spin/roll result-before-reveal bug fully root-caused (stale
-  result text from the previous spin, not a rendering-order issue)
+- daemon.php spin/roll result-before-reveal bug: BATCH-64's fix addressed a
+  real but different bug (stale result text); the actual cause (found in
+  BATCH-67) was the reveal script showing the real result for ~90ms before
+  the fake-spin animation ever randomized the on-screen content
 - home.php notification dedup fixed at the application level (was relying on
   a DB unique key that could silently fail to apply)
-Full detail in CHANGELOG.txt BATCH-64/BATCH-65.
+- profile.php's BATCH-65 2-column redesign was reverted per user feedback —
+  back to the original single-column layout
+Full detail in CHANGELOG.txt BATCH-64 through BATCH-67.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RECENTLY COMPLETED (as of 2026-06-10)

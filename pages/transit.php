@@ -20,7 +20,7 @@ $routes = [
 // overall risk across the full run, just spread across 3 decision points.
 const RUN_CHECKPOINTS = 3;
 const CHECKPOINT_ACTIONS = [
-  'push' => ['label'=>'Push Through', 'risk_mult'=>1.5, 'pay_mult'=>1.35, 'drive_cost'=>0, 'desc'=>'Faster, louder, more likely to draw attention — but pays out more if it's clear.'],
+  'push' => ['label'=>'Push Through', 'risk_mult'=>1.5, 'pay_mult'=>1.35, 'drive_cost'=>0, 'desc'=>'Faster, louder, more likely to draw attention — but pays out more if it\'s clear.'],
   'safe' => ['label'=>'Play It Safe',  'risk_mult'=>0.6, 'pay_mult'=>1.0,  'drive_cost'=>0, 'desc'=>'Standard pace, standard cut. The reliable choice.'],
   'scan' => ['label'=>'Scan & Reroute','risk_mult'=>0.25,'pay_mult'=>0.9,  'drive_cost'=>2, 'desc'=>'Burns Drive to route around trouble. Safest option, smaller cut.'],
 ];

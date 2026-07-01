@@ -283,7 +283,7 @@ try {
           </a>
         </li>
       <?php endforeach; ?>
-      <?php if ($isStaff): ?><li data-navkey="admin"<?= $p==='admin'?' class="active"':'' ?>><a href="index.php?p=admin">Admin</a></li><?php endif; ?>
+      <?php if ($isStaff): ?><li data-navkey="admin"<?= $p==='admin'?' class="active"':'' ?>><a href="index.php?p=admin" style="color:#e23b3b;font-weight:700">&#128737; Admin Page <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:uppercase;letter-spacing:.04em">&middot; Staff Only</span></a></li><?php endif; ?>
     </ul>
     <div class="sidebar-cta">
       <a href="index.php?p=account&sec=premium" class="cta-btn cta-sub">&#9733; Subscribe</a>

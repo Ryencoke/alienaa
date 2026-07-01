@@ -1333,7 +1333,7 @@ try {
 
 // Activity feed
 $feedAdmin = [];
-try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_role, t.username target_name FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id LEFT JOIN players t ON t.id=l.target_id ORDER BY l.id DESC LIMIT 20")->fetchAll(); } catch (Throwable $e) {}
+try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_role, t.username target_name FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id LEFT JOIN players t ON t.id=l.target_id ORDER BY l.id DESC LIMIT 15")->fetchAll(); } catch (Throwable $e) {}
 ?>
 <style>
 #adm-canvas{display:block;width:100%;height:96px;border-radius:9px 9px 0 0}
@@ -1399,9 +1399,13 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
 
 <div class="panel">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-    <h3 style="margin:0">&#128220; Latest Staff Actions</h3>
-    <a href="index.php?p=admin&sec=editlog" style="font-size:11px;color:var(--muted)">View full log &rarr;</a>
+    <h3 style="margin:0">&#128220; Latest Staff Actions <span class="muted" style="font-size:11px;font-weight:400">(<?= count($feedAdmin) ?>)</span></h3>
+    <div style="display:flex;align-items:center;gap:10px">
+      <a href="index.php?p=admin&sec=editlog" style="font-size:11px;color:var(--muted)">View full log &rarr;</a>
+      <button type="button" id="admFeedToggle" title="Minimize" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:5px;font-size:11px;padding:3px 9px;cursor:pointer">&#9650;</button>
+    </div>
   </div>
+  <div id="admFeedBody">
   <?php if (empty($feedAdmin)): ?>
   <p class="muted" style="font-size:12px">No admin actions logged yet.</p>
   <?php else: foreach ($feedAdmin as $fa): ?>
@@ -1416,7 +1420,18 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
     </span>
   </a>
   <?php endforeach; endif; ?>
+  </div>
 </div>
+<script>
+(function(){
+  var btn=document.getElementById('admFeedToggle'), body=document.getElementById('admFeedBody');
+  if(!btn||!body) return;
+  var collapsed=localStorage.getItem('admFeedCollapsed')==='1';
+  function sync(){ body.style.display=collapsed?'none':''; btn.innerHTML=collapsed?'&#9660;':'&#9650;'; btn.title=collapsed?'Maximize':'Minimize'; }
+  sync();
+  btn.addEventListener('click',function(){ collapsed=!collapsed; localStorage.setItem('admFeedCollapsed',collapsed?'1':'0'); sync(); });
+})();
+</script>
 <?php endif; ?>
 
 <?php if ($canAdmin): ?>

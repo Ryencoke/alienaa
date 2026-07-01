@@ -123,7 +123,7 @@ if (!function_exists('render_post')) {
   function render_post($p, $children, $scores, $tid, $depth, $canModB = false, $myVotes = [], $topicLastRead = null) {
     $col = chat_color($p['role'], '');
     $isNew = $topicLastRead !== null && $p['created_at'] > $topicLastRead;
-    echo '<div class="post" style="margin-left:' . ($depth * 22) . 'px' . ($isNew ? ';border-left:2px solid var(--accent)' : '') . '">';
+    echo '<div class="post" id="post-' . (int)$p['id'] . '" style="margin-left:' . ($depth * 22) . 'px' . ($isNew ? ';border-left:2px solid var(--accent)' : '') . '">';
     echo votebox_html($p['id'], $scores[$p['id']] ?? 0, $myVotes[$p['id']] ?? 0);
     echo '<div class="postbody"><div class="posthead">';
     echo '<a href="index.php?p=profile&id=' . (int)$p['author_id'] . '" style="color:' . e($col) . ';font-weight:bold">' . e($p['author']) . '</a>';
@@ -250,6 +250,15 @@ $flash = $msg ? '<div class="flash ' . (($msgErr ?? false) ? 'flash-err' : 'flas
 .vote:hover{color:var(--accent)}
 .vote:active{transform:scale(1.3)}
 .bd-submit{background:rgba(25,240,199,.08)!important;border-color:rgba(25,240,199,.35)!important;color:var(--accent)!important}
+/* Reply used to be a plain inline text link ("&middot; Reply"); converting
+   it to a <button> (needed so a click can set the reply target without a
+   page reload) picked up the sitewide button chrome (teal pill, padding,
+   background) by default, which the user disliked. Reset it back to look
+   like the original link. */
+.reply-trigger{background:none!important;border:0!important;padding:0!important;margin:0;color:var(--accent);text-decoration:none;font:inherit;cursor:pointer;display:inline}
+.reply-trigger:hover{text-decoration:underline}
+@keyframes bdReplyPulse{0%{background:rgba(25,240,199,.16)}100%{background:rgba(25,240,199,.03)}}
+.post.reply-target{background:rgba(25,240,199,.03);border-color:rgba(25,240,199,.4)!important;animation:bdReplyPulse 1s ease-out}
 </style>
 <?php
 
@@ -317,7 +326,7 @@ if ($tid) {
       <a href="index.php?p=boards&b=<?= (int)$topic['board_id'] ?>"><?= e($topic['board_name']) ?></a></p>
     <?= $flash ?>
     <?php if ($op): $col = chat_color($op['role'], ''); ?>
-    <div class="post">
+    <div class="post" id="post-<?= (int)$op['id'] ?>">
       <?= votebox_html($op['id'], $scores[$op['id']] ?? 0, $myVotes[$op['id']] ?? 0) ?>
       <div class="postbody">
         <div class="posthead">
@@ -362,6 +371,12 @@ if ($tid) {
     var title=document.getElementById('replyform-title'), targetBox=document.getElementById('replyform-target'),
         targetName=document.getElementById('replyform-target-name'), parentInp=document.getElementById('replyform-parent'),
         body=document.getElementById('replyform-body'), cancelBtn=document.getElementById('replyform-cancel');
+    var highlighted = null;
+    function highlightPost(postId){
+      if (highlighted) highlighted.classList.remove('reply-target');
+      highlighted = postId ? document.getElementById('post-' + postId) : null;
+      if (highlighted) highlighted.classList.add('reply-target');
+    }
     function setTarget(postId, authorName){
       parentInp.value = postId || 0;
       if (postId) {
@@ -371,6 +386,7 @@ if ($tid) {
       } else {
         targetBox.style.display = 'none';
       }
+      highlightPost(postId);
     }
     document.querySelectorAll('.reply-trigger').forEach(function(btn){
       btn.addEventListener('click', function(){

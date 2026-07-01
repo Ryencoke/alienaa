@@ -301,6 +301,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           ->execute([$pid, $slot, $sname, json_encode($filters)]);
       $msg = 'Search saved to slot ' . $slot . '.';
 
+    } elseif ($act === 'blacklist_add') {
+      $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_blacklist (
+        id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, target_id INT NOT NULL,
+        note VARCHAR(80) NOT NULL DEFAULT '', created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_pbl (player_id, target_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+      $handle = trim($_POST['handle'] ?? '');
+      if ($handle === '') throw new RuntimeException('Enter a ghost\'s handle.');
+      $tq = $pdo->prepare('SELECT id FROM players WHERE username = ?'); $tq->execute([$handle]);
+      $targetId = (int)$tq->fetchColumn();
+      if (!$targetId) throw new RuntimeException('"' . htmlspecialchars($handle, ENT_QUOTES) . '" is not a ghost in the Sprawl.');
+      if ($targetId === $pid) throw new RuntimeException("You can't blacklist yourself.");
+      $note = mb_substr(trim($_POST['note'] ?? ''), 0, 80);
+      $pdo->prepare('INSERT IGNORE INTO pvp_blacklist (player_id, target_id, note) VALUES (?,?,?)')->execute([$pid, $targetId, $note]);
+      $msg = e($handle) . ' added to your blacklist.';
+
+    } elseif ($act === 'blacklist_remove') {
+      $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_blacklist (
+        id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, target_id INT NOT NULL,
+        note VARCHAR(80) NOT NULL DEFAULT '', created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_pbl (player_id, target_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+      $targetId = (int)($_POST['target_id'] ?? 0);
+      $pdo->prepare('DELETE FROM pvp_blacklist WHERE player_id=? AND target_id=?')->execute([$pid, $targetId]);
+      $msg = 'Removed from blacklist.';
+
     } elseif ($act === 'delete_search') {
       $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_saved_searches (
         id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, slot TINYINT NOT NULL,
@@ -317,6 +343,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $tab = in_array($_GET['tab'] ?? '', ['arena','stats','log','search']) ? $_GET['tab'] : 'arena';
 
+// Arriving here via a target=username link (from search results or a
+// profile's Attack quick action) with no clear feedback if the fight can't
+// actually happen was reported as "clicking Attack does nothing" — the
+// link navigates fine, but a disabled, unexplained form looks like nothing
+// happened. Surface why, explicitly, right when they land.
+$targetWarn = null;
+if ($tab === 'arena' && !empty($_GET['target'])) {
+  if ((int)$player['integrity'] < 10) {
+    $targetWarn = 'Your Health is too low to fight — rest first.';
+  } elseif ((int)$player['signal'] < 1) {
+    $targetWarn = 'Signal depleted — daily combat limit reached. Signal resets at midnight.';
+  } else {
+    try {
+      $twq = $pdo->prepare('SELECT integrity FROM players WHERE username = ?');
+      $twq->execute([trim($_GET['target'])]);
+      $twInt = $twq->fetchColumn();
+      if ($twInt === false) $targetWarn = '"' . e(trim($_GET['target'])) . '" is not a ghost in the Sprawl.';
+      elseif ((int)$twInt < 10) $targetWarn = e(trim($_GET['target'])) . ' is already flatlined — let them recover before attacking again.';
+    } catch (Throwable $e) {}
+  }
+}
+
 // ── Target Search ────────────────────────────────────────────────────────
 $savedSearches = [];
 try {
@@ -329,6 +377,24 @@ try {
   $ssq = $pdo->prepare('SELECT * FROM pvp_saved_searches WHERE player_id=? ORDER BY slot');
   $ssq->execute([$pid]);
   foreach ($ssq as $row) { $row['filters'] = json_decode($row['filters'], true) ?: []; $savedSearches[(int)$row['slot']] = $row; }
+} catch (Throwable $e) {}
+
+// Blacklist — a standing list of specific ghosts the player wants quick
+// re-attack access to, independent of any search filter (e.g. still shown
+// even if "exclude friends" would otherwise hide them from search results).
+$blacklist = [];
+try {
+  $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_blacklist (
+    id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, target_id INT NOT NULL,
+    note VARCHAR(80) NOT NULL DEFAULT '', created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_pbl (player_id, target_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+  $blq = $pdo->prepare("SELECT b.target_id, b.note, p.username, p.role, p.level, p.integrity, p.integrity_max, p.merchant_until,
+      (SELECT COUNT(*) FROM jail_records j WHERE j.player_id=p.id AND j.status='active' AND j.release_at > NOW()) AS is_jailed
+    FROM pvp_blacklist b JOIN players p ON p.id = b.target_id
+    WHERE b.player_id=? ORDER BY b.created_at DESC");
+  $blq->execute([$pid]);
+  $blacklist = $blq->fetchAll();
 } catch (Throwable $e) {}
 
 $myGuildRow = null;
@@ -607,6 +673,9 @@ if (($tab === 'log') && isset($_GET['detail'])) {
 
 <!-- ── ARENA ── -->
 <?php if ($tab === 'arena' && !$battleResult): ?>
+<?php if ($targetWarn): ?>
+<div class="flash flash-err"><?= $targetWarn ?></div>
+<?php endif; ?>
 <?php if ((int)$myStats['unspent'] > 0): ?>
 <div style="background:rgba(232,212,77,.06);border:1px solid rgba(232,212,77,.3);border-radius:6px;padding:10px 14px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
   <span>&#11088; You have <b style="color:#e8d44d"><?= (int)$myStats['unspent'] ?></b> unspent combat stat <?= $myStats['unspent']!=1?'points':'point' ?>.</span>
@@ -699,26 +768,75 @@ if (!empty($arenaLatest) && !$battleResult): ?>
 <?php endif; ?>
 
 <div class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <h3 style="margin:0">&#128278; Blacklist</h3>
+    <span class="muted" style="font-size:11px">Always shown here, regardless of search filters</span>
+  </div>
+  <form method="post" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:<?= $blacklist ? '14px' : '0' ?>">
+    <input type="hidden" name="action" value="blacklist_add">
+    <div class="ac-wrap" style="flex:1;min-width:160px;position:relative">
+      <input type="text" id="pvpBlHandle" name="handle" placeholder="Ghost's handle" autocomplete="off" maxlength="32" data-no-counter style="width:100%">
+      <div class="ac-list" id="pvpBlAcList" style="display:none"></div>
+    </div>
+    <input type="text" name="note" placeholder="Note (optional)" maxlength="80" data-no-counter style="flex:1;min-width:140px">
+    <button type="submit" style="padding:8px 16px;flex:none">Add</button>
+  </form>
+  <script>
+    PlayerAC.attach(document.getElementById('pvpBlHandle'), document.getElementById('pvpBlAcList'));
+  </script>
+  <?php if ($blacklist): ?>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <?php foreach ($blacklist as $bl):
+      $blHpPct = (int)$bl['integrity_max'] > 0 ? round((int)$bl['integrity'] / (int)$bl['integrity_max'] * 100) : 0;
+      $blMerchant = !empty($bl['merchant_until']) && $bl['merchant_until'] >= date('Y-m-d');
+      $blAttackable = !$bl['is_jailed'] && !$blMerchant && (int)$bl['integrity'] >= 10 && !in_array($bl['role'], ['admin','manager','moderator','chatmod','banned'], true);
+      $blCol = chat_color($bl['role'] ?? 'member', '');
+    ?>
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;flex-wrap:wrap">
+      <a href="index.php?p=profile&id=<?= (int)$bl['target_id'] ?>" style="font-weight:700;font-size:13px;color:<?= e($blCol) ?>;text-decoration:none;min-width:120px"><?= e($bl['username']) ?></a>
+      <span style="font-size:11px;color:var(--muted)">Lv <?= (int)$bl['level'] ?></span>
+      <span style="font-size:11px;color:<?= $blHpPct <= 30 ? 'var(--neon2)' : 'var(--muted)' ?>">HP <?= $blHpPct ?>%</span>
+      <?php if ($bl['note']): ?><span style="font-size:11px;color:var(--muted);font-style:italic">&ldquo;<?= e($bl['note']) ?>&rdquo;</span><?php endif; ?>
+      <?php if (!$blAttackable): ?>
+      <span style="font-size:11px;color:var(--neon2)"><?= $bl['is_jailed'] ? 'Jailed' : ($blMerchant ? 'Commerce Accord' : ((int)$bl['integrity'] < 10 ? 'Flatlined' : 'Protected')) ?></span>
+      <?php endif; ?>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <?php if ($blAttackable): ?>
+        <a href="index.php?p=pvp&tab=arena&target=<?= urlencode($bl['username']) ?>" style="padding:5px 14px;font-size:12px;text-decoration:none;border:1px solid var(--neon2);color:var(--neon2);border-radius:6px;background:rgba(255,45,149,.05)">Attack</a>
+        <?php endif; ?>
+        <form method="post" style="margin:0">
+          <input type="hidden" name="action" value="blacklist_remove">
+          <input type="hidden" name="target_id" value="<?= (int)$bl['target_id'] ?>">
+          <button type="submit" style="padding:5px 10px;font-size:11px;background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:6px;cursor:pointer">Remove</button>
+        </form>
+      </div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
+</div>
+
+<div class="panel">
   <h3 style="margin-top:0">&#128269; Search for a Target</h3>
   <p class="muted" style="font-size:12px;margin-bottom:12px">Results exclude jailed ghosts, active Commerce Accord merchants, game staff, and banned accounts automatically — those are never attackable.</p>
   <form method="get" id="pvpSearchForm" style="display:flex;flex-direction:column;gap:12px">
     <input type="hidden" name="p" value="pvp">
     <input type="hidden" name="tab" value="search">
     <input type="hidden" name="run" value="1">
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
-      <div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;align-items:stretch">
+      <div style="display:flex;flex-direction:column;justify-content:flex-end">
         <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Level min</label>
         <input type="number" name="lvl_min" min="0" value="<?= e((string)$curLvlMin) ?>" style="width:100%">
       </div>
-      <div>
+      <div style="display:flex;flex-direction:column;justify-content:flex-end">
         <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Level max</label>
         <input type="number" name="lvl_max" min="0" value="<?= e((string)$curLvlMax) ?>" style="width:100%">
       </div>
-      <div>
+      <div style="display:flex;flex-direction:column;justify-content:flex-end">
         <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Max Health remaining (%)</label>
         <input type="number" name="hp_max" min="0" max="100" value="<?= e((string)$curHpMax) ?>" style="width:100%">
       </div>
-      <div>
+      <div style="display:flex;flex-direction:column;justify-content:flex-end">
         <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Alignment</label>
         <select name="align" style="width:100%">
           <?php foreach (['any'=>'Any','good'=>'Good','evil'=>'Evil','neutral'=>'Neutral'] as $ak=>$al): ?>
@@ -726,7 +844,7 @@ if (!empty($arenaLatest) && !$battleResult): ?>
           <?php endforeach; ?>
         </select>
       </div>
-      <div>
+      <div style="display:flex;flex-direction:column;justify-content:flex-end">
         <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Syndicate</label>
         <select name="guild_mode" id="pvpGuildMode" style="width:100%">
           <?php foreach (['any'=>'Any','none'=>'No syndicate','has_guild'=>'In a syndicate','mine_exclude'=>'Not in my syndicate','specific'=>'Specific syndicate'] as $gk=>$gl): ?>
@@ -734,7 +852,7 @@ if (!empty($arenaLatest) && !$battleResult): ?>
           <?php endforeach; ?>
         </select>
       </div>
-      <div id="pvpGuildSpecificWrap" style="<?= $curGuildMode==='specific' ? '' : 'display:none' ?>">
+      <div id="pvpGuildSpecificWrap" style="display:flex;flex-direction:column;justify-content:flex-end;<?= $curGuildMode==='specific' ? '' : 'display:none' ?>">
         <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Which syndicate</label>
         <select name="guild_id" style="width:100%">
           <?php foreach ($guildList as $g): ?>
@@ -742,21 +860,23 @@ if (!empty($arenaLatest) && !$battleResult): ?>
           <?php endforeach; ?>
         </select>
       </div>
-      <div style="display:flex;align-items:center;gap:6px;margin-top:18px">
-        <input type="checkbox" name="exclude_friends" id="pvpExFriends" value="1" <?= $curExFriends?'checked':'' ?>>
-        <label for="pvpExFriends" style="font-size:12px">Exclude friends</label>
+      <div style="display:flex;flex-direction:column;justify-content:flex-end">
+        <div style="display:flex;align-items:center;gap:6px;height:26px">
+          <input type="checkbox" name="exclude_friends" id="pvpExFriends" value="1" <?= $curExFriends?'checked':'' ?>>
+          <label for="pvpExFriends" style="font-size:12px;margin:0">Exclude friends</label>
+        </div>
       </div>
     </div>
     <script>
       document.getElementById('pvpGuildMode').addEventListener('change', function(){
-        document.getElementById('pvpGuildSpecificWrap').style.display = this.value === 'specific' ? '' : 'none';
+        document.getElementById('pvpGuildSpecificWrap').style.display = this.value === 'specific' ? 'flex' : 'none';
       });
     </script>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <button type="submit" style="padding:9px 22px">&#128269; Search</button>
+      <button type="submit" style="padding:9px 22px">Search</button>
       <span style="font-size:12px;color:var(--muted)">Save this search:</span>
       <?php for ($s = 1; $s <= 5; $s++): ?>
-      <button type="button" class="pvp-savebtn" data-slot="<?= $s ?>" style="padding:5px 10px;font-size:11px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--muted);cursor:pointer"><?= isset($savedSearches[$s]) ? '&#9998;' : '&#128190;' ?> <?= $s ?></button>
+      <button type="button" class="pvp-savebtn" data-slot="<?= $s ?>" style="padding:5px 10px;font-size:11px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--muted);cursor:pointer"><?= isset($savedSearches[$s]) ? 'Edit' : 'Save' ?> <?= $s ?></button>
       <?php endfor; ?>
     </div>
   </form>

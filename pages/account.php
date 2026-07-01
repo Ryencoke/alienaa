@@ -224,6 +224,7 @@ $curAccent = $player['accent_color'] ?? '';
   $nl = nav_links();
   $inSyndicate = false;
   try { $sq = $pdo->prepare('SELECT COUNT(*) FROM syndicate_members WHERE player_id=?'); $sq->execute([$pid]); $inSyndicate = (int)$sq->fetchColumn() > 0; } catch (Throwable $e) {}
+  $isStaffAcct = in_array($player['role'] ?? 'member', ['chatmod','moderator','admin','manager'], true);
 ?>
   <h3>Sidebar Quick Links</h3>
   <p class="muted">Reorder, add, or remove links from your sidebar navigation.</p>
@@ -244,6 +245,14 @@ $curAccent = $player['accent_color'] ?? '';
           <?php endif; ?>
         </div>
       <?php endforeach; ?>
+      <?php if ($isStaffAcct): ?>
+        <div class="sbrow" style="border-color:rgba(226,59,59,.3);background:rgba(226,59,59,.04)">
+          <span class="sbgrip" style="visibility:hidden">&#8942;&#8942;</span>
+          <span class="sblabel" style="color:#e23b3b;font-weight:700">&#128737; Admin Page</span>
+          <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-right:6px">Staff Only</span>
+          <span style="font-size:10px;color:var(--muted);padding:0 5px" title="Always shown for staff — cannot be removed or reordered">&#128274;</span>
+        </div>
+      <?php endif; ?>
     </div>
     <div class="field" style="max-width:280px">
       <span>Add link</span>
@@ -362,7 +371,7 @@ $curAccent = $player['accent_color'] ?? '';
       list.appendChild(row);
       var opt=add.querySelector('option[value="'+k+'"]'); if(opt) opt.remove(); add.value='';
     });
-    function getKeys(){ var k=[]; list.querySelectorAll('.sbrow').forEach(function(r){ k.push(r.getAttribute('data-key')); }); return k; }
+    function getKeys(){ var k=[]; list.querySelectorAll('.sbrow[data-key]').forEach(function(r){ k.push(r.getAttribute('data-key')); }); return k; }
     function rebuildMenu(keys){
       var menu=document.getElementById('sidemenu'); if(!menu) return;
       var adminLi=menu.querySelector('[data-navkey="admin"]');

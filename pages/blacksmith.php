@@ -155,8 +155,14 @@ $pocket  = (int)$player['creds_pocket'];
       <option value="price-desc">Price: High to Low</option>
       <option value="lvl-asc">Level Required: Low to High</option>
       <option value="lvl-desc">Level Required: High to Low</option>
+      <?php // Sorting by a stat that's 0 for every item on this tab (Defense
+            // while viewing Weapons, Attack while viewing Armor) visibly does
+            // nothing since everything ties — only offer stats that apply here. ?>
+      <?php if ($tab === 'weapons'): ?>
       <option value="atk-desc">Attack: High to Low</option>
+      <?php else: ?>
       <option value="def-desc">Defense: High to Low</option>
+      <?php endif; ?>
       <option value="spd-desc">Speed: High to Low</option>
       <option value="name-asc">Name: A to Z</option>
     </select>
