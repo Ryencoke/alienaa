@@ -37,6 +37,11 @@ if ($action === 'dismiss_all' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // without the player ever reloading the page.
 seed_player_notifications($pdo, $pid);
 
+// One NOW() fetch for the whole batch (see fmt_game_time() in lib.php) —
+// avoids a query per notification and gives the synthetic entry below a
+// real MySQL-anchored "now" instead of round-tripping through PHP's date().
+try { $mysqlNow = (string)$pdo->query('SELECT NOW()')->fetchColumn(); } catch (Throwable $e) { $mysqlNow = null; }
+
 $rows = [];
 try {
   $nq = $pdo->prepare("SELECT id, type, body AS text, created_at AS ts FROM player_notifications WHERE player_id=? AND is_read=0 ORDER BY created_at DESC LIMIT 20");
@@ -50,7 +55,7 @@ foreach ($rows as $r) {
     'id'   => (int)$r['id'],
     'type' => $r['type'],
     'text' => $r['text'],
-    'ts'   => fmt_game_time($r['ts']),
+    'ts'   => fmt_game_time($r['ts'], 'M j, g:ia', $mysqlNow),
     'raw'  => false,
   ];
 }
@@ -64,7 +69,7 @@ try {
     array_unshift($items, [
       'id' => null, 'type' => 'levelup',
       'text' => "You have <b>{$unspent} unspent attribute point" . ($unspent !== 1 ? 's' : '') . "</b> from leveling up! <a href='index.php?p=pvp&tab=stats'>Spend Stats &rarr;</a>",
-      'ts' => fmt_game_time(date('Y-m-d H:i:s')), 'raw' => true,
+      'ts' => $mysqlNow ? fmt_game_time($mysqlNow, 'M j, g:ia', $mysqlNow) : '', 'raw' => true,
     ]);
   }
 } catch (Throwable $e) {}

@@ -87,6 +87,10 @@ try {
   $nq = $pdo->prepare("SELECT id, type, body AS text, created_at AS ts FROM player_notifications WHERE player_id=? AND is_read=0 ORDER BY created_at DESC LIMIT 20");
   $nq->execute([$pid]); $newsFeed = $nq->fetchAll();
 } catch(Throwable $e) {}
+// One NOW() fetch for the whole batch — fmt_game_time() needs it to compute
+// each item's true Denver-local time, and fetching it once avoids a query
+// per notification.
+try { $__mysqlNow = (string)$pdo->query('SELECT NOW()')->fetchColumn(); } catch (Throwable $e) { $__mysqlNow = null; }
 
 // Visiting the Hideout marks notifications as seen (clears the sidebar "new"
 // badge/bold from the next page load on) without dismissing them — they stay
@@ -176,7 +180,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
     <span style="font-size:13px;flex:none;color:<?= $ncol ?>;margin-top:2px"><?= $nicon ?></span>
     <div style="flex:1;min-width:0">
       <div style="font-size:12px"><?= $rawHtml ? $item['text'] : e($item['text']) ?></div>
-      <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= !empty($item['ts']) ? e(fmt_game_time($item['ts'])) : '' ?></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= !empty($item['ts']) ? e(fmt_game_time($item['ts'], 'M j, g:ia', $__mysqlNow)) : '' ?></div>
     </div>
     <?php if ($canDismiss): ?>
     <button type="button" class="hm-x" data-id="<?= (int)$item['id'] ?>" style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1;opacity:.6;flex:none;align-self:center" title="Dismiss">&times;</button>

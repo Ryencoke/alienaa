@@ -19,6 +19,11 @@ try {
 try { $pdo->exec("ALTER TABLE player_apartments ADD COLUMN market_currency ENUM('credits','shards') NOT NULL DEFAULT 'credits'"); } catch (Throwable $e) {}
 // Credits actually paid for the unit (NULL = legacy row, treat as catalog price). Caps sell-back refunds.
 try { $pdo->exec("ALTER TABLE player_apartments ADD COLUMN paid_price INT NULL DEFAULT NULL"); } catch (Throwable $e) {}
+// DB-level backstop for "own at most one of each type" — the 'buy' handler
+// already checks this before inserting, but without a real constraint two
+// near-simultaneous buy requests could both pass that check and both insert.
+// Silently no-ops (try/catch) if a host already has legacy duplicate rows.
+try { $pdo->exec("ALTER TABLE player_apartments ADD UNIQUE KEY uq_player_type (player_id, apt_type_id)"); } catch (Throwable $e) {}
 try {
   $pdo->exec("CREATE TABLE IF NOT EXISTS apartment_decor (
     id INT AUTO_INCREMENT PRIMARY KEY, apt_id INT NOT NULL, player_id INT NOT NULL,
@@ -40,6 +45,35 @@ $APT_TYPES = [
 
 $REGIONS = array_unique(array_column($APT_TYPES, 'region'));
 $RARITY_COLORS = ['common'=>'var(--muted)','uncommon'=>'var(--accent)','rare'=>'var(--neon2)','legendary'=>'#e8d44d'];
+$RARITY_FLOORS = ['common'=>4,'uncommon'=>5,'rare'=>7,'legendary'=>9];
+
+// No real photography exists for this game (flat-PHP, no image pipeline) —
+// this is the placeholder "picture" of each apartment type until real art
+// exists, same approach as render_avatar_inner() for the Chrome Boutique.
+// Deterministic per-type window pattern (seeded off the type id) so a given
+// apartment's "photo" looks the same every time it's rendered, not random
+// noise on every page load.
+function apt_building_art(string $rc, int $seed, int $floors): string {
+  $cols = 6; $ww = 15; $wh = 11; $gap = 5;
+  mt_srand($seed);
+  $windows = '';
+  for ($f = 0; $f < $floors; $f++) {
+    for ($c = 0; $c < $cols; $c++) {
+      $lit = mt_rand(0, 100) < 55;
+      $x = $c * ($ww + $gap) + $gap;
+      $y = $f * ($wh + $gap) + $gap;
+      $windows .= '<rect x="'.$x.'" y="'.$y.'" width="'.$ww.'" height="'.$wh.'" rx="1.5" fill="'.($lit ? $rc : 'rgba(255,255,255,.05)').'" opacity="'.($lit ? '0.9' : '1').'"/>';
+    }
+  }
+  mt_srand(); // reseed randomly so this deterministic draw doesn't leak into any other RNG use on the page
+  $w = $cols * ($ww + $gap) + $gap; $h = $floors * ($wh + $gap) + $gap;
+  return '<svg viewBox="0 0 '.$w.' '.$h.'" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style="display:block">'
+       . '<defs><linearGradient id="apgrad'.$seed.'" x1="0" y1="0" x2="0" y2="1">'
+       . '<stop offset="0%" stop-color="'.$rc.'" stop-opacity="0.12"/><stop offset="100%" stop-color="#05050c" stop-opacity="0"/></linearGradient></defs>'
+       . '<rect width="'.$w.'" height="'.$h.'" fill="#0a0a14"/>'
+       . '<rect width="'.$w.'" height="'.$h.'" fill="url(#apgrad'.$seed.')"/>'
+       . $windows . '</svg>';
+}
 
 $DECOR_ITEMS = [
   'neon_light'    => ['name'=>'Neon Wall Light',  'price'=>500,   'icon'=>'&#128268;'],
@@ -85,18 +119,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!isset($APT_TYPES[$typeId])) throw new RuntimeException('Invalid apartment type.');
       $apt  = $APT_TYPES[$typeId];
       $price = (int)$apt['price'];
-      // Check how many the player already owns of this type
+
+      $pdo->beginTransaction();
+      // Re-check ownership inside the transaction — the uq_player_type
+      // unique key (see schema block above) is the real backstop against two
+      // simultaneous buys both passing this check, but re-checking here
+      // avoids relying solely on catching a constraint-violation exception.
       $qc = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND apt_type_id=?');
-      $qc->execute([$pid, $typeId]); if ($qc->fetchColumn() >= 1) throw new RuntimeException('You already own one of this apartment type.');
+      $qc->execute([$pid, $typeId]);
+      if ($qc->fetchColumn() >= 1) { $pdo->rollBack(); throw new RuntimeException('You already own one of this apartment type.'); }
 
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([$price, $pid, $price]);
-      if ($u->rowCount() !== 1) throw new RuntimeException('Not enough credits in pocket.');
+      if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough credits in pocket.'); }
 
       // Check if they have a primary residence
       $qp = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND is_primary=1'); $qp->execute([$pid]);
       $hasPrimary = (int)$qp->fetchColumn() > 0;
-      $pdo->prepare('INSERT INTO player_apartments (player_id, apt_type_id, region, is_primary, paid_price) VALUES (?,?,?,?,?)')->execute([$pid, $typeId, $apt['region'], $hasPrimary ? 0 : 1, $price]);
+      try {
+        $pdo->prepare('INSERT INTO player_apartments (player_id, apt_type_id, region, is_primary, paid_price) VALUES (?,?,?,?,?)')->execute([$pid, $typeId, $apt['region'], $hasPrimary ? 0 : 1, $price]);
+      } catch (Throwable $dupEx) {
+        $pdo->rollBack();
+        throw new RuntimeException('You already own one of this apartment type.');
+      }
+      $pdo->commit();
       if (!$hasPrimary) perk_apply($pdo, $pid, $typeId, $APT_TYPES, true);
       $msg = 'Purchased ' . $apt['name'] . '!';
       if (!$hasPrimary) $msg .= ' Set as your primary residence — perks applied!';
@@ -161,7 +207,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $decor = $DECOR_ITEMS[$decorKey];
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([$decor['price'], $pid, $decor['price']]);
-      if ($u->rowCount() !== 1) throw new RuntimeException('Not enough credits (costs ' . number_format($decor['price']) . ' cr).');
+      if ($u->rowCount() !== 1) throw new RuntimeException('Not enough credits (costs ' . number_format($decor['price']) . ' credits).');
       $pdo->prepare('INSERT INTO apartment_decor (apt_id, player_id, decor_key) VALUES (?,?,?)')->execute([$aptId, $pid, $decorKey]);
       $msg = $decor['name'] . ' placed in your apartment!';
       $player = current_player();
@@ -179,7 +225,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $ml = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE apt_type_id=? AND on_market=1 AND id != ?'); $ml->execute([$aptRow['apt_type_id'], $aptId]);
       if ((int)$ml->fetchColumn() >= 1) throw new RuntimeException('A listing for this apartment type is already on the market. Only one per type allowed.');
       $pdo->prepare('UPDATE player_apartments SET on_market=1, market_price=?, market_currency=? WHERE id=?')->execute([$mktPrice, $currency, $aptId]);
-      $msg = 'Listed on the apartment market for ' . number_format($mktPrice) . ' ' . $currency . '.';
+      $msg = 'Listed on the apartment market for ' . number_format($mktPrice) . ' ' . $currency . '. Manage or cancel it any time from My Properties.';
+
+    } elseif ($act === 'cancel_listing') {
+      $aptId = (int)($_POST['apt_id'] ?? 0);
+      $up = $pdo->prepare('UPDATE player_apartments SET on_market=0, market_price=0, market_currency=\'credits\' WHERE id=? AND player_id=? AND on_market=1');
+      $up->execute([$aptId, $pid]);
+      if ($up->rowCount() !== 1) throw new RuntimeException('Listing not found.');
+      $msg = 'Listing cancelled — no longer on the market.';
 
     } elseif ($act === 'market_buy') {
       $aptId = (int)($_POST['apt_id'] ?? 0);
@@ -221,15 +274,24 @@ $tab = in_array($_GET['tab'] ?? '', ['mine','buy','market']) ? $_GET['tab'] : 'm
 $myApts = [];
 try { $q = $pdo->prepare('SELECT * FROM player_apartments WHERE player_id=? ORDER BY is_primary DESC, id ASC'); $q->execute([$pid]); $myApts = $q->fetchAll(); } catch (Throwable $e) {}
 $marketListings = [];
-try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM player_apartments pa JOIN players p ON p.id=pa.player_id WHERE pa.on_market=1 AND pa.player_id != {$pid} ORDER BY pa.market_price ASC LIMIT 50")->fetchAll(); } catch (Throwable $e) {}
+try { $mlq = $pdo->prepare("SELECT pa.*, p.username AS seller_name FROM player_apartments pa JOIN players p ON p.id=pa.player_id WHERE pa.on_market=1 AND pa.player_id != ? ORDER BY pa.market_price ASC LIMIT 50"); $mlq->execute([$pid]); $marketListings = $mlq->fetchAll(); } catch (Throwable $e) {}
 ?>
+<style>
+.apt-art{width:100%;height:130px;border-radius:9px 9px 0 0;overflow:hidden;position:relative;border-bottom:1px solid var(--line)}
+.apt-art .apt-badge{position:absolute;top:10px;right:10px;font-size:10px;font-family:'Orbitron',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 9px;border-radius:20px;backdrop-filter:blur(2px)}
+.apt-art .apt-region{position:absolute;bottom:8px;left:12px;font-size:10px;color:#cfd4dc;text-shadow:0 1px 4px #000}
+.apt-card{background:var(--panel2);border:1px solid var(--line);border-radius:9px;overflow:hidden;transition:transform .12s,box-shadow .15s}
+.apt-card:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.apt-card.primary{border-color:rgba(232,163,61,.45);box-shadow:0 0 16px rgba(232,163,61,.1)}
+.apt-body{padding:14px 16px}
+</style>
 
 <!-- Header -->
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="height:3px;background:linear-gradient(90deg,#e8a33d,var(--neon2),transparent)"></div>
   <div style="padding:14px 20px">
     <h2 style="margin:0 0 2px">&#127968; Apartment Complex</h2>
-    <p class="muted" style="margin:0;font-size:12px">Own your corner of the Sprawl. Primary residence grants stat perks; extras can be rented for passive income.</p>
+    <p class="muted" style="margin:0;font-size:12px">Own your corner of the Sprawl. Primary residence grants stat perks; extras can be rented for passive income or resold on the player market.</p>
   </div>
 </div>
 
@@ -248,46 +310,56 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
 <?php if (empty($myApts)): ?>
 <div class="panel" style="text-align:center;color:var(--muted);padding:24px">You own no properties. Head to the Buy or Market tabs.</div>
 <?php else: ?>
-<div style="display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;flex-direction:column;gap:12px">
   <?php foreach ($myApts as $a):
     $atype = $APT_TYPES[$a['apt_type_id']] ?? null; if (!$atype) continue;
     $rc = $RARITY_COLORS[$atype['rarity']];
+    $floors = $RARITY_FLOORS[$atype['rarity']] ?? 4;
   ?>
-  <div class="panel" style="border:1px solid <?= $a['is_primary'] ? 'rgba(232,163,61,.4)' : 'var(--line)' ?>;<?= $a['is_primary'] ? 'background:rgba(232,163,61,.03)' : '' ?>">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px">
-      <div>
-        <?php if ($a['is_primary']): ?><div style="font-size:10px;color:#e8a33d;font-family:'Orbitron',sans-serif;margin-bottom:4px">PRIMARY RESIDENCE</div><?php endif; ?>
-        <div style="font-weight:700;font-size:14px;color:<?= $rc ?>"><?= e($atype['name']) ?></div>
-        <div style="font-size:12px;color:var(--muted);margin-top:2px"><?= e($atype['region']) ?></div>
-        <div style="font-size:11px;margin-top:4px">
-          <?php if ($a['is_primary']): ?>
-            <span style="color:#3bcf63">&#10003; Perks active: <?= e($atype['perks']) ?></span>
-          <?php else: ?>
-            <span style="color:var(--muted)">&#9888; Secondary — no perks (not primary)</span>
-          <?php endif; ?>
-        </div>
-        <?php if ($a['rented_to']): ?>
-          <div style="font-size:11px;color:#3bcf63;margin-top:4px">Rented out &mdash; <?= number_format($a['rent_amount']) ?> cr/day</div>
-        <?php endif; ?>
+  <div class="apt-card<?= $a['is_primary'] ? ' primary' : '' ?>">
+    <div style="display:flex;flex-wrap:wrap">
+      <div class="apt-art" style="width:150px;flex:none;height:auto;border-radius:9px 0 0 9px;border-right:1px solid var(--line);border-bottom:none">
+        <?= apt_building_art($rc, (int)$a['apt_type_id'], $floors) ?>
+        <?php if ($a['is_primary']): ?><span class="apt-badge" style="color:#e8a33d;background:rgba(0,0,0,.5);border:1px solid #e8a33d">Primary</span><?php endif; ?>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <?php if (!$a['is_primary'] && !$a['rented_to']): ?>
-        <form method="post" style="margin:0"><input type="hidden" name="action" value="setprimary"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>"><button type="submit" style="font-size:11px;padding:5px 10px">Set Primary</button></form>
-        <?php endif; ?>
-        <?php if (!$a['is_primary'] && !$a['rented_to'] && !$a['on_market']): ?>
-          <button style="font-size:11px;padding:5px 10px" onclick="this.closest('.panel').querySelector('.rent-form').style.display='block'">Rent Out</button>
-          <button style="font-size:11px;padding:5px 10px" onclick="this.closest('.panel').querySelector('.sell-form').style.display='block'">List for Sale</button>
-          <button style="font-size:11px;padding:5px 10px;color:var(--neon2);border-color:rgba(255,45,149,.3)" onclick="this.closest('.panel').querySelector('.sellback-form').style.display='block'">Sell Back</button>
-        <?php endif; ?>
-        <button style="font-size:11px;padding:5px 10px" onclick="this.closest('.panel').querySelector('.decor-form').style.display=this.closest('.panel').querySelector('.decor-form').style.display==='block'?'none':'block'">&#128268; Furnish</button>
-        <?php if ($a['rented_to']): ?>
-          <form method="post" style="margin:0"><input type="hidden" name="action" value="end_rent"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>"><button type="submit" style="font-size:11px;padding:5px 10px;color:var(--neon2);border-color:rgba(255,45,149,.3)">End Rental</button></form>
-        <?php endif; ?>
-        <?php if ($a['on_market']): $aCur = $a['market_currency'] ?? 'credits'; ?>
-          <span style="font-size:11px;color:#e8a33d;padding:5px 10px;border:1px solid rgba(232,163,61,.3);border-radius:5px">On Market — <?= number_format($a['market_price']) ?> <?= $aCur==='shards'?'&#9670; shards':'cr' ?></span>
-        <?php endif; ?>
+      <div class="apt-body" style="flex:1;min-width:220px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-weight:700;font-size:14px;color:<?= $rc ?>"><?= e($atype['name']) ?></div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px">&#128205; <?= e($atype['region']) ?></div>
+            <div style="font-size:11px;margin-top:4px">
+              <?php if ($a['is_primary']): ?>
+                <span style="color:#3bcf63">&#10003; Perks active: <?= e($atype['perks']) ?></span>
+              <?php else: ?>
+                <span style="color:var(--muted)">&#9888; Secondary — no perks (not primary)</span>
+              <?php endif; ?>
+            </div>
+            <?php if ($a['rented_to']): ?>
+              <div style="font-size:11px;color:#3bcf63;margin-top:4px">Rented out &mdash; <?= number_format($a['rent_amount']) ?> credits/day</div>
+            <?php endif; ?>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <?php if (!$a['is_primary'] && !$a['rented_to']): ?>
+            <form method="post" style="margin:0"><input type="hidden" name="action" value="setprimary"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>"><button type="submit" style="font-size:11px;padding:5px 10px">Set Primary</button></form>
+            <?php endif; ?>
+            <?php if (!$a['is_primary'] && !$a['rented_to'] && !$a['on_market']): ?>
+              <button style="font-size:11px;padding:5px 10px" onclick="this.closest('.apt-card').querySelector('.rent-form').style.display='block'">Rent Out</button>
+              <button style="font-size:11px;padding:5px 10px" onclick="this.closest('.apt-card').querySelector('.sell-form').style.display='block'">List for Sale</button>
+              <button style="font-size:11px;padding:5px 10px;color:var(--neon2);border-color:rgba(255,45,149,.3)" onclick="this.closest('.apt-card').querySelector('.sellback-form').style.display='block'">Sell Back</button>
+            <?php endif; ?>
+            <button style="font-size:11px;padding:5px 10px" onclick="var d=this.closest('.apt-card').querySelector('.decor-form');d.style.display=d.style.display==='block'?'none':'block'">Furnish</button>
+            <?php if ($a['rented_to']): ?>
+              <form method="post" style="margin:0"><input type="hidden" name="action" value="end_rent"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>"><button type="submit" style="font-size:11px;padding:5px 10px;color:var(--neon2);border-color:rgba(255,45,149,.3)">End Rental</button></form>
+            <?php endif; ?>
+            <?php if ($a['on_market']): $aCur = $a['market_currency'] ?? 'credits'; ?>
+              <span style="font-size:11px;color:#e8a33d;padding:5px 10px;border:1px solid rgba(232,163,61,.3);border-radius:5px">On Market — <?= number_format($a['market_price']) ?> <?= $aCur==='shards'?'&#9670; shards':'credits' ?></span>
+              <form method="post" style="margin:0"><input type="hidden" name="action" value="cancel_listing"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>"><button type="submit" style="font-size:11px;padding:5px 10px;color:var(--neon2);border-color:rgba(255,45,149,.3)">Cancel Listing</button></form>
+            <?php endif; ?>
+          </div>
+        </div>
       </div>
     </div>
+    <div style="padding:0 16px 16px">
     <div class="rent-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
       <form method="post"><input type="hidden" name="action" value="rent_out"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px">
@@ -295,7 +367,7 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
             <input type="text" name="renter" class="rent-ac-inp" placeholder="Renter's handle" autocomplete="off" maxlength="32" style="width:100%">
             <div class="ac-list rent-ac-list" style="display:none"></div>
           </div>
-          <input type="number" name="rent_amount" min="1" placeholder="Daily rent (cr)" style="width:130px">
+          <input type="number" name="rent_amount" min="1" placeholder="Daily rent (credits)" style="width:130px">
           <button type="submit" style="font-size:12px">Confirm Rental</button>
         </div>
         <div class="rent-ac-confirm" style="display:none;margin-top:6px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
@@ -319,7 +391,7 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
       $sbRefund = (int)(min((int)$atype['price'], $sbPaid) / 2);
     ?>
     <div class="sellback-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
-      <p style="margin:0 0 8px;font-size:12px;color:var(--muted)">Sell back to system for <b style="color:var(--accent)"><?= number_format($sbRefund) ?> cr</b> (50% of what you paid, capped at catalog price). This cannot be undone.</p>
+      <p style="margin:0 0 8px;font-size:12px;color:var(--muted)">Sell back to system for <b style="color:var(--accent)"><?= number_format($sbRefund) ?> credits</b> (50% of what you paid, capped at catalog price). This cannot be undone.</p>
       <form method="post" onsubmit="return confirm('Sell this apartment back for <?= number_format($sbRefund) ?> credits? This is permanent.')">
         <input type="hidden" name="action" value="sellback"><input type="hidden" name="apt_id" value="<?= (int)$a['id'] ?>">
         <button type="submit" style="font-size:12px;color:var(--neon2);border-color:rgba(255,45,149,.3)">Confirm Sell Back</button>
@@ -351,7 +423,7 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
         ?>
         <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px 10px">
           <div style="font-size:13px;margin-bottom:3px"><?= $di['icon'] ?> <?= e($di['name']) ?></div>
-          <div style="font-size:11px;color:var(--accent);margin-bottom:6px"><?= number_format($di['price']) ?> cr</div>
+          <div style="font-size:11px;color:var(--accent);margin-bottom:6px"><?= number_format($di['price']) ?> credits</div>
           <?php if ($alreadyPlaced): ?>
           <button disabled style="font-size:10px;width:100%;opacity:.4">Placed</button>
           <?php else: ?>
@@ -361,6 +433,7 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
         <?php endforeach; ?>
       </div>
     </div>
+    </div>
   </div>
   <?php endforeach; ?>
 </div>
@@ -368,47 +441,102 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
 
 <!-- ── BUY NEW ── -->
 <?php elseif ($tab === 'buy'): ?>
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
   <?php foreach ($APT_TYPES as $tid => $atype):
     $rc = $RARITY_COLORS[$atype['rarity']];
     $owned = false; foreach ($myApts as $a) { if ($a['apt_type_id'] === $tid) { $owned = true; break; } }
+    $floors = $RARITY_FLOORS[$atype['rarity']] ?? 4;
   ?>
-  <div style="background:var(--panel2);border:1px solid <?= $atype['rarity']==='legendary'?'rgba(232,212,77,.4)':($atype['rarity']==='rare'?'rgba(255,45,149,.25)':'var(--line)') ?>;border-radius:9px;padding:16px;position:relative">
-    <?php if ($atype['rarity'] !== 'common'): ?><div style="position:absolute;top:8px;right:10px;font-size:10px;font-family:'Orbitron',sans-serif;font-weight:700;color:<?= $rc ?>;text-transform:uppercase"><?= $atype['rarity'] ?></div><?php endif; ?>
-    <div style="font-size:22px;margin-bottom:8px">&#127968;</div>
-    <div style="font-weight:700;font-size:14px;color:<?= $rc ?>;margin-bottom:3px"><?= e($atype['name']) ?></div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">&#128205; <?= e($atype['region']) ?></div>
-    <div style="font-size:12px;color:#3bcf63;margin-bottom:10px">&#10003; <?= e($atype['perks']) ?></div>
-    <div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:var(--accent);margin-bottom:10px"><?= number_format($atype['price']) ?> <span style="font-size:11px;font-weight:400;color:var(--muted)">cr</span></div>
-    <?php if ($owned): ?>
-      <button disabled style="width:100%;opacity:.4;font-size:12px">Already Owned</button>
-    <?php else: ?>
-      <form method="post" style="margin:0"><input type="hidden" name="action" value="buy"><input type="hidden" name="type_id" value="<?= $tid ?>"><button type="submit" style="width:100%;font-size:12px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)" <?= (int)$player['creds_pocket'] < $atype['price'] ? 'disabled' : '' ?>>Purchase</button></form>
-    <?php endif; ?>
+  <div class="apt-card" style="border-color:<?= $atype['rarity']==='legendary'?'rgba(232,212,77,.4)':($atype['rarity']==='rare'?'rgba(255,45,149,.25)':'var(--line)') ?>">
+    <div class="apt-art"><?= apt_building_art($rc, $tid, $floors) ?>
+      <?php if ($atype['rarity'] !== 'common'): ?><span class="apt-badge" style="color:<?= $rc ?>;background:rgba(0,0,0,.5);border:1px solid <?= $rc ?>"><?= $atype['rarity'] ?></span><?php endif; ?>
+      <span class="apt-region">&#128205; <?= e($atype['region']) ?></span>
+    </div>
+    <div class="apt-body">
+      <div style="font-weight:700;font-size:15px;color:<?= $rc ?>;margin-bottom:6px"><?= e($atype['name']) ?></div>
+      <div style="font-size:12px;color:#3bcf63;margin-bottom:12px">&#10003; <?= e($atype['perks']) ?></div>
+      <div style="font-family:'Orbitron',sans-serif;font-size:19px;font-weight:700;color:var(--accent);margin-bottom:12px"><?= number_format($atype['price']) ?> <span style="font-size:11px;font-weight:400;color:var(--muted)">credits</span></div>
+      <?php if ($owned): ?>
+        <button disabled style="width:100%;opacity:.4;font-size:12px">Already Owned</button>
+      <?php else: ?>
+        <form method="post" class="apt-buy-form" style="margin:0" data-apt-name="<?= e($atype['name']) ?>" data-apt-price="<?= (int)$atype['price'] ?>">
+          <input type="hidden" name="action" value="buy"><input type="hidden" name="type_id" value="<?= $tid ?>">
+          <button type="submit" style="width:100%;font-size:12px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)" <?= (int)$player['creds_pocket'] < $atype['price'] ? 'disabled' : '' ?>>Purchase</button>
+        </form>
+      <?php endif; ?>
+    </div>
   </div>
   <?php endforeach; ?>
 </div>
+
+<!-- Purchase confirmation popup — this is a real-estate purchase, worth a moment's pause -->
+<div class="modal-bg" id="aptBuyModal">
+  <div class="modal" style="max-width:380px">
+    <span class="x" onclick="document.getElementById('aptBuyModal').classList.remove('show')">&times;</span>
+    <h3>Confirm Purchase</h3>
+    <p style="font-size:13px;margin:0 0 4px">You're about to buy:</p>
+    <p id="aptBuyName" style="font-size:16px;font-weight:700;color:var(--accent);margin:0 0 10px"></p>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px">for <b id="aptBuyPrice" style="color:var(--text)"></b> credits. This deed is yours the moment the transfer clears.</p>
+    <div style="display:flex;gap:8px">
+      <button type="button" onclick="document.getElementById('aptBuyModal').classList.remove('show')" style="flex:1">Cancel</button>
+      <button type="button" id="aptBuyConfirmBtn" style="flex:1;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">Confirm</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var modal=document.getElementById('aptBuyModal'), pendingForm=null;
+  document.querySelectorAll('.apt-buy-form').forEach(function(f){
+    // stopPropagation is required here, not just preventDefault — index.php's
+    // sitewide submit handler is bound on document and doesn't check
+    // defaultPrevented, so without this it would still AJAX-submit the form
+    // immediately, before this confirmation modal ever gets a chance to show.
+    f.addEventListener('submit', function(ev){
+      if (f.dataset.confirmed==='1') return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      pendingForm=f;
+      document.getElementById('aptBuyName').textContent=f.dataset.aptName;
+      document.getElementById('aptBuyPrice').textContent=parseInt(f.dataset.aptPrice,10).toLocaleString('en-US');
+      modal.classList.add('show');
+    });
+  });
+  document.getElementById('aptBuyConfirmBtn').addEventListener('click', function(){
+    if (!pendingForm) return;
+    pendingForm.dataset.confirmed='1';
+    modal.classList.remove('show');
+    pendingForm.requestSubmit ? pendingForm.requestSubmit() : pendingForm.submit();
+  });
+  modal.addEventListener('click', function(e){ if (e.target===this) modal.classList.remove('show'); });
+})();
+</script>
 
 <!-- ── MARKET ── -->
 <?php elseif ($tab === 'market'): ?>
 <?php if (empty($marketListings)): ?>
 <div class="panel" style="text-align:center;color:var(--muted);padding:24px">No apartments listed on the market right now.</div>
 <?php else: ?>
-<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-direction:column;gap:10px">
   <?php foreach ($marketListings as $l):
     $atype = $APT_TYPES[$l['apt_type_id']] ?? null; if (!$atype) continue;
     $rc = $RARITY_COLORS[$atype['rarity']];
+    $floors = $RARITY_FLOORS[$atype['rarity']] ?? 4;
   ?>
-  <div class="panel" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-    <div>
-      <div style="font-weight:700;font-size:13px;color:<?= $rc ?>"><?= e($atype['name']) ?></div>
-      <div style="font-size:11px;color:var(--muted)">&#128205; <?= e($atype['region']) ?> &middot; <?= e($atype['perks']) ?></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">Seller: <?= e($l['seller_name']) ?></div>
+  <div class="apt-card" style="display:flex;flex-wrap:wrap">
+    <div class="apt-art" style="width:120px;flex:none;height:auto;border-radius:9px 0 0 9px;border-right:1px solid var(--line);border-bottom:none">
+      <?= apt_building_art($rc, (int)$l['apt_type_id'], $floors) ?>
     </div>
-    <?php $lCur = $l['market_currency'] ?? 'credits'; $lAfford = $lCur === 'shards' ? (int)$player['shards'] >= $l['market_price'] : (int)$player['creds_pocket'] >= $l['market_price']; ?>
-    <div style="display:flex;gap:10px;align-items:center">
-      <div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:<?= $lCur==='shards'?'#e8d44d':'var(--accent)' ?>"><?= number_format($l['market_price']) ?> <?= $lCur==='shards'?'&#9670;':'cr' ?></div>
-      <form method="post" style="margin:0"><input type="hidden" name="action" value="market_buy"><input type="hidden" name="apt_id" value="<?= (int)$l['id'] ?>"><button type="submit" style="font-size:12px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)" <?= !$lAfford ? 'disabled' : '' ?>>Buy</button></form>
+    <div class="apt-body" style="flex:1;min-width:220px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div>
+        <div style="font-weight:700;font-size:13px;color:<?= $rc ?>"><?= e($atype['name']) ?></div>
+        <div style="font-size:11px;color:var(--muted)">&#128205; <?= e($atype['region']) ?> &middot; <?= e($atype['perks']) ?></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Seller: <?= e($l['seller_name']) ?></div>
+      </div>
+      <?php $lCur = $l['market_currency'] ?? 'credits'; $lAfford = $lCur === 'shards' ? (int)$player['shards'] >= $l['market_price'] : (int)$player['creds_pocket'] >= $l['market_price']; ?>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:<?= $lCur==='shards'?'#e8d44d':'var(--accent)' ?>"><?= number_format($l['market_price']) ?> <?= $lCur==='shards'?'&#9670; shards':'credits' ?></div>
+        <form method="post" style="margin:0"><input type="hidden" name="action" value="market_buy"><input type="hidden" name="apt_id" value="<?= (int)$l['id'] ?>"><button type="submit" style="font-size:12px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)" <?= !$lAfford ? 'disabled' : '' ?>>Buy</button></form>
+      </div>
     </div>
   </div>
   <?php endforeach; ?>

@@ -13,13 +13,11 @@ ensure_player_gear_table($pdo);
 
 $CATALOG = blacksmith_catalog();
 
-// Rarity tier from sub-category / price — drives card + detail colors
-function bs_tier($sub, $price): array {
-  if ($sub === 'Legendary') return ['LEGENDARY', '#e8d44d'];
-  if ($price >= 15000)      return ['EPIC',      '#ff2d95'];
-  if ($price >= 6000)       return ['RARE',      '#19f0c7'];
-  if ($price >= 2500)       return ['UNCOMMON',  '#4d9be8'];
-  return                           ['COMMON',    '#9aa3b8'];
+// Level-requirement badge + color (replaces the old rarity-name badge —
+// the level requirement IS the rarity signal now).
+function bs_tier(int $levelReq): array {
+  $col = $levelReq >= 40 ? '#e8d44d' : ($levelReq >= 25 ? '#ff2d95' : ($levelReq >= 10 ? '#19f0c7' : ($levelReq >= 4 ? '#4d9be8' : '#9aa3b8')));
+  return ['LV ' . $levelReq, $col];
 }
 
 // code => catalog row, for fast lookups
@@ -156,7 +154,8 @@ $pocket  = (int)$player['creds_pocket'];
   <div class="shop-grid" id="bs-grid">
     <?php foreach ($items as $c):
       $isOwned = isset($owned[$c[0]]);
-      [$tier, $tcol] = bs_tier($c[4], (int)$c[8]);
+      $lvlReq = (int)($c[10] ?? 1);
+      [$tier, $tcol] = bs_tier($lvlReq);
       $broke = !$isOwned && $pocket < (int)$c[8];
     ?>
     <div class="shop-card bs-card<?= $isOwned ? ' owned-card' : '' ?><?= $broke ? ' broke' : '' ?>"
@@ -172,6 +171,7 @@ $pocket  = (int)$player['creds_pocket'];
          data-price="<?= (int)$c[8] ?>"
          data-tier="<?= $tier ?>"
          data-tcol="<?= $tcol ?>"
+         data-lvl="<?= $lvlReq ?>"
          data-owned="<?= $isOwned ? '1' : '0' ?>">
       <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,<?= $tcol ?>,transparent)"></div>
       <span class="bs-tier"><?= $tier ?></span>
@@ -179,7 +179,8 @@ $pocket  = (int)$player['creds_pocket'];
       <div class="sc-nm"><?= e($c[1]) ?></div>
       <div class="sc-sub muted"><?= e($c[4]) ?></div>
       <div class="sc-pr"><?= number_format($c[8]) ?> cr</div>
-      <?php if ($isOwned): ?><div class="sc-owned">&#10003; Owned</div><?php endif; ?>
+      <?php if ($isOwned): ?><div class="sc-owned">&#10003; Owned</div>
+      <?php elseif ((int)$player['level'] < $lvlReq): ?><div class="sc-owned" style="color:var(--muted)">Equip at Lv <?= $lvlReq ?></div><?php endif; ?>
     </div>
     <?php endforeach; ?>
   </div>

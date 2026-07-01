@@ -434,7 +434,7 @@ $flatlined = (int)$player['integrity'] <= 0;
           </label>
           <?php endforeach; ?>
         </div>
-        <button type="submit" style="width:100%;background:<?= $tm['bg'] ?>;border-color:<?= $tm['border'] ?>;color:<?= $tm['color'] ?>" <?= (int)$player['cycles'] < DRIVE_COST ? 'disabled' : '' ?>>Engage <span style="opacity:.75">(&minus;<?= DRIVE_COST ?> Drive)</span></button>
+        <button type="submit" style="width:100%;background:rgba(59,207,99,.1);border-color:rgba(59,207,99,.4);color:#3bcf63" <?= (int)$player['cycles'] < DRIVE_COST ? 'disabled' : '' ?>>Engage <span style="opacity:.75">(&minus;<?= DRIVE_COST ?> Drive)</span></button>
       </form>
     <?php endif; ?>
   </div>

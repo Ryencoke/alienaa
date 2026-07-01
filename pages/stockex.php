@@ -13,6 +13,8 @@ try {
     trend TINYINT NOT NULL DEFAULT 0,
     INDEX idx_ticker (ticker)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+  try { $pdo->exec("ALTER TABLE stocks ADD COLUMN shares_available INT NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
+  try { $pdo->exec("ALTER TABLE stocks ADD COLUMN shares_total INT NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
   $pdo->exec("CREATE TABLE IF NOT EXISTS stock_holdings (
     player_id INT NOT NULL, stock_id INT NOT NULL, shares INT NOT NULL DEFAULT 0,
     avg_buy_price INT NOT NULL DEFAULT 0,
@@ -33,20 +35,27 @@ try {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (Throwable $e) {}
 
-// Seed stocks if empty
+// Seed stocks if empty. shares_total is a per-ticker float size — blue-chip,
+// established companies (CRED, NRGY) carry a large float; smaller/riskier
+// ones (SCRP, CHEM) are deliberately thin, which is part of why they're more
+// volatile — scarcity itself is a mechanic, not just flavor.
 try {
   $count = (int)$pdo->query("SELECT COUNT(*) FROM stocks")->fetchColumn();
   if ($count === 0) {
     $seeds = [
-      ['NXUS','Nexus Corp','tech',500],['ARMX','ArmaTech Industries','weapons',320],
-      ['PHRS','Pharmasynth Co','pharma',180],['NRGY','NeonGrid Energy','energy',240],
-      ['DATV','DataVault Ltd','tech',410],['SCRP','Scrapyard Holdings','manufacturing',90],
-      ['CHEM','StreetChem Inc','pharma',150],['CRED','CreditFlow Bank','finance',600],
-      ['INFX','Infect-X Security','security',280],['GRDX','Grid Exchange','finance',380],
+      ['NXUS','Nexus Corp','tech',500,50000],['ARMX','ArmaTech Industries','weapons',320,35000],
+      ['PHRS','Pharmasynth Co','pharma',180,25000],['NRGY','NeonGrid Energy','energy',240,60000],
+      ['DATV','DataVault Ltd','tech',410,40000],['SCRP','Scrapyard Holdings','manufacturing',90,15000],
+      ['CHEM','StreetChem Inc','pharma',150,20000],['CRED','CreditFlow Bank','finance',600,80000],
+      ['INFX','Infect-X Security','security',280,30000],['GRDX','Grid Exchange','finance',380,45000],
     ];
-    $ins = $pdo->prepare('INSERT IGNORE INTO stocks (ticker,name,category,price,prev_price) VALUES (?,?,?,?,?)');
-    foreach ($seeds as $s) $ins->execute([$s[0],$s[1],$s[2],$s[3],$s[3]]);
+    $ins = $pdo->prepare('INSERT IGNORE INTO stocks (ticker,name,category,price,prev_price,shares_total,shares_available) VALUES (?,?,?,?,?,?,?)');
+    foreach ($seeds as $s) $ins->execute([$s[0],$s[1],$s[2],$s[3],$s[3],$s[4],$s[4]]);
   }
+  // Backfill: any pre-existing row from before shares_total existed (the
+  // ALTER above defaults new columns to 0, which would otherwise make every
+  // stock permanently "sold out").
+  $pdo->exec("UPDATE stocks SET shares_total = 30000, shares_available = 30000 WHERE shares_total = 0");
 } catch (Throwable $e) {}
 
 // Gather game-activity metrics for price drift
@@ -156,8 +165,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($act === 'buy') {
       $sid   = (int)($_POST['stock_id'] ?? 0);
       $qty   = min(1000000, max(1, (int)($_POST['qty'] ?? 1)));
-      $qs    = $pdo->prepare('SELECT id,name,ticker,price FROM stocks WHERE id=?'); $qs->execute([$sid]); $stock = $qs->fetch();
+      $qs    = $pdo->prepare('SELECT id,name,ticker,price,shares_available FROM stocks WHERE id=?'); $qs->execute([$sid]); $stock = $qs->fetch();
       if (!$stock) throw new RuntimeException('Stock not found.');
+      if ($qty > (int)$stock['shares_available']) throw new RuntimeException('Only ' . number_format((int)$stock['shares_available']) . ' shares of ' . $stock['ticker'] . ' available right now.');
       $cost  = (int)$stock['price'] * $qty;
       $fee   = (int)max(1, ceil($cost * 0.01)); // 1% brokerage fee
       $total = $cost + $fee;
@@ -166,6 +176,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([$total, $pid, $total]);
       if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough credits in pocket (incl. 1% fee).'); }
+
+      // Reserve the shares — atomically re-checks availability so two
+      // simultaneous buyers can't both claim the last of a thin float.
+      $rs = $pdo->prepare('UPDATE stocks SET shares_available = shares_available - ? WHERE id = ? AND shares_available >= ?');
+      $rs->execute([$qty, $sid, $qty]);
+      if ($rs->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough shares available — try a smaller quantity.'); }
 
       // Upsert holdings with weighted avg price
       $qh = $pdo->prepare('SELECT shares, avg_buy_price FROM stock_holdings WHERE player_id=? AND stock_id=?');
@@ -199,6 +215,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($dec->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough shares to sell.'); }
       $pdo->prepare('DELETE FROM stock_holdings WHERE player_id=? AND stock_id=? AND shares <= 0')->execute([$pid, $sid]);
       $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$net, $pid]);
+      // Sold shares return to the available float — capped at the ticker's
+      // total supply so it can never overshoot past what was ever issued.
+      $pdo->prepare('UPDATE stocks SET shares_available = LEAST(shares_total, shares_available + ?) WHERE id=?')->execute([$qty, $sid]);
       $pdo->prepare('INSERT INTO stock_trade_log (stock_id, side, qty, price) VALUES (?,?,?,?)')->execute([$sid, 'sell', $qty, (int)$hold['price']]);
       $pdo->commit();
       $msg = 'Sold ' . $qty . 'x ' . $hold['ticker'] . ' for ' . number_format($net) . ' credits (after fee).';
@@ -277,24 +296,46 @@ function sx_daily_candles(array $rows): array {
   return $out;
 }
 
-// Inline SVG candlestick chart with a buy/sell volume strip underneath,
-// same hand-rolled style as sx_sparkpath() — no charting library in this
-// codebase. $volByDay: ['Y-m-d' => ['buy'=>int,'sell'=>int]].
+// Inline SVG candlestick chart, TradingView-style: right-side price axis
+// with gridlines, a dashed current-price line, and a buy/sell volume strip
+// underneath — same hand-rolled style as sx_sparkpath(), no charting
+// library in this codebase. $volByDay: ['Y-m-d' => ['buy'=>int,'sell'=>int]].
 function sx_render_candles(array $candles, array $volByDay, int $w, int $h): string {
   $n = count($candles);
   if ($n < 2) return '';
-  $volH = 34; $chartH = $h - $volH - 6;
+  $axisW = 54; $plotW = $w - $axisW;
+  $volH = 40; $chartH = $h - $volH - 10;
   $allPrices = [];
   foreach ($candles as $c) { $allPrices[] = $c['h']; $allPrices[] = $c['l']; }
-  $mn = min($allPrices); $mx = max($allPrices); $rng = max(1, $mx - $mn);
-  $slot = $w / $n; $bodyW = max(2, min(10, $slot * 0.6));
+  $mn = min($allPrices); $mx = max($allPrices);
+  $pad = max(1, ($mx - $mn) * 0.08); $mn -= $pad; $mx += $pad; // headroom so wicks never touch the frame edge
+  $rng = max(1, $mx - $mn);
+  $slot = $plotW / $n; $bodyW = max(2, min(10, $slot * 0.6));
 
   $maxVol = 1;
   foreach ($volByDay as $v) $maxVol = max($maxVol, (int)$v['buy'], (int)$v['sell']);
 
   $y = fn($p) => round($chartH - ($p - $mn) / $rng * $chartH, 1);
 
-  $svg = '';
+  $svg = '<rect x="0" y="0" width="'.$plotW.'" height="'.$chartH.'" fill="rgba(255,255,255,.015)"/>';
+
+  // Horizontal price gridlines + right-axis labels (4 evenly spaced levels)
+  $levels = 4;
+  for ($li = 0; $li <= $levels; $li++) {
+    $p = $mn + $rng * $li / $levels;
+    $ly = $y($p);
+    $svg .= '<line x1="0" y1="'.$ly.'" x2="'.$plotW.'" y2="'.$ly.'" stroke="rgba(255,255,255,.06)" stroke-width="1"/>';
+    $svg .= '<text x="'.($plotW+8).'" y="'.($ly+3).'" font-size="9" fill="#5d6680" font-family="monospace">'.number_format((int)round($p)).'</text>';
+  }
+
+  // Current price — dashed line + boxed label pinned to the last close
+  $lastClose = end($candles)['c'];
+  $cpy = $y($lastClose);
+  $cpCol = $lastClose >= $candles[0]['o'] ? '#3bcf63' : '#ff2d95';
+  $svg .= '<line x1="0" y1="'.$cpy.'" x2="'.$plotW.'" y2="'.$cpy.'" stroke="'.$cpCol.'" stroke-width="1" stroke-dasharray="3 3" opacity="0.6"/>';
+  $svg .= '<rect x="'.$plotW.'" y="'.($cpy-7).'" width="'.$axisW.'" height="14" fill="'.$cpCol.'"/>';
+  $svg .= '<text x="'.($plotW+6).'" y="'.($cpy+3).'" font-size="9" font-weight="700" fill="#05050c" font-family="monospace">'.number_format((int)$lastClose).'</text>';
+
   foreach ($candles as $i => $c) {
     $cx = round($i * $slot + $slot / 2, 1);
     $col = $c['c'] >= $c['o'] ? '#3bcf63' : '#ff2d95';
@@ -302,17 +343,18 @@ function sx_render_candles(array $candles, array $volByDay, int $w, int $h): str
     $bodyTop = $y(max($c['o'], $c['c']));
     $bodyBot = $y(min($c['o'], $c['c']));
     $bodyH   = max(1, $bodyBot - $bodyTop);
-    $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.$bodyTop.'" width="'.round($bodyW,1).'" height="'.$bodyH.'" fill="'.$col.'"/>';
+    $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.$bodyTop.'" width="'.round($bodyW,1).'" height="'.$bodyH.'" fill="'.$col.'" rx="1"/>';
 
     $v = $volByDay[$c['d']] ?? ['buy'=>0,'sell'=>0];
     $buyH  = round(($v['buy']  / $maxVol) * ($volH/2 - 2), 1);
     $sellH = round(($v['sell'] / $maxVol) * ($volH/2 - 2), 1);
-    $baseY = $chartH + 6 + $volH/2;
-    if ($buyH  > 0) $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.round($baseY - $buyH,1).'" width="'.round($bodyW,1).'" height="'.$buyH.'" fill="#3bcf63" opacity="0.75"/>';
-    if ($sellH > 0) $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.$baseY.'" width="'.round($bodyW,1).'" height="'.$sellH.'" fill="#ff2d95" opacity="0.75"/>';
+    $baseY = $chartH + 10 + $volH/2;
+    if ($buyH  > 0) $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.round($baseY - $buyH,1).'" width="'.round($bodyW,1).'" height="'.$buyH.'" fill="#3bcf63" opacity="0.75" rx="1"/>';
+    if ($sellH > 0) $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.$baseY.'" width="'.round($bodyW,1).'" height="'.$sellH.'" fill="#ff2d95" opacity="0.75" rx="1"/>';
   }
-  $baseline = $chartH + 6 + $volH/2;
-  $svg = '<line x1="0" y1="'.$baseline.'" x2="'.$w.'" y2="'.$baseline.'" stroke="rgba(255,255,255,.08)" stroke-width="1"/>' . $svg;
+  $baseline = $chartH + 10 + $volH/2;
+  $svg .= '<line x1="0" y1="'.$baseline.'" x2="'.$plotW.'" y2="'.$baseline.'" stroke="rgba(255,255,255,.1)" stroke-width="1"/>';
+  $svg .= '<line x1="0" y1="'.($chartH+2).'" x2="'.$plotW.'" y2="'.($chartH+2).'" stroke="rgba(232,212,77,.15)" stroke-width="1"/>';
   return $svg;
 }
 
@@ -382,7 +424,10 @@ if ($tab === 'detail') {
 .sx-tab.on{border-color:#e8d44d;background:rgba(232,212,77,.1);color:#e8d44d;box-shadow:0 0 10px rgba(232,212,77,.14)}
 .sx-row{transition:background .12s}
 .sx-row:hover{background:rgba(232,212,77,.03)}
-.sx-pill{display:inline-block;font-size:10px;font-weight:700;padding:1px 8px;border-radius:9px}
+/* Fixed-width, monospaced so every row's badge starts/ends at the same x —
+   the old variable-width inline-block pill inside a right-aligned column
+   made the Change column look ragged/misaligned row to row. */
+.sx-pill{display:inline-flex;align-items:center;justify-content:flex-end;gap:3px;width:64px;font-family:'Orbitron',sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;box-sizing:border-box}
 .sx-pill.up{color:#3bcf63;background:rgba(59,207,99,.1);border:1px solid rgba(59,207,99,.3)}
 .sx-pill.down{color:var(--neon2);background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.3)}
 .sx-pill.flat{color:var(--muted);border:1px solid var(--line)}
@@ -395,6 +440,19 @@ if ($tab === 'detail') {
 .sx-holding:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.3)}
 .sx-alloc{display:flex;height:10px;border-radius:5px;overflow:hidden;border:1px solid var(--line)}
 .sx-alloc>div{height:100%}
+/* Market list — column header + row grid share this template so nothing drifts */
+.sx-grid{display:grid;grid-template-columns:1fr 80px 90px 74px 150px;align-items:center;gap:4px}
+.sx-avail{font-size:10px;color:var(--muted);margin-top:2px}
+.sx-avail b{color:var(--text)}
+.sx-avail.sold-out{color:var(--neon2)}
+/* Detail page — chart terminal look */
+.sx-chart-panel{background:#08070d;border:1px solid rgba(232,212,77,.15);border-radius:8px;padding:14px}
+.sx-stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.sx-stat{padding:10px 14px;border-right:1px solid var(--line);background:var(--panel2)}
+.sx-stat:last-child{border-right:none}
+.sx-stat .lbl{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:3px}
+.sx-stat .val{font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--text)}
+.sx-order-panel{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px;position:sticky;top:10px}
 </style>
 
 <!-- Header -->
@@ -407,7 +465,7 @@ if ($tab === 'detail') {
     </div>
     <div style="position:absolute;right:14px;top:12px;text-align:right">
       <div class="muted" style="font-size:10px;text-shadow:0 1px 4px #000">POCKET</div>
-      <div style="font-size:17px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent);text-shadow:0 1px 6px #000"><?= number_format($player['creds_pocket']) ?> <span style="font-size:11px;font-weight:400">cr</span></div>
+      <div style="font-size:17px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent);text-shadow:0 1px 6px #000"><?= number_format($player['creds_pocket']) ?> <span style="font-size:11px;font-weight:400">credits</span></div>
     </div>
     <?php if (count($composite) >= 2): ?>
     <div style="position:absolute;left:16px;bottom:22px;pointer-events:none">
@@ -430,9 +488,32 @@ if ($tab === 'detail') {
 <div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>
 <?php endif; ?>
 
-<?php if ($tab === 'market'): ?>
+<?php if ($tab === 'market'):
+  $gainers = $stocks; usort($gainers, fn($a,$b) => (($b['prev_price']>0?($b['price']-$b['prev_price'])/$b['prev_price']:0)) <=> (($a['prev_price']>0?($a['price']-$a['prev_price'])/$a['prev_price']:0)));
+  $topGainer = $gainers[0] ?? null; $topLoser = end($gainers) ?: null;
+?>
+<?php if ($topGainer && $topLoser): ?>
+<div class="sx-stat-row" style="margin-bottom:14px">
+  <div class="sx-stat">
+    <div class="lbl">Top Gainer</div>
+    <div class="val" style="color:#3bcf63"><?= e($topGainer['ticker']) ?> <span style="font-size:11px">&#9650;<?= abs(round(((int)$topGainer['price']-(int)$topGainer['prev_price'])/max(1,(int)$topGainer['prev_price'])*100,1)) ?>%</span></div>
+  </div>
+  <div class="sx-stat">
+    <div class="lbl">Top Loser</div>
+    <div class="val" style="color:var(--neon2)"><?= e($topLoser['ticker']) ?> <span style="font-size:11px">&#9660;<?= abs(round(((int)$topLoser['price']-(int)$topLoser['prev_price'])/max(1,(int)$topLoser['prev_price'])*100,1)) ?>%</span></div>
+  </div>
+  <div class="sx-stat">
+    <div class="lbl">Listed Tickers</div>
+    <div class="val"><?= count($stocks) ?></div>
+  </div>
+  <div class="sx-stat">
+    <div class="lbl">Brokerage Fee</div>
+    <div class="val" style="color:#e8d44d">1%</div>
+  </div>
+</div>
+<?php endif; ?>
 <div class="panel" style="padding:0;overflow:hidden">
-  <div style="display:grid;grid-template-columns:1fr 70px 84px 86px 132px;padding:8px 14px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line);font-weight:700">
+  <div class="sx-grid" style="padding:8px 14px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line);font-weight:700">
     <span>Company</span><span style="text-align:center">7d</span><span style="text-align:right">Price</span><span style="text-align:right">Change</span><span></span>
   </div>
   <?php foreach ($stocks as $s):
@@ -444,13 +525,16 @@ if ($tab === 'detail') {
     $spark   = count($hist) >= 2 ? sx_downsample($hist, 40) : [];
     $sparkCol = $spark ? (end($spark) >= $spark[0] ? '#3bcf63' : '#ff2d95') : '#8fa3c8';
     $rowAnim = $diff > 0 ? ' just-up' : ($diff < 0 ? ' just-down' : '');
+    $avail   = (int)$s['shares_available'];
+    $soldOut = $avail <= 0;
   ?>
   <div style="border-bottom:1px solid rgba(255,255,255,.04)">
-    <div class="sx-row<?= $rowAnim ?>" style="display:grid;grid-template-columns:1fr 70px 84px 86px 132px;align-items:center;gap:4px;padding:10px 14px;cursor:pointer" onclick="window.location.href='index.php?p=stockex&tab=detail&id=<?= (int)$s['id'] ?>'">
+    <div class="sx-row sx-grid<?= $rowAnim ?>" style="padding:10px 14px;cursor:pointer" onclick="window.location.href='index.php?p=stockex&tab=detail&id=<?= (int)$s['id'] ?>'">
       <div>
-        <span style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:<?= $catCol ?>"><?= e($s['ticker']) ?></span>
+        <div><span style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:<?= $catCol ?>"><?= e($s['ticker']) ?></span>
         <span style="font-size:12px;color:var(--text);margin-left:6px"><?= e($s['name']) ?></span>
-        <?php if ($hold): ?><span style="font-size:10px;color:var(--accent);margin-left:4px">(<?= number_format($hold['shares']) ?> owned)</span><?php endif; ?>
+        <?php if ($hold): ?><span style="font-size:10px;color:var(--accent);margin-left:4px">(<?= number_format($hold['shares']) ?> owned)</span><?php endif; ?></div>
+        <div class="sx-avail<?= $soldOut ? ' sold-out' : '' ?>"><?= $soldOut ? 'Sold out' : '<b>'.number_format($avail).'</b> available' ?></div>
       </div>
       <div style="text-align:center">
         <?php if ($spark): ?>
@@ -459,17 +543,21 @@ if ($tab === 'detail') {
       </div>
       <div style="text-align:right;font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;color:var(--text)"><?= number_format($s['price']) ?></div>
       <div style="text-align:right">
-        <span class="sx-pill <?= $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'flat') ?>"><?= $diff > 0 ? '▲' : ($diff < 0 ? '▼' : '•') ?> <?= abs($diffPct) ?>%</span>
+        <span class="sx-pill <?= $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'flat') ?>"><?= $diff > 0 ? '&#9650;' : ($diff < 0 ? '&#9660;' : '&bull;') ?> <?= number_format(abs($diffPct), 1) ?>%</span>
       </div>
       <div onclick="event.stopPropagation()">
+        <?php if ($soldOut): ?>
+        <span class="muted" style="font-size:11px">No shares left to buy</span>
+        <?php else: ?>
         <form method="post" style="margin:0;display:flex;gap:4px;align-items:center;flex-wrap:wrap" data-sxfx="buy"
               data-sx-ticker="<?= e($s['ticker']) ?>" data-sx-price="<?= (int)$s['price'] ?>">
           <input type="hidden" name="action" value="buy">
           <input type="hidden" name="stock_id" value="<?= (int)$s['id'] ?>">
-          <input type="number" name="qty" value="1" min="1" class="sx-qty" data-price="<?= (int)$s['price'] ?>" style="width:48px;padding:3px 5px;font-size:11px">
+          <input type="number" name="qty" value="1" min="1" max="<?= $avail ?>" class="sx-qty" data-price="<?= (int)$s['price'] ?>" style="width:48px;padding:3px 5px;font-size:11px">
           <button type="submit" style="padding:4px 10px;font-size:11px;color:var(--accent);border-color:rgba(25,240,199,.35);background:rgba(25,240,199,.08)">Buy</button>
-          <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$s['price'] + max(1, (int)ceil($s['price'] * 0.01))) ?> cr w/fee</span>
+          <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$s['price'] + max(1, (int)ceil($s['price'] * 0.01))) ?> credits w/fee</span>
         </form>
+        <?php endif; ?>
       </div>
     </div>
   </div>
@@ -482,89 +570,105 @@ if ($tab === 'detail') {
   $diffPct = $ds['prev_price'] > 0 ? round($diff / $ds['prev_price'] * 100, 1) : 0;
   $catCol  = $catColors[$ds['category']] ?? '#8fa3c8';
   $info    = $stockInfo[$ds['ticker']] ?? ['desc'=>'','trend'=>''];
+  $dayHigh = $dayLow = (int)$ds['price'];
+  if (count($detailCandles)) { $last = end($detailCandles); $dayHigh = $last['h']; $dayLow = $last['l']; }
+  $avail = (int)$ds['shares_available']; $total = (int)$ds['shares_total'];
+  $availPct = $total > 0 ? round($avail / $total * 100) : 0;
 ?>
 <div class="panel">
   <a href="index.php?p=stockex&tab=market" style="font-size:11px;color:var(--muted);text-decoration:none">&larr; Back to Market</a>
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:8px">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-top:8px">
     <div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:<?= $catCol ?>"><?= e($ds['ticker']) ?></span>
+        <span style="font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700;color:<?= $catCol ?>"><?= e($ds['ticker']) ?></span>
         <span style="font-size:15px;color:var(--text)"><?= e($ds['name']) ?></span>
+        <span style="font-size:10px;color:<?= $catCol ?>;border:1px solid <?= $catCol ?>;border-radius:10px;padding:1px 8px;text-transform:uppercase;letter-spacing:.05em"><?= ucfirst($ds['category']) ?></span>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">Category: <span style="color:<?= $catCol ?>"><?= ucfirst($ds['category']) ?></span>
-        <?php if ($detailHold): ?> &middot; <span style="color:var(--accent)"><?= number_format($detailHold['shares']) ?> shares owned</span> &middot; avg buy <?= number_format($detailHold['avg_buy_price']) ?> cr<?php endif; ?>
-      </div>
-    </div>
-    <div style="text-align:right">
-      <div style="font-family:'Orbitron',sans-serif;font-size:22px;font-weight:700;color:var(--text)"><?= number_format($ds['price']) ?> <span style="font-size:12px;font-weight:400;color:var(--muted)">cr</span></div>
-      <span class="sx-pill <?= $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'flat') ?>"><?= $diff > 0 ? '▲' : ($diff < 0 ? '▼' : '•') ?> <?= abs($diffPct) ?>% since last tick</span>
-    </div>
-  </div>
-</div>
-
-<div class="panel" style="border:1px solid rgba(232,212,77,.25);background:rgba(232,212,77,.04)">
-  <div style="font-size:11px;color:#e8d44d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">&#128161; Why it's moving right now</div>
-  <p style="margin:0;font-size:13px;line-height:1.6"><?= e($detailReason) ?></p>
-</div>
-
-<div class="panel">
-  <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">About</div>
-  <p style="margin:0 0 6px;font-size:13px;line-height:1.6"><?= e($info['desc']) ?></p>
-  <?php if ($info['trend']): ?><div style="font-size:11px"><span style="color:var(--muted)">Trend: </span><span style="color:#e8d44d"><?= e($info['trend']) ?></span></div><?php endif; ?>
-</div>
-
-<div class="panel">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
-    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">30-Day Price &amp; Volume</div>
-    <div style="display:flex;gap:16px;font-size:11px">
-      <span><span class="muted">24h volume:</span> <span style="color:#3bcf63">&#9650;<?= number_format($detailVol24h['buy']) ?></span> / <span style="color:var(--neon2)">&#9660;<?= number_format($detailVol24h['sell']) ?></span></span>
-      <span><span class="muted">7d volume:</span> <span style="color:#3bcf63">&#9650;<?= number_format($detailVol7d['buy']) ?></span> / <span style="color:var(--neon2)">&#9660;<?= number_format($detailVol7d['sell']) ?></span></span>
-    </div>
-  </div>
-  <?php if (count($detailCandles) >= 2): ?>
-  <svg width="100%" height="220" viewBox="0 0 700 220" preserveAspectRatio="none" style="display:block;background:rgba(0,0,0,.2);border-radius:6px">
-    <?= sx_render_candles($detailCandles, $detailVolByDay, 700, 220) ?>
-  </svg>
-  <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:4px">
-    <span><?= e(date('M j', strtotime($detailCandles[0]['d']))) ?></span>
-    <span>Green = buy volume / price up &middot; Pink = sell volume / price down</span>
-    <span><?= e(date('M j', strtotime(end($detailCandles)['d']))) ?></span>
-  </div>
-  <?php else: ?>
-  <div style="padding:30px;text-align:center;color:var(--muted);font-size:12px">Not enough price history yet — check back after a few price updates.</div>
-  <?php endif; ?>
-</div>
-
-<div class="panel">
-  <h3 style="margin-top:0;font-size:13px">Trade <?= e($ds['ticker']) ?></h3>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-    <div>
-      <div style="font-size:11px;font-weight:700;color:#3bcf63;margin-bottom:6px">Buy</div>
-      <form method="post" style="margin:0;display:flex;gap:6px;align-items:center;flex-wrap:wrap" data-sxfx="buy"
-            data-sx-ticker="<?= e($ds['ticker']) ?>" data-sx-price="<?= (int)$ds['price'] ?>">
-        <input type="hidden" name="action" value="buy">
-        <input type="hidden" name="stock_id" value="<?= (int)$ds['id'] ?>">
-        <input type="number" name="qty" value="1" min="1" class="sx-qty" data-price="<?= (int)$ds['price'] ?>" style="width:80px">
-        <button type="submit" style="color:var(--accent);border-color:rgba(25,240,199,.35);background:rgba(25,240,199,.08)">Buy</button>
-        <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$ds['price'] + max(1, (int)ceil($ds['price'] * 0.01))) ?> cr w/fee</span>
-      </form>
-    </div>
-    <div>
-      <div style="font-size:11px;font-weight:700;color:var(--neon2);margin-bottom:6px">Sell</div>
       <?php if ($detailHold): ?>
-      <form method="post" style="margin:0;display:flex;gap:6px;align-items:center;flex-wrap:wrap" data-sxfx="sell"
-            data-sx-ticker="<?= e($ds['ticker']) ?>" data-sx-price="<?= (int)$ds['price'] ?>">
-        <input type="hidden" name="action" value="sell">
-        <input type="hidden" name="stock_id" value="<?= (int)$ds['id'] ?>">
-        <input type="number" name="qty" value="1" min="1" max="<?= (int)$detailHold['shares'] ?>" class="sx-qty sell" data-price="<?= (int)$ds['price'] ?>" style="width:80px">
-        <button type="button" class="fill-max" style="font-size:10px" onclick="var i=this.previousElementSibling;i.value=<?= (int)$detailHold['shares'] ?>;i.dispatchEvent(new Event('input'))">All</button>
-        <button type="submit" style="color:var(--neon2);border-color:rgba(255,45,149,.3);background:rgba(255,45,149,.08)">Sell</button>
-        <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$ds['price'] - max(1, (int)ceil($ds['price'] * 0.01))) ?> cr after fee</span>
-      </form>
-      <?php else: ?>
-      <p class="muted" style="font-size:12px;margin:0">You don't own any shares to sell.</p>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px"><span style="color:var(--accent)"><?= number_format($detailHold['shares']) ?> shares owned</span> &middot; avg buy <?= number_format($detailHold['avg_buy_price']) ?> credits</div>
       <?php endif; ?>
     </div>
+    <div style="text-align:right;flex:none">
+      <div style="display:flex;align-items:baseline;justify-content:flex-end;gap:8px">
+        <span style="font-family:'Orbitron',sans-serif;font-size:26px;font-weight:700;color:var(--text)"><?= number_format($ds['price']) ?></span>
+        <span style="font-size:12px;font-weight:400;color:var(--muted)">credits</span>
+      </div>
+      <div style="margin-top:4px"><span class="sx-pill" style="width:auto;padding:3px 10px;<?= $diff > 0 ? 'color:#3bcf63;background:rgba(59,207,99,.1);border:1px solid rgba(59,207,99,.3)' : ($diff < 0 ? 'color:var(--neon2);background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.3)' : 'color:var(--muted);border:1px solid var(--line)') ?>"><?= $diff > 0 ? '&#9650;' : ($diff < 0 ? '&#9660;' : '&bull;') ?> <?= number_format(abs($diffPct),1) ?>% since last tick</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="sx-stat-row" style="margin:14px 0">
+  <div class="sx-stat"><div class="lbl">Shares Available</div><div class="val" style="color:<?= $avail<=0?'var(--neon2)':(($availPct<20)?'#e8a33d':'var(--text)') ?>"><?= number_format($avail) ?></div></div>
+  <div class="sx-stat"><div class="lbl">Total Float</div><div class="val"><?= number_format($total) ?></div></div>
+  <div class="sx-stat"><div class="lbl">Today's Range</div><div class="val" style="font-size:12px"><?= number_format($dayLow) ?>&ndash;<?= number_format($dayHigh) ?></div></div>
+  <div class="sx-stat"><div class="lbl">24h Volume</div><div class="val" style="font-size:12px"><span style="color:#3bcf63">&#9650;<?= number_format($detailVol24h['buy']) ?></span> / <span style="color:var(--neon2)">&#9660;<?= number_format($detailVol24h['sell']) ?></span></div></div>
+  <div class="sx-stat"><div class="lbl">7d Volume</div><div class="val" style="font-size:12px"><span style="color:#3bcf63">&#9650;<?= number_format($detailVol7d['buy']) ?></span> / <span style="color:var(--neon2)">&#9660;<?= number_format($detailVol7d['sell']) ?></span></div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:start">
+  <div>
+    <div class="sx-chart-panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <div style="font-size:11px;color:#e8d44d;text-transform:uppercase;letter-spacing:.08em">30-Day Chart</div>
+        <div style="font-size:10px;color:var(--muted)">&#9632;<span style="color:#3bcf63">&nbsp;up</span> &nbsp;&#9632;<span style="color:var(--neon2)">&nbsp;down</span> &nbsp;&middot;&nbsp; volume below</div>
+      </div>
+      <?php if (count($detailCandles) >= 2): ?>
+      <div style="position:relative">
+        <svg width="100%" viewBox="0 0 760 280" style="display:block;aspect-ratio:760/280">
+          <?= sx_render_candles($detailCandles, $detailVolByDay, 760, 280) ?>
+        </svg>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:4px">
+        <span><?= e(date('M j', strtotime($detailCandles[0]['d']))) ?></span>
+        <span><?= e(date('M j', strtotime(end($detailCandles)['d']))) ?></span>
+      </div>
+      <?php else: ?>
+      <div style="padding:40px;text-align:center;color:var(--muted);font-size:12px">Not enough price history yet — check back after a few price updates.</div>
+      <?php endif; ?>
+    </div>
+
+    <div class="panel" style="border:1px solid rgba(232,212,77,.25);background:rgba(232,212,77,.04);margin-top:14px">
+      <div style="font-size:11px;color:#e8d44d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Why it's moving right now</div>
+      <p style="margin:0;font-size:13px;line-height:1.6"><?= e($detailReason) ?></p>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">About</div>
+      <p style="margin:0 0 6px;font-size:13px;line-height:1.6"><?= e($info['desc']) ?></p>
+      <?php if ($info['trend']): ?><div style="font-size:11px"><span style="color:var(--muted)">Trend: </span><span style="color:#e8d44d"><?= e($info['trend']) ?></span></div><?php endif; ?>
+    </div>
+  </div>
+
+  <div class="sx-order-panel">
+    <h3 style="margin:0 0 12px;font-size:13px">Trade <?= e($ds['ticker']) ?></h3>
+    <div style="font-size:11px;font-weight:700;color:#3bcf63;margin-bottom:6px">Buy</div>
+    <?php if ($avail <= 0): ?>
+    <p class="muted" style="font-size:12px;margin:0 0 16px">No shares available to buy right now — check back after other players sell.</p>
+    <?php else: ?>
+    <form method="post" style="margin:0 0 16px;display:flex;gap:6px;align-items:center;flex-wrap:wrap" data-sxfx="buy"
+          data-sx-ticker="<?= e($ds['ticker']) ?>" data-sx-price="<?= (int)$ds['price'] ?>">
+      <input type="hidden" name="action" value="buy">
+      <input type="hidden" name="stock_id" value="<?= (int)$ds['id'] ?>">
+      <input type="number" name="qty" value="1" min="1" max="<?= $avail ?>" class="sx-qty" data-price="<?= (int)$ds['price'] ?>" style="width:100%">
+      <button type="submit" style="width:100%;color:var(--accent);border-color:rgba(25,240,199,.35);background:rgba(25,240,199,.08)">Buy</button>
+      <span class="sx-cost">= <?= number_format((int)$ds['price'] + max(1, (int)ceil($ds['price'] * 0.01))) ?> credits w/fee</span>
+    </form>
+    <?php endif; ?>
+    <div style="font-size:11px;font-weight:700;color:var(--neon2);margin-bottom:6px">Sell</div>
+    <?php if ($detailHold): ?>
+    <form method="post" style="margin:0;display:flex;gap:6px;align-items:center;flex-wrap:wrap" data-sxfx="sell"
+          data-sx-ticker="<?= e($ds['ticker']) ?>" data-sx-price="<?= (int)$ds['price'] ?>">
+      <input type="hidden" name="action" value="sell">
+      <input type="hidden" name="stock_id" value="<?= (int)$ds['id'] ?>">
+      <input type="number" name="qty" value="1" min="1" max="<?= (int)$detailHold['shares'] ?>" class="sx-qty sell" data-price="<?= (int)$ds['price'] ?>" style="width:100%">
+      <button type="button" class="fill-max" style="font-size:10px;width:100%" onclick="var i=this.previousElementSibling;i.value=<?= (int)$detailHold['shares'] ?>;i.dispatchEvent(new Event('input'))">All</button>
+      <button type="submit" style="width:100%;color:var(--neon2);border-color:rgba(255,45,149,.3);background:rgba(255,45,149,.08)">Sell</button>
+      <span class="sx-cost">= <?= number_format((int)$ds['price'] - max(1, (int)ceil($ds['price'] * 0.01))) ?> credits after fee</span>
+    </form>
+    <?php else: ?>
+    <p class="muted" style="font-size:12px;margin:0">You don't own any shares to sell.</p>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -579,8 +683,8 @@ if ($tab === 'detail') {
     $plCol = $totalPL >= 0 ? '#3bcf63' : 'var(--neon2)';
   ?>
   <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;padding:12px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;align-items:center">
-    <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--accent)" data-sxcnt="<?= $totalValue ?>"><?= number_format($totalValue) ?> cr</div><div style="font-size:10px;color:var(--muted)">Portfolio Value</div></div>
-    <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:<?= $plCol ?>"><?= $totalPL>=0?'+':'' ?><?= number_format($totalPL) ?> cr</div><div style="font-size:10px;color:var(--muted)">Unrealized P/L</div></div>
+    <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--accent)" data-sxcnt="<?= $totalValue ?>"><?= number_format($totalValue) ?> credits</div><div style="font-size:10px;color:var(--muted)">Portfolio Value</div></div>
+    <div style="text-align:center"><div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:<?= $plCol ?>"><?= $totalPL>=0?'+':'' ?><?= number_format($totalPL) ?> credits</div><div style="font-size:10px;color:var(--muted)">Unrealized P/L</div></div>
     <div style="flex:1;min-width:180px">
       <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Allocation</div>
       <div class="sx-alloc">
@@ -588,7 +692,7 @@ if ($tab === 'detail') {
           $hv = (int)$h['price'] * (int)$h['shares'];
           $w = $totalValue > 0 ? max(1, round($hv / $totalValue * 100, 1)) : 0;
         ?>
-        <div style="width:<?= $w ?>%;background:<?= $catColors[$h['category']] ?? '#8fa3c8' ?>" title="<?= e($h['ticker']) ?> — <?= $w ?>% (<?= number_format($hv) ?> cr)"></div>
+        <div style="width:<?= $w ?>%;background:<?= $catColors[$h['category']] ?? '#8fa3c8' ?>" title="<?= e($h['ticker']) ?> — <?= $w ?>% (<?= number_format($hv) ?> credits)"></div>
         <?php endforeach; ?>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
@@ -615,11 +719,11 @@ if ($tab === 'detail') {
             <span style="font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:<?= $catCol ?>"><?= e($h['ticker']) ?></span>
             <span style="font-size:12px;color:var(--text)"><?= e($h['name']) ?></span>
           </div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:6px"><?= number_format($h['shares']) ?> shares &middot; avg buy <b style="color:#e8d44d"><?= number_format($h['avg_buy_price']) ?></b> cr &middot; now <b style="color:var(--text)"><?= number_format($h['price']) ?></b> cr</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px"><?= number_format($h['shares']) ?> shares &middot; avg buy <b style="color:#e8d44d"><?= number_format($h['avg_buy_price']) ?></b> credits &middot; now <b style="color:var(--text)"><?= number_format($h['price']) ?></b> credits</div>
           <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
             <div>
-              <div style="font-size:14px;font-weight:700;color:var(--text)"><?= number_format($currentVal) ?> cr</div>
-              <div style="font-size:11px;color:<?= $plCol ?>"><?= $pl>=0?'+':'' ?><?= number_format($pl) ?> cr &nbsp;<span style="opacity:.7">(<?= $pl>=0?'+':'' ?><?= $plPct ?>%)</span></div>
+              <div style="font-size:14px;font-weight:700;color:var(--text)"><?= number_format($currentVal) ?> credits</div>
+              <div style="font-size:11px;color:<?= $plCol ?>"><?= $pl>=0?'+':'' ?><?= number_format($pl) ?> credits &nbsp;<span style="opacity:.7">(<?= $pl>=0?'+':'' ?><?= $plPct ?>%)</span></div>
             </div>
             <form method="post" style="margin:0;display:flex;gap:4px;align-items:center;flex-wrap:wrap" data-sxfx="sell"
                   data-sx-ticker="<?= e($h['ticker']) ?>" data-sx-price="<?= (int)$h['price'] ?>">
@@ -628,7 +732,7 @@ if ($tab === 'detail') {
               <input type="number" name="qty" value="1" min="1" max="<?= (int)$h['shares'] ?>" class="sx-qty sell" data-price="<?= (int)$h['price'] ?>" style="width:52px;padding:3px 6px;font-size:11px">
               <button type="button" class="fill-max" style="font-size:9px;padding:3px 7px" onclick="var i=this.previousElementSibling;i.value=<?= (int)$h['shares'] ?>;i.dispatchEvent(new Event('input'))">All</button>
               <button type="submit" style="padding:4px 10px;font-size:11px;color:var(--neon2);border-color:rgba(255,45,149,.3);background:rgba(255,45,149,.08)">Sell</button>
-              <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$h['price'] - max(1, (int)ceil($h['price'] * 0.01))) ?> cr after fee</span>
+              <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$h['price'] - max(1, (int)ceil($h['price'] * 0.01))) ?> credits after fee</span>
             </form>
           </div>
         </div>
@@ -776,8 +880,8 @@ document.querySelectorAll('.sx-qty').forEach(function(inp){
     var fee=Math.max(1,Math.ceil(gross*0.01));
     var span=inp.closest('form').querySelector('.sx-cost');
     if(!span) return;
-    if(inp.classList.contains('sell')) span.textContent='= '+Math.max(0,gross-fee).toLocaleString('en-US')+' cr after fee';
-    else span.textContent='= '+(gross+fee).toLocaleString('en-US')+' cr w/fee';
+    if(inp.classList.contains('sell')) span.textContent='= '+Math.max(0,gross-fee).toLocaleString('en-US')+' credits after fee';
+    else span.textContent='= '+(gross+fee).toLocaleString('en-US')+' credits w/fee';
   });
 });
 })();
@@ -848,9 +952,9 @@ document.querySelectorAll('.sx-qty').forEach(function(inp){
       +'<div class="sxfx-head"><span>GRID EXCHANGE · ORDER</span><span class="sxfx-side">'+side+'</span></div>'
       +'<div class="sxfx-line"><span>TICKER</span><b>'+ticker+'</b></div>'
       +'<div class="sxfx-line"><span>QTY</span><b>×'+qty.toLocaleString('en-US')+'</b></div>'
-      +'<div class="sxfx-line"><span>PRICE</span><b>'+price.toLocaleString('en-US')+' cr</b></div>'
-      +'<div class="sxfx-line"><span>FEE 1%</span><b>'+fee.toLocaleString('en-US')+' cr</b></div>'
-      +'<div class="sxfx-line" style="border-top:1px dashed rgba(255,255,255,.14);margin-top:4px;padding-top:5px"><span>'+(side==='BUY'?'TOTAL':'NET')+'</span><b style="color:'+col+'">'+total.toLocaleString('en-US')+' cr</b></div>'
+      +'<div class="sxfx-line"><span>PRICE</span><b>'+price.toLocaleString('en-US')+' credits</b></div>'
+      +'<div class="sxfx-line"><span>FEE 1%</span><b>'+fee.toLocaleString('en-US')+' credits</b></div>'
+      +'<div class="sxfx-line" style="border-top:1px dashed rgba(255,255,255,.14);margin-top:4px;padding-top:5px"><span>'+(side==='BUY'?'TOTAL':'NET')+'</span><b style="color:'+col+'">'+total.toLocaleString('en-US')+' credits</b></div>'
       +'<div class="sxfx-stamp">FILLED</div>'
       +'</div>';
     document.body.appendChild(o);

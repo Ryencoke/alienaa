@@ -14,9 +14,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $src = ($_POST['source'] ?? 'items') === 'gear' ? 'gear' : 'items';
       $iid = (int)($_POST['item_id'] ?? 0);
       if ($src === 'gear') {
-        $q = $pdo->prepare('SELECT gear_type FROM player_gear WHERE id=? AND player_id=?');
+        $q = $pdo->prepare('SELECT gear_type, recipe_id FROM player_gear WHERE id=? AND player_id=?');
         $q->execute([$iid, $pid]);
-        $slot = $q->fetchColumn();
+        $gearRow = $q->fetch();
+        $slot = $gearRow ? $gearRow['gear_type'] : false;
+        // Blacksmith gear carries a level requirement (Forge catalog row 10);
+        // Fabrication Lab gear is gated separately by weaponcraft.php's own
+        // equip flow, so only look this up when the recipe_id is a Forge code.
+        if ($gearRow) {
+          foreach (blacksmith_catalog() as $bc) {
+            if ($bc[0] === $gearRow['recipe_id']) {
+              $lvlReq = (int)($bc[10] ?? 1);
+              if ((int)$player['level'] < $lvlReq) throw new RuntimeException("Requires Level {$lvlReq} to equip.");
+              break;
+            }
+          }
+        }
       } else {
         $q = $pdo->prepare('SELECT i.slot FROM items i JOIN player_items pi ON pi.item_id = i.id AND pi.player_id = ?
                             WHERE i.id = ? AND pi.qty > 0');
@@ -44,6 +57,14 @@ if (!function_exists('item_icon')) {
     if ($slot === 'armor')  return '&#128737;';
     $m = ['raw'=>'&#128296;','component'=>'&#128295;','chem'=>'&#128137;','data'=>'&#128190;','gear'=>'&#9881;','misc'=>'&#128230;'];
     return $m[$cat] ?? '&#128230;';
+  }
+}
+if (!function_exists('item_color')) {
+  function item_color($cat, $slot) {
+    if ($slot === 'weapon') return 'var(--neon2)';
+    if ($slot === 'armor')  return 'var(--accent)';
+    $m = ['raw'=>'#8fa3c8','component'=>'#4d9be8','chem'=>'#3bcf63','data'=>'#a66de8','gear'=>'#e8a33d','misc'=>'var(--muted)'];
+    return $m[$cat] ?? 'var(--muted)';
   }
 }
 function equipped_item($pdo, $id) {
@@ -148,9 +169,11 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
   <div id="invlist">
     <?php foreach ($inv as $r):
       $isEq = (($r['slot'] === 'weapon' && $ew && $ew['id'] == $r['id'] && $ewSrc === $r['source'])
-            || ($r['slot'] === 'armor' && $ea && $ea['id'] == $r['id'] && $eaSrc === $r['source'])); ?>
-    <div class="itemcard" data-cat="<?= e($r['category']) ?>">
-      <div class="ic"><?= item_icon($r['category'], $r['slot']) ?></div>
+            || ($r['slot'] === 'armor' && $ea && $ea['id'] == $r['id'] && $eaSrc === $r['source']));
+      $icCol = item_color($r['category'], $r['slot']);
+    ?>
+    <div class="itemcard" data-cat="<?= e($r['category']) ?>" style="border-left:3px solid <?= $icCol ?>">
+      <div class="ic" style="color:<?= $icCol ?>"><?= item_icon($r['category'], $r['slot']) ?></div>
       <div class="body">
         <div class="nm"><?= e($r['name']) ?><?php if ($r['slot']): ?> <span class="muted">(<?= ucfirst($r['slot']) ?>)</span><?php endif; ?> <span class="muted">&times;<?= (int)$r['qty'] ?></span><?php if ((int)($r['loan_id'] ?? 0) > 0): ?> <span style="font-size:9px;font-weight:700;color:#e8a33d;text-transform:uppercase;letter-spacing:.4px;border:1px solid rgba(232,163,61,.4);border-radius:4px;padding:1px 5px;vertical-align:middle">&#9874; Guild Loan</span><?php endif; ?></div>
         <?php if ($r['descr']): ?><div class="muted" style="font-size:11px"><?= e($r['descr']) ?></div><?php endif; ?>

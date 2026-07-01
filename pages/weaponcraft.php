@@ -121,6 +121,20 @@ $ORE_NAMES = [
 
 $myLevel = (int)($player['level'] ?? 1);
 
+// Fabrication skill — gates which tiers you can CRAFT (not just equip).
+// "Based on study is what weapons/armor you can make": mirrors sim.php's
+// Combat-skill tier gate ($TIER_COMBAT_REQ) point-for-point, so the two
+// skill-gated systems in the game use the same investment curve.
+$fq = $pdo->prepare("SELECT ps.points FROM player_skills ps
+                     JOIN skills s ON s.id = ps.skill_id
+                     WHERE s.code = 'fab' AND ps.player_id = ?");
+$fq->execute([$pid]);
+$fabSkill = (int)($fq->fetchColumn() ?: 0);
+$TIER_FAB_REQ = [
+  'scrap' => 0, 'copper' => 50, 'iron' => 150, 'titanium' => 300,
+  'nanocarbon' => 450, 'quantum' => 650, 'void' => 850,
+];
+
 function wc_load_ore($pdo, $pid): array {
   $q = $pdo->prepare('SELECT ore_type, quantity FROM player_ore WHERE player_id = ?');
   $q->execute([$pid]);
@@ -142,6 +156,8 @@ if (!empty($_POST['wc_ajax'])) {
       $rid = $_POST['recipe_id'] ?? '';
       $recipe = $RECIPES_BY_ID[$rid] ?? null;
       if (!$recipe) throw new RuntimeException('Unknown blueprint.');
+      $fabReq = $TIER_FAB_REQ[$recipe['tier']] ?? 0;
+      if ($fabSkill < $fabReq) throw new RuntimeException('Requires '.$fabReq.' Fabrication skill to build this blueprint — study up at the Datacore.');
       $oreInv = wc_load_ore($pdo, $pid);
       $cost = $recipe['cost'];
       foreach ($cost as $ore => $need) {
@@ -277,11 +293,11 @@ $oreNamesJson = json_encode($ORE_NAMES);
 .wc-pop{animation:wcPop .3s ease-out}
 </style>
 
-<!-- Player level + Ore Stockpile -->
+<!-- Ore Stockpile -->
 <div class="panel">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
     <h3 style="margin:0">&#128219; Stockpile</h3>
-    <span class="wc-lvl-pill">&#11088; Level <?= $myLevel ?></span>
+    <span class="wc-lvl-pill">&#9881; Fabrication <?= $fabSkill ?></span>
   </div>
   <?php if (empty(array_filter($oreInv))): ?>
     <p class="muted">No ore. Head to <a href="index.php?p=mining">The Sump</a> to mine some.</p>
@@ -318,10 +334,13 @@ $oreNamesJson = json_encode($ORE_NAMES);
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:8px" id="wc-grid">
     <?php foreach ($RECIPES as $r): if ($r['type'] !== $wantType) continue;
       $tier = $TIERS[$r['tier']]; $affordable = wc_can_afford($r['cost'], $oreInv);
+      $fabReq = $TIER_FAB_REQ[$r['tier']] ?? 0;
+      $fabLocked = $fabSkill < $fabReq;
       $costParts = [];
       foreach ($r['cost'] as $ore => $need) { $ok = ($oreInv[$ore] ?? 0) >= $need; $costParts[] = "<span class='wc-chip' style='background:".($ok?'rgba(25,240,199,.07)':'rgba(255,45,149,.07)')."; border:1px solid ".($ok?'rgba(25,240,199,.2)':'rgba(255,45,149,.3)')."; color:".($ok?'var(--text)':'var(--neon2)')."'>".$ORE_NAMES[$ore][1]." ".$need."&times; ".$ORE_NAMES[$ore][0]."</span>"; }
     ?>
-    <div class="wc-card <?= $affordable ? '' : 'broke' ?>" data-id="<?= e($r['id']) ?>" style="--wc-col:<?= $tier['col'] ?>;--wc-glow:<?= $tier['col'] ?>33">
+    <div class="wc-card <?= $affordable ? '' : 'broke' ?><?= $fabLocked ? ' broke' : '' ?>" data-id="<?= e($r['id']) ?>" data-fablocked="<?= $fabLocked ? '1' : '0' ?>" data-fabreq="<?= $fabReq ?>" style="--wc-col:<?= $tier['col'] ?>;--wc-glow:<?= $tier['col'] ?>33">
+      <?php if ($fabLocked): ?><div style="position:absolute;top:6px;right:7px;font-size:9px;color:var(--neon2);font-weight:700">&#128274; FAB <?= $fabReq ?></div><?php endif; ?>
       <div style="display:flex;align-items:center;gap:7px">
         <span style="font-size:17px;flex:none"><?= $r['icon'] ?></span>
         <div style="flex:1;min-width:0">
@@ -356,7 +375,7 @@ $oreNamesJson = json_encode($ORE_NAMES);
         <div id="wc-bay-desc" class="muted" style="font-size:12px;margin-bottom:8px"></div>
         <div id="wc-bay-stats" style="margin-bottom:8px"></div>
         <div id="wc-bay-cost" style="font-size:11px;margin-bottom:12px"></div>
-        <button id="wc-bay-btn" type="button" style="width:100%">&#9874; Begin Fabrication</button>
+        <button id="wc-bay-btn" type="button" style="width:100%">Begin Fabrication</button>
         <div id="wc-bay-msg" class="muted" style="font-size:11px;text-align:center;margin-top:8px;min-height:14px"></div>
       </div>
     </div>
@@ -434,6 +453,7 @@ $oreNamesJson = json_encode($ORE_NAMES);
 'use strict';
 var RECIPES=<?= $recipesJson ?>, TIERS=<?= $tiersJson ?>, ORE_NAMES=<?= $oreNamesJson ?>;
 var ore=<?= $oreJson ?>;
+var FAB_SKILL=<?= (int)$fabSkill ?>, TIER_FAB_REQ=<?= json_encode($TIER_FAB_REQ) ?>;
 var muted=localStorage.getItem('wcMuted')==='1';
 var ac=null;
 function sfx(freq,dur,type,vol,slide){
@@ -529,9 +549,11 @@ function selectCard(id){
   }
   bayCost.innerHTML=costHtml;
   var afford=canAfford(r.cost);
-  bayBtn.disabled=!afford;
-  bayBtn.textContent=afford?'⚔ Begin Fabrication':'Need more ore';
-  bayMsg.textContent='';
+  var fabReq=TIER_FAB_REQ[r.tier]||0, fabLocked=FAB_SKILL<fabReq;
+  bayBtn.disabled=!afford||fabLocked;
+  bayBtn.textContent=fabLocked?('Requires Fabrication '+fabReq):(afford?'Begin Fabrication':'Need more ore');
+  bayMsg.textContent=fabLocked?'Train Fabrication at the Datacore to unlock this blueprint.':'';
+  bayMsg.style.color=fabLocked?'var(--neon2)':'';
 }
 
 cards.forEach(function(c){
@@ -567,7 +589,7 @@ if(bayBtn){
         .then(function(d){
           if(!d.ok){
             bayMsg.textContent=d.err||'Error'; bayMsg.style.color='var(--neon2)';
-            bayBtn.disabled=false; bayBtn.textContent='⚔ Begin Fabrication';
+            bayBtn.disabled=false; bayBtn.textContent='Begin Fabrication';
             sfx(120,.15,'square',.04);
             return;
           }
@@ -577,11 +599,11 @@ if(bayBtn){
           bayIcon.classList.remove('wc-pop'); void bayIcon.offsetWidth; bayIcon.classList.add('wc-pop');
           var afford=canAfford(r.cost);
           bayBtn.disabled=!afford;
-          bayBtn.textContent=afford?'⚔ Begin Fabrication':'Need more ore';
+          bayBtn.textContent=afford?'Begin Fabrication':'Need more ore';
         })
         .catch(function(){
           bayMsg.textContent='Network error'; bayMsg.style.color='var(--neon2)';
-          bayBtn.disabled=false; bayBtn.textContent='⚔ Begin Fabrication';
+          bayBtn.disabled=false; bayBtn.textContent='Begin Fabrication';
         });
     }, BUILD_MS);
   });

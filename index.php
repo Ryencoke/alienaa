@@ -356,7 +356,7 @@ try {
       $__resetSecs = max(0, $__mtn->getTimestamp() - time());
     ?>
     <div class="panel"><h3>&#128337; City Time</h3>
-      <p style="font-family:'Orbitron',sans-serif;font-size:15px;color:var(--accent);margin:2px 0"><?= $__mt->format('g:i a') ?></p>
+      <p id="city-time-clock" style="font-family:'Orbitron',sans-serif;font-size:15px;color:var(--accent);margin:2px 0"><?= $__mt->format('g:i a') ?></p>
       <p style="font-size:11px;color:var(--muted);margin:2px 0"><?= $__mt->format('l, M j Y') ?> &middot; MT</p>
       <div style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px">
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:4px">Next Reset In</div>
@@ -367,15 +367,30 @@ try {
     (function(){
       var s=<?= (int)$__resetSecs ?>;
       var el=document.getElementById('reset-countdown');
-      if(!el)return;
-      function tick(){
-        if(s<=0){el.textContent='Resetting...';return;}
-        var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=s%60;
-        el.textContent=(h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(sc<10?'0':'')+sc;
-        s--;
-        setTimeout(tick,1000);
+      if(el){
+        (function tick(){
+          if(s<=0){el.textContent='Resetting...';return;}
+          var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=s%60;
+          el.textContent=(h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(sc<10?'0':'')+sc;
+          s--;
+          setTimeout(tick,1000);
+        })();
       }
-      tick();
+
+      /* City Time clock — ticks forward client-side from the server's
+         Mountain Time reading at page load, so it stays live without a
+         refresh instead of freezing at whatever time the page was rendered. */
+      var mtH=<?= (int)$__mt->format('G') ?>, mtM=<?= (int)$__mt->format('i') ?>, mtS=<?= (int)$__mt->format('s') ?>;
+      var clockEl=document.getElementById('city-time-clock');
+      if(clockEl){
+        (function tickClock(){
+          var h12=mtH%12; if(h12===0) h12=12;
+          clockEl.textContent=h12+':'+(mtM<10?'0':'')+mtM+' '+(mtH<12?'am':'pm');
+          mtS++;
+          if(mtS>=60){ mtS=0; mtM++; if(mtM>=60){ mtM=0; mtH=(mtH+1)%24; } }
+          setTimeout(tickClock,1000);
+        })();
+      }
     })();
     </script>
     <div class="panel" id="quickchat-panel">

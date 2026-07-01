@@ -385,18 +385,23 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
 <?php endif; ?>
 
 <div class="daemon-tabs">
-  <button class="daemon-tab <?= $activeTab==='dice'       ?'active':'' ?>" data-tab="dice">&#127922; Daemon Dice</button>
-  <button class="daemon-tab <?= $activeTab==='slots'      ?'active':'' ?>" data-tab="slots">&#127920; Neon Reels</button>
-  <button class="daemon-tab <?= $activeTab==='blackjack'  ?'active':'' ?>" data-tab="blackjack">&#127921; Blackjack</button>
-  <button class="daemon-tab <?= $activeTab==='vp'         ?'active':'' ?>" data-tab="vp">&#9830; Video Poker</button>
-  <button class="daemon-tab <?= $activeTab==='history'    ?'active':'' ?>" data-tab="history">&#128202; History</button>
+  <button class="daemon-tab <?= $activeTab==='dice'       ?'active':'' ?>" data-tab="dice">Daemon Dice</button>
+  <button class="daemon-tab <?= $activeTab==='slots'      ?'active':'' ?>" data-tab="slots">Neon Reels</button>
+  <button class="daemon-tab <?= $activeTab==='blackjack'  ?'active':'' ?>" data-tab="blackjack">Blackjack</button>
+  <button class="daemon-tab <?= $activeTab==='vp'         ?'active':'' ?>" data-tab="vp">Video Poker</button>
+  <button class="daemon-tab <?= $activeTab==='history'    ?'active':'' ?>" data-tab="history">History</button>
 </div>
 
 <!-- ======= DICE ======= -->
 <div class="game-pane <?= $activeTab==='dice'?'active':'' ?>" id="pane-dice">
   <div class="panel">
     <div class="felt">
-      <div class="dice-display">
+      <?php // Same fix as the reel-display: the true result is baked into this HTML
+            // the instant the server renders it, so without hiding it here the
+            // browser can paint it for a frame before the JS reveal/roll animation
+            // ever runs. Start invisible; the reveal script restores visibility
+            // once it takes over and starts faking the roll. ?>
+      <div class="dice-display"<?= $diceResult ? ' style="opacity:0"' : '' ?>>
         <?php if ($diceResult): $won = $diceResult['choice']===$diceResult['band']; ?>
           <div class="dice-box <?= $won?'win':'lose' ?>"><?= dice_face($diceResult['d1']) ?></div>
           <span class="dice-plus">+</span>
@@ -408,14 +413,14 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
         <?php endif; ?>
       </div>
       <?php if ($diceResult): ?>
-        <p class="dice-sum"><?= $diceResult['d1'] ?> + <?= $diceResult['d2'] ?> = <b><?= $diceResult['sum'] ?></b>
+        <p class="dice-sum" style="visibility:hidden"><?= $diceResult['d1'] ?> + <?= $diceResult['d2'] ?> = <b><?= $diceResult['sum'] ?></b>
           <span class="muted">(<?= ucfirst($diceResult['band']) ?>)</span></p>
       <?php else: ?>
         <p class="dice-sum muted">Low &middot; Seven &middot; High</p>
       <?php endif; ?>
     </div>
     <?php if ($msg && $activeTab === 'dice'): ?>
-    <div class="daemon-result daemon-result-<?= $msgType ?>"><?= e($msg) ?></div>
+    <div class="daemon-result daemon-result-<?= $msgType ?>"<?= $diceResult ? ' style="opacity:0"' : '' ?>><?= e($msg) ?></div>
     <?php endif; ?>
 
     <form method="post">
@@ -468,7 +473,7 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
       </div>
     </div>
     <?php if ($msg && $activeTab === 'slots'): ?>
-    <div class="daemon-result daemon-result-<?= $msgType ?>"><?= e($msg) ?></div>
+    <div class="daemon-result daemon-result-<?= $msgType ?>"<?= $slotReels ? ' style="opacity:0"' : '' ?>><?= e($msg) ?></div>
     <?php endif; ?>
 
     <form method="post" id="slots-form">
@@ -586,8 +591,23 @@ $vpPayTable = [['Royal Flush',800],['Straight Flush',50],['Four of a Kind',25],[
 function vp_render_card(array $c, bool $hidden=false, bool $held=false): string {
   return bj_render_card($c, $hidden, $held, '#ff5555', '#dde2f0');
 }
+// One example hand per payout tier, for the Hand Rankings popup.
+$vpHandExamples = [
+  'Royal Flush'     => [['r'=>'A','s'=>'S'],['r'=>'K','s'=>'S'],['r'=>'Q','s'=>'S'],['r'=>'J','s'=>'S'],['r'=>'10','s'=>'S']],
+  'Straight Flush'  => [['r'=>'9','s'=>'H'],['r'=>'8','s'=>'H'],['r'=>'7','s'=>'H'],['r'=>'6','s'=>'H'],['r'=>'5','s'=>'H']],
+  'Four of a Kind'  => [['r'=>'7','s'=>'S'],['r'=>'7','s'=>'H'],['r'=>'7','s'=>'D'],['r'=>'7','s'=>'C'],['r'=>'2','s'=>'S']],
+  'Full House'      => [['r'=>'K','s'=>'S'],['r'=>'K','s'=>'H'],['r'=>'K','s'=>'D'],['r'=>'4','s'=>'C'],['r'=>'4','s'=>'S']],
+  'Flush'           => [['r'=>'A','s'=>'C'],['r'=>'J','s'=>'C'],['r'=>'8','s'=>'C'],['r'=>'5','s'=>'C'],['r'=>'2','s'=>'C']],
+  'Straight'        => [['r'=>'10','s'=>'S'],['r'=>'9','s'=>'H'],['r'=>'8','s'=>'D'],['r'=>'7','s'=>'C'],['r'=>'6','s'=>'S']],
+  'Three of a Kind' => [['r'=>'Q','s'=>'S'],['r'=>'Q','s'=>'H'],['r'=>'Q','s'=>'D'],['r'=>'5','s'=>'C'],['r'=>'2','s'=>'S']],
+  'Two Pair'        => [['r'=>'J','s'=>'S'],['r'=>'J','s'=>'H'],['r'=>'6','s'=>'D'],['r'=>'6','s'=>'C'],['r'=>'3','s'=>'S']],
+  'Jacks or Better' => [['r'=>'J','s'=>'S'],['r'=>'J','s'=>'H'],['r'=>'9','s'=>'D'],['r'=>'5','s'=>'C'],['r'=>'2','s'=>'S']],
+];
 ?>
 <div class="game-pane <?= $activeTab==='vp'?'active':'' ?>" id="pane-vp">
+  <div style="text-align:right;margin-bottom:6px">
+    <a href="javascript:void(0)" onclick="document.getElementById('vpRankModal').classList.add('show')" style="font-size:11px;color:var(--accent)">Hand Rankings &rarr;</a>
+  </div>
   <div class="panel">
     <?php if ($msg && $activeTab === 'vp'): ?>
     <div class="daemon-result daemon-result-<?= $msgType ?>"><?= e($msg) ?></div>
@@ -658,6 +678,32 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
     <?php endif; ?>
   </div>
 </div>
+
+<!-- Hand Rankings popup (Jacks or Better paytable, with a visual example per hand) -->
+<div class="modal-bg" id="vpRankModal">
+  <div class="modal" style="max-width:420px;max-height:80vh;overflow-y:auto">
+    <span class="x" onclick="document.getElementById('vpRankModal').classList.remove('show')">&times;</span>
+    <h3>Video Poker Hand Rankings</h3>
+    <p class="muted" style="font-size:12px;margin-top:-8px;margin-bottom:14px">Jacks or Better — best hand wins, ranked highest to lowest.</p>
+    <?php foreach ($vpPayTable as [$hn, $hm]): $ex = $vpHandExamples[$hn] ?? []; ?>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+      <div style="display:flex;gap:3px;flex:none">
+        <?php foreach ($ex as $c): echo vp_render_card($c); endforeach; ?>
+      </div>
+      <div style="flex:1;text-align:right">
+        <div style="font-size:12px;font-weight:700;color:<?= $hm>=50?'#e8d44d':($hm>=9?'var(--accent)':'var(--text)') ?>"><?= e($hn) ?></div>
+        <div style="font-size:11px;color:var(--muted)">Pays <?= $hm ?>&times;</div>
+      </div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+</div>
+<script>
+(function(){
+  var m=document.getElementById('vpRankModal');
+  if(m) m.addEventListener('click',function(e){ if(e.target===this) m.classList.remove('show'); });
+})();
+</script>
 
 <!-- ======= HISTORY ======= -->
 <div class="game-pane <?= $activeTab==='history'?'active':'' ?>" id="pane-history">
@@ -959,6 +1005,7 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
   }
 
   if(ev.g==='dice'){
+    var diceDisplay=document.querySelector('#pane-dice .dice-display');
     var boxes=document.querySelectorAll('#pane-dice .dice-box');
     var sum=document.querySelector('#pane-dice .dice-sum');
     if(boxes.length===2){
@@ -968,6 +1015,7 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
       if(sum) sum.style.visibility='hidden';
       hideResultUntil('#pane-dice',1150);
       boxes.forEach(function(b){ b.className='dice-box idle rolling'; });
+      if(diceDisplay) diceDisplay.style.opacity='1'; // now safe — boxes show randomized faces, not the real result
       var n=0;
       var iv=setInterval(function(){
         n++;

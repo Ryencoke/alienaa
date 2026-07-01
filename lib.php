@@ -317,61 +317,91 @@ function skill_defs(): array {
   ];
 }
 
-// The Forge catalog. Row: [code, name, icon, type, sub, atk, def, spd, price, desc]
+// The Forge catalog. Row: [code, name, icon, type, sub, atk, def, spd, price, desc, level_req]
+// level_req is appended at the END (index 10), not inserted into the middle
+// of the tuple, so every existing $c[0]..$c[9] index reference elsewhere in
+// blacksmith.php keeps working unchanged.
 function blacksmith_catalog(): array {
   return [
     // ==================== WEAPONS ====================
-    ['mono_blade',     'Mono-Edge Blade',     '&#9876;',  'weapon', 'Melee',   3,  0,  1,   800,  'Monomolecular edge. Whisper-quiet, lethal up close.'],
-    ['ceramic_blade',  'Ceramic Blade',       '&#9876;',  'weapon', 'Melee',   2,  0,  3,   600,  'Heat-treated ceramic edge. Light, fast, disposable.'],
-    ['corrosive_dart', 'Corrosive Dart Gun',  '&#128300;','weapon', 'Ranged',  4,  0,  2,  1800,  'Industrial acid in every round. Eats through light armor.'],
-    ['plasma_pistol',  'Plasma Pistol',       '&#128299;','weapon', 'Ranged',  5,  0,  0,  2200,  'Single-shot plasma rounds. Standard Sprawl enforcer sidearm.'],
-    ['shock_baton',    'Shock Baton',         '&#9889;',  'weapon', 'Melee',   4,  2,  0,  3500,  'Electromagnetic stunner. Crowd control with a nasty bite.'],
-    ['entropy_knife',  'Entropy Knife',       '&#9876;',  'weapon', 'Stealth', 6,  0,  3,  4000,  'Quantum edge decays chemical bonds on contact. Banned.'],
-    ['synapse_spike',  'Synapse Spike',       '&#128296;','weapon', 'Stealth', 7,  0,  1,  4200,  'Jams cortical implants on critical hits. Illegal citywide.'],
-    ['neuro_injector', 'Neurotoxin Injector', '&#128300;','weapon', 'Stealth', 6,  0,  3,  5000,  'Fast-acting synthetic toxin. Hits before they feel it.'],
-    ['pulse_smg',      'Pulse SMG',           '&#128299;','weapon', 'Ranged',  7,  0,  2,  5500,  'High-ROF electromagnetic burst. Drains shield stacks fast.'],
-    ['data_lance',     'Data Lance',          '&#9876;',  'weapon', 'Melee',   8,  1,  1,  6500,  'Carbon-ceramic spike loaded with intrusion code. Smart kill.'],
-    ['sonic_driver',   'Sonic Driver',        '&#128299;','weapon', 'Tech',    9,  0, -1,  7000,  'Focused directional sound cannon. Shatters internal organs.'],
-    ['arc_rifle',      'Arc Rifle',           '&#127775;','weapon', 'Ranged',  9,  0, -1,  7500,  'High-voltage pulse weapon. Expensive, loud, devastating.'],
-    ['ghost_pistol',   'Ghost Pistol',        '&#128299;','weapon', 'Stealth', 8,  1,  2,  9500,  'Subsonic rounds — no muzzle flash, no heat signature.'],
-    ['void_blade',     'Void Blade',          '&#9876;',  'weapon', 'Melee',  11,  0,  2,  9000,  'Phase-shifted edge. Slips through most barrier fields.'],
-    ['breacher_axe',   'Breacher Axe',        '&#9876;',  'weapon', 'Heavy',  11,  0, -1, 10000,  'Hydraulic spike-axe engineered for armored breach ops.'],
-    ['taser_web',      'Taser Web Launcher',  '&#9889;',  'weapon', 'Tech',    6,  0,  0,  3800,  'Filament net at 50,000V. Immobilizes and burns through mesh.'],
-    ['nano_swarm',     'Nano Swarm',          '&#128296;','weapon', 'Tech',   10,  0,  0,  8000,  'Micro-bots deployed on impact. Dissolve soft tissue from inside.'],
-    ['thermal_lance',  'Thermal Lance',       '&#9876;',  'weapon', 'Heavy',  14,  0, -1, 15000,  'Plasma-focused cutting beam at melee range. Melts hardpoints.'],
-    ['scatter_cannon', 'Scatter Cannon',      '&#128299;','weapon', 'Heavy',  13,  0, -2, 12000,  'Wide spread burst. Devastating in tight corridors.'],
-    ['smart_carbine',  'Smart Carbine',       '&#128299;','weapon', 'Ranged', 16,  0,  0, 19000,  'Target-lock AI integrated into the stock and barrel assembly.'],
-    ['gauss_rifle',    'Gauss Rifle',         '&#128299;','weapon', 'Heavy',  18,  0, -2, 22000,  'Electromagnetic rail accelerator. Long range, brutal velocity.'],
-    ['hyper_katana',   'Hyper Katana',        '&#9876;',  'weapon', 'Melee',  20,  0,  3, 28000,  'Vibro-edged titanium blade tuned to 12kHz resonance frequency.'],
-    ['void_cannon',    'Void Cannon',         '&#128299;','weapon', 'Heavy',  25,  0, -3, 35000,  'Annihilation-class weapon. Banned in six city-states.'],
-    ['hex_blade',      'Hex Blade',           '&#9876;',  'weapon', 'Legendary',22, 2, 1, 45000,  'Cursed edge from an illegal foundry. It whispers back.'],
-    ['ghost_katana',   'Ghost Katana',        '&#9876;',  'weapon', 'Legendary',24, 0, 4, 55000,  'Phased monomolecular edge. Passes through all known alloys.'],
+    ['mono_blade',     'Mono-Edge Blade',     '&#9876;',  'weapon', 'Melee',   3,  0,  1,   800,  'Monomolecular edge. Whisper-quiet, lethal up close.', 1],
+    ['ceramic_blade',  'Ceramic Blade',       '&#9876;',  'weapon', 'Melee',   2,  0,  3,   600,  'Heat-treated ceramic edge. Light, fast, disposable.', 1],
+    ['corrosive_dart', 'Corrosive Dart Gun',  '&#128300;','weapon', 'Ranged',  4,  0,  2,  1800,  'Industrial acid in every round. Eats through light armor.', 2],
+    ['plasma_pistol',  'Plasma Pistol',       '&#128299;','weapon', 'Ranged',  5,  0,  0,  2200,  'Single-shot plasma rounds. Standard Sprawl enforcer sidearm.', 2],
+    ['shock_baton',    'Shock Baton',         '&#9889;',  'weapon', 'Melee',   4,  2,  0,  3500,  'Electromagnetic stunner. Crowd control with a nasty bite.', 4],
+    ['entropy_knife',  'Entropy Knife',       '&#9876;',  'weapon', 'Stealth', 6,  0,  3,  4000,  'Quantum edge decays chemical bonds on contact. Banned.', 4],
+    ['synapse_spike',  'Synapse Spike',       '&#128296;','weapon', 'Stealth', 7,  0,  1,  4200,  'Jams cortical implants on critical hits. Illegal citywide.', 4],
+    ['neuro_injector', 'Neurotoxin Injector', '&#128300;','weapon', 'Stealth', 6,  0,  3,  5000,  'Fast-acting synthetic toxin. Hits before they feel it.', 5],
+    ['pulse_smg',      'Pulse SMG',           '&#128299;','weapon', 'Ranged',  7,  0,  2,  5500,  'High-ROF electromagnetic burst. Drains shield stacks fast.', 6],
+    ['data_lance',     'Data Lance',          '&#9876;',  'weapon', 'Melee',   8,  1,  1,  6500,  'Carbon-ceramic spike loaded with intrusion code. Smart kill.', 7],
+    ['sonic_driver',   'Sonic Driver',        '&#128299;','weapon', 'Tech',    9,  0, -1,  7000,  'Focused directional sound cannon. Shatters internal organs.', 7],
+    ['arc_rifle',      'Arc Rifle',           '&#127775;','weapon', 'Ranged',  9,  0, -1,  7500,  'High-voltage pulse weapon. Expensive, loud, devastating.', 8],
+    ['ghost_pistol',   'Ghost Pistol',        '&#128299;','weapon', 'Stealth', 8,  1,  2,  9500,  'Subsonic rounds — no muzzle flash, no heat signature.', 10],
+    ['void_blade',     'Void Blade',          '&#9876;',  'weapon', 'Melee',  11,  0,  2,  9000,  'Phase-shifted edge. Slips through most barrier fields.', 9],
+    ['breacher_axe',   'Breacher Axe',        '&#9876;',  'weapon', 'Heavy',  11,  0, -1, 10000,  'Hydraulic spike-axe engineered for armored breach ops.', 10],
+    ['taser_web',      'Taser Web Launcher',  '&#9889;',  'weapon', 'Tech',    6,  0,  0,  3800,  'Filament net at 50,000V. Immobilizes and burns through mesh.', 4],
+    ['nano_swarm',     'Nano Swarm',          '&#128296;','weapon', 'Tech',   10,  0,  0,  8000,  'Micro-bots deployed on impact. Dissolve soft tissue from inside.', 8],
+    ['thermal_lance',  'Thermal Lance',       '&#9876;',  'weapon', 'Heavy',  14,  0, -1, 15000,  'Plasma-focused cutting beam at melee range. Melts hardpoints.', 15],
+    ['scatter_cannon', 'Scatter Cannon',      '&#128299;','weapon', 'Heavy',  13,  0, -2, 12000,  'Wide spread burst. Devastating in tight corridors.', 12],
+    ['smart_carbine',  'Smart Carbine',       '&#128299;','weapon', 'Ranged', 16,  0,  0, 19000,  'Target-lock AI integrated into the stock and barrel assembly.', 19],
+    ['gauss_rifle',    'Gauss Rifle',         '&#128299;','weapon', 'Heavy',  18,  0, -2, 22000,  'Electromagnetic rail accelerator. Long range, brutal velocity.', 22],
+    ['hyper_katana',   'Hyper Katana',        '&#9876;',  'weapon', 'Melee',  20,  0,  3, 28000,  'Vibro-edged titanium blade tuned to 12kHz resonance frequency.', 28],
+    ['void_cannon',    'Void Cannon',         '&#128299;','weapon', 'Heavy',  25,  0, -3, 35000,  'Annihilation-class weapon. Banned in six city-states.', 35],
+    ['hex_blade',      'Hex Blade',           '&#9876;',  'weapon', 'Legendary',22, 2, 1, 45000,  'Cursed edge from an illegal foundry. It whispers back.', 45],
+    ['ghost_katana',   'Ghost Katana',        '&#9876;',  'weapon', 'Legendary',24, 0, 4, 55000,  'Phased monomolecular edge. Passes through all known alloys.', 55],
+    // ---- new additions ----
+    ['shiv_blade',        'Prison Shiv',          '&#9876;',  'weapon', 'Melee',   1,  0,  2,   400,  'Sharpened scrap, wrapped grip. Ugly and effective.', 1],
+    ['stun_prod',         'Stun Prod',            '&#9889;',  'weapon', 'Melee',   2,  0,  1,  1400,  'Cattle-prod voltage, city-legal. Barely.', 1],
+    ['burst_shotgun',     'Burst Shotgun',        '&#128299;','weapon', 'Ranged',  6,  0, -1,  2600,  'Close-range devastation. No subtlety required.', 3],
+    ['razor_whip',        'Razor Whip',           '&#9876;',  'weapon', 'Stealth', 5,  0,  2,  3200,  'Monofilament coil. One crack, clean severance.', 3],
+    ['flechette_launcher','Flechette Launcher',   '&#128299;','weapon', 'Ranged',  6,  0,  0,  4600,  'Shreds soft targets at range. Loud reload.', 5],
+    ['cryo_lance',        'Cryo Lance',           '&#9876;',  'weapon', 'Tech',    6,  1, -1,  5800,  'Flash-freezes on contact. Shatter the follow-up.', 6],
+    ['spike_launcher',    'Spike Launcher',       '&#128299;','weapon', 'Heavy',   9,  0, -1,  8200,  'Compressed-air spikes at lethal velocity.', 8],
+    ['neural_disruptor',  'Neural Disruptor',     '&#128296;','weapon', 'Tech',   10,  0,  0, 11000,  'Scrambles motor cortex signals on hit.', 11],
+    ['plasma_rifle',      'Plasma Rifle',         '&#128299;','weapon', 'Heavy',  15,  0, -1, 16500,  'Full-auto plasma. Overheats fast, hits harder.', 17],
+    ['singularity_blade', 'Singularity Blade',    '&#9876;',  'weapon', 'Legendary',17, 1, 2, 20000,  'The edge doesn\'t cut. It removes.', 20],
+    ['railgun',           'Railgun',              '&#128299;','weapon', 'Heavy',  21,  0, -3, 26000,  'Magnetic acceleration to hypersonic velocity.', 26],
+    ['graviton_hammer',   'Graviton Hammer',      '&#9876;',  'weapon', 'Heavy',  23,  0, -2, 32000,  'Bends local gravity before impact.', 32],
+    ['oblivion_edge',     'Oblivion Edge',        '&#9876;',  'weapon', 'Legendary',26, 2, 3, 50000,  'The last blade some corporations ever see.', 50],
     // ==================== ARMOR ====================
-    ['ferro_coat',      'Ferro Coat',         '&#129413;','armor', 'Light',    0,  5,  0,  1200,  'Ferromagnetic fiber coat. Deflects shrapnel and debris.'],
-    ['combat_vest',     'Combat Vest',        '&#128737;','armor', 'Light',    0,  3,  1,   600,  'Lightweight ballistic weave. Move fast, take a hit.'],
-    ['camo_wraps',      'Camo Wraps',         '&#129399;','armor', 'Stealth',  0,  4,  4,  4200,  'Adaptive camouflage fabric. Hard to spot, harder to hit.'],
-    ['kinetic_weave',   'Kinetic Weave',      '&#128737;','armor', 'Medium',   0,  8,  1,  3500,  'Dissipates kinetic energy across the entire suit surface.'],
-    ['ablative_coat',   'Ablative Coat',      '&#128737;','armor', 'Medium',   0,  8,  0,  3200,  'Sacrificial layers burn away on impact. Disposable protection.'],
-    ['riot_shell',      'Riot Shell',         '&#128737;','armor', 'Medium',   0,  7,  0,  2800,  'Hardened polymer shell. Standard perimeter security issue.'],
-    ['shadow_suit',     'Shadow Suit',        '&#128737;','armor', 'Stealth',  0,  6,  3,  5500,  'Stealth-optimized flexweave. Blocks thermal imaging.'],
-    ['carbon_bodysuit', 'Carbon Bodysuit',    '&#128737;','armor', 'Medium',   1, 10,  1,  7000,  'Full-body carbon-nanotube weave. Light and highly protective.'],
-    ['reflex_suit',     'Reflex Suit',        '&#128737;','armor', 'Tech',     2,  8,  2,  8500,  'Myomer-lined suit. Augments reaction speed under fire.'],
-    ['exo_frame',       'Exo-Frame',          '&#129302;','armor', 'Heavy',    1, 12, -1,  6000,  'Powered exoskeletal rig. Near-impenetrable, slows footwork.'],
-    ['neural_weave',    'Neural Weave',       '&#129504;','armor', 'Tech',     0,  9,  2,  9500,  'Bio-integrated smart armor. Predicts strikes before they land.'],
-    ['nano_skin',       'Nano Skin',          '&#128737;','armor', 'Tech',     1,  9,  1, 11000,  'Living mesh that redistributes impact force over the body.'],
-    ['phantom_wrap',    'Phantom Wrap',       '&#128737;','armor', 'Stealth',  0, 12,  2, 14000,  'Chameleon fabric shifts pattern to match surroundings.'],
-    ['subdermal_mesh',  'Subdermal Mesh',     '&#128737;','armor', 'Stealth',  0, 11,  0, 12000,  'Embedded under-skin weave. Invisible to scanners.'],
-    ['ghost_cloak',     'Ghost Cloak',        '&#128737;','armor', 'Stealth',  0, 13,  2, 16000,  'Phase-shifting coat — partial optical camouflage.'],
-    ['circuit_shroud',  'Circuit Shroud',     '&#128737;','armor', 'Tech',     2, 10,  0, 13000,  'EMP-hardened longcoat with embedded counter-intrusion mesh.'],
-    ['surge_plate',     'Surge Plate',        '&#128737;','armor', 'Heavy',    0, 14, -1, 17000,  'Capacitor-fed active armor — discharges on every solid impact.'],
-    ['biomech_skin',    'Biomech Skin',       '&#128737;','armor', 'Legendary',3, 13,  1, 18000,  'Genetically-engineered symbiotic armor organism. It breathes.'],
-    ['reactor_jacket',  'Reactor Jacket',     '&#128737;','armor', 'Heavy',    0, 17, -1, 22000,  'Fusion-cell powered shield emitters in the shoulder pads.'],
-    ['chrome_shell',    'Chrome Shell',       '&#128737;','armor', 'Heavy',    0, 19, -1, 26000,  'Mirror-polished deflection plating. Bounces directed energy.'],
-    ['juggernaut_plate','Juggernaut Plate',   '&#128737;','armor', 'Heavy',    0, 20, -3, 30000,  'Military-grade ceramic-titanium. Near-impenetrable citadel.'],
-    ['pulse_shield',    'Pulse Shield Rig',   '&#128737;','armor', 'Heavy',    0, 16, -2, 20000,  'Electrostatic barrier shell. Regenerates between engagements.'],
-    ['quantum_vest',    'Quantum Vest',       '&#128737;','armor', 'Legendary',0, 23,  1, 40000,  'Quantum-locked protection field. Probability-based defense grid.'],
-    ['aegis_frame',     'Aegis Frame',        '&#128737;','armor', 'Legendary',0, 25,  0, 45000,  'Corporate elite bodyguard issue. Rarely leaves the vault.'],
-    ['void_carapace',   'Void Carapace',      '&#128737;','armor', 'Legendary',0, 28, -2, 50000,  'Salvaged from a downed warship. Absorbs almost any impact.'],
+    ['ferro_coat',      'Ferro Coat',         '&#129413;','armor', 'Light',    0,  5,  0,  1200,  'Ferromagnetic fiber coat. Deflects shrapnel and debris.', 1],
+    ['combat_vest',     'Combat Vest',        '&#128737;','armor', 'Light',    0,  3,  1,   600,  'Lightweight ballistic weave. Move fast, take a hit.', 1],
+    ['camo_wraps',      'Camo Wraps',         '&#129399;','armor', 'Stealth',  0,  4,  4,  4200,  'Adaptive camouflage fabric. Hard to spot, harder to hit.', 4],
+    ['kinetic_weave',   'Kinetic Weave',      '&#128737;','armor', 'Medium',   0,  8,  1,  3500,  'Dissipates kinetic energy across the entire suit surface.', 4],
+    ['ablative_coat',   'Ablative Coat',      '&#128737;','armor', 'Medium',   0,  8,  0,  3200,  'Sacrificial layers burn away on impact. Disposable protection.', 3],
+    ['riot_shell',      'Riot Shell',         '&#128737;','armor', 'Medium',   0,  7,  0,  2800,  'Hardened polymer shell. Standard perimeter security issue.', 3],
+    ['shadow_suit',     'Shadow Suit',        '&#128737;','armor', 'Stealth',  0,  6,  3,  5500,  'Stealth-optimized flexweave. Blocks thermal imaging.', 6],
+    ['carbon_bodysuit', 'Carbon Bodysuit',    '&#128737;','armor', 'Medium',   1, 10,  1,  7000,  'Full-body carbon-nanotube weave. Light and highly protective.', 7],
+    ['reflex_suit',     'Reflex Suit',        '&#128737;','armor', 'Tech',     2,  8,  2,  8500,  'Myomer-lined suit. Augments reaction speed under fire.', 9],
+    ['exo_frame',       'Exo-Frame',          '&#129302;','armor', 'Heavy',    1, 12, -1,  6000,  'Powered exoskeletal rig. Near-impenetrable, slows footwork.', 6],
+    ['neural_weave',    'Neural Weave',       '&#129504;','armor', 'Tech',     0,  9,  2,  9500,  'Bio-integrated smart armor. Predicts strikes before they land.', 10],
+    ['nano_skin',       'Nano Skin',          '&#128737;','armor', 'Tech',     1,  9,  1, 11000,  'Living mesh that redistributes impact force over the body.', 11],
+    ['phantom_wrap',    'Phantom Wrap',       '&#128737;','armor', 'Stealth',  0, 12,  2, 14000,  'Chameleon fabric shifts pattern to match surroundings.', 14],
+    ['subdermal_mesh',  'Subdermal Mesh',     '&#128737;','armor', 'Stealth',  0, 11,  0, 12000,  'Embedded under-skin weave. Invisible to scanners.', 12],
+    ['ghost_cloak',     'Ghost Cloak',        '&#128737;','armor', 'Stealth',  0, 13,  2, 16000,  'Phase-shifting coat — partial optical camouflage.', 16],
+    ['circuit_shroud',  'Circuit Shroud',     '&#128737;','armor', 'Tech',     2, 10,  0, 13000,  'EMP-hardened longcoat with embedded counter-intrusion mesh.', 13],
+    ['surge_plate',     'Surge Plate',        '&#128737;','armor', 'Heavy',    0, 14, -1, 17000,  'Capacitor-fed active armor — discharges on every solid impact.', 17],
+    ['biomech_skin',    'Biomech Skin',       '&#128737;','armor', 'Legendary',3, 13,  1, 18000,  'Genetically-engineered symbiotic armor organism. It breathes.', 18],
+    ['reactor_jacket',  'Reactor Jacket',     '&#128737;','armor', 'Heavy',    0, 17, -1, 22000,  'Fusion-cell powered shield emitters in the shoulder pads.', 22],
+    ['chrome_shell',    'Chrome Shell',       '&#128737;','armor', 'Heavy',    0, 19, -1, 26000,  'Mirror-polished deflection plating. Bounces directed energy.', 26],
+    ['juggernaut_plate','Juggernaut Plate',   '&#128737;','armor', 'Heavy',    0, 20, -3, 30000,  'Military-grade ceramic-titanium. Near-impenetrable citadel.', 30],
+    ['pulse_shield',    'Pulse Shield Rig',   '&#128737;','armor', 'Heavy',    0, 16, -2, 20000,  'Electrostatic barrier shell. Regenerates between engagements.', 20],
+    ['quantum_vest',    'Quantum Vest',       '&#128737;','armor', 'Legendary',0, 23,  1, 40000,  'Quantum-locked protection field. Probability-based defense grid.', 40],
+    ['aegis_frame',     'Aegis Frame',        '&#128737;','armor', 'Legendary',0, 25,  0, 45000,  'Corporate elite bodyguard issue. Rarely leaves the vault.', 45],
+    ['void_carapace',   'Void Carapace',      '&#128737;','armor', 'Legendary',0, 28, -2, 50000,  'Salvaged from a downed warship. Absorbs almost any impact.', 50],
+    // ---- new additions ----
+    ['patchwork_vest',      'Patchwork Vest',      '&#128737;','armor', 'Light',    0,  2,  1,   500,  'Scrap-plate vest. Better than nothing.', 1],
+    ['flex_padding',        'Flex Padding',        '&#129399;','armor', 'Light',    0,  4,  2,  1500,  'Lightweight impact-gel padding under street clothes.', 2],
+    ['urban_camo',          'Urban Camo Wrap',     '&#129399;','armor', 'Stealth',  0,  5,  3,  2500,  'Adaptive street-pattern weave.', 3],
+    ['plated_harness',      'Plated Harness',      '&#128737;','armor', 'Medium',   0,  9,  0,  4600,  'Segmented plate over ballistic cloth.', 5],
+    ['thermo_regulator',    'Thermo-Regulator Suit','&#128737;','armor', 'Tech',    0, 10,  1,  6200,  'Climate-controlled undersuit, incidentally armored.', 6],
+    ['blast_shell',         'Blast Shell',         '&#128737;','armor', 'Heavy',    0, 13, -1,  8800,  'Concussive-force dispersal shell.', 9],
+    ['spider_silk_weave',   'Spider-Silk Weave',   '&#129399;','armor', 'Tech',     0, 12,  2, 10500,  'Bioengineered silk, stronger than steel by weight.', 11],
+    ['warframe_chassis',    'Warframe Chassis',    '&#129302;','armor', 'Heavy',    0, 16, -2, 15000,  'Military exoskeleton chassis, civilian-modded.', 15],
+    ['hexweave_mantle',     'Hexweave Mantle',     '&#128737;','armor', 'Legendary',2, 18,  0, 19000,  'Encrypted armor plates that reroute kinetic force.', 19],
+    ['titan_plate',         'Titan Plate',         '&#128737;','armor', 'Heavy',    0, 21, -3, 24000,  'Corporate siege armor. You are now a bunker.', 24],
+    ['specter_weave',       'Specter Weave',       '&#128737;','armor', 'Legendary',0, 24,  3, 34000,  'Bends light around every seam. Ghosts wear this.', 34],
+    ['bastion_carapace',    'Bastion Carapace',    '&#128737;','armor', 'Legendary',0, 30, -2, 48000,  'Salvaged megacorp prototype. Rated for orbital debris.', 48],
   ];
 }
 
@@ -475,18 +505,31 @@ function seed_player_notifications(PDO $pdo, int $pid): void {
   } catch (Throwable $e) {}
 }
 
-// Formats a raw MySQL DATETIME string in "game time" (Mountain Time —
-// the same zone the daily reset and City Time widget already use in
-// index.php) rather than PHP's ambient default timezone, which is what a
-// bare date(...)/strtotime(...) round-trip was silently using before —
-// on hosts where PHP's default zone isn't America/Denver, notification
-// timestamps were off from every other "game time" display on the site.
-function fmt_game_time($mysqlDatetime, string $fmt = 'M j, g:ia'): string {
+// Formats a raw MySQL DATETIME string in "game time" (Mountain Time — the
+// same zone the daily reset and City Time widget already use in index.php).
+//
+// This does NOT assume PHP's ambient default timezone matches whatever
+// absolute zone MySQL writes CURRENT_TIMESTAMP in — that assumption was
+// tried first and was wrong in production (notifications showed a time
+// hours off from the City Time widget, whose own "now" calculation is
+// separately proven correct). Instead: fetch MySQL's own fresh NOW(),
+// compute the elapsed seconds between it and the stored value (both read
+// via PHP's strtotime, so any zone-interpretation error is IDENTICAL on
+// both sides and cancels out in the subtraction — this works no matter
+// what absolute zone MySQL's clock is actually in), then subtract that
+// elapsed time from a PHP-computed "right now" in America/Denver to land
+// on the notification's true Denver-local moment.
+//
+// $mysqlNow: pass a pre-fetched `SELECT NOW()` result when formatting a
+// batch of timestamps in one request, to avoid a query per item.
+function fmt_game_time($mysqlDatetime, string $fmt = 'M j, g:ia', ?string $mysqlNow = null): string {
   if (empty($mysqlDatetime)) return '';
   try {
-    $dt = new DateTime($mysqlDatetime); // interpreted in PHP's default tz — same moment MySQL's CURRENT_TIMESTAMP wrote
-    $dt->setTimezone(new DateTimeZone('America/Denver'));
-    return $dt->format($fmt);
+    if ($mysqlNow === null) $mysqlNow = (string) db()->query('SELECT NOW()')->fetchColumn();
+    $elapsed = strtotime($mysqlNow) - strtotime((string)$mysqlDatetime);
+    $denverNow = new DateTime('now', new DateTimeZone('America/Denver'));
+    $denverNow->modify('-' . max(0, $elapsed) . ' seconds');
+    return $denverNow->format($fmt);
   } catch (Throwable $e) {
     return date($fmt, strtotime((string)$mysqlDatetime));
   }

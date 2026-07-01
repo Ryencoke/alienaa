@@ -223,7 +223,7 @@ foreach ($tickets as $tCount) { if ($tCount['status'] !== 'closed') $tkOpen++; }
       '<span style="font-size:11px;color:var(--muted)"><b style="font-family:\'Orbitron\',sans-serif;color:' . ($tkOpen > 0 ? 'var(--accent)' : 'var(--muted)') . '">' . $tkOpen . '</b> OPEN TICKET' . ($tkOpen !== 1 ? 'S' : '') . '</span>') ?>
 <?= scene_header_js() ?>
 
-<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
   <span class="tk-chip on" data-tk="all">All</span>
   <span class="tk-chip" data-tk="open">Open</span>
   <span class="tk-chip" data-tk="pending">Pending</span>

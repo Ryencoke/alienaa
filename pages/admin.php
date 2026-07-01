@@ -162,13 +162,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Run daily reset for all players
       $pdo->exec("UPDATE players SET integrity = integrity_max, `signal` = signal_max,
         cycles = LEAST(CASE WHEN sub_until >= CURDATE() THEN 1500 ELSE 500 END, cycles + 250)");
-      // Skillsoft decay (same as lazy per-player reset)
-      try { $pdo->exec("UPDATE player_skills SET points = CASE
-        WHEN points > 0 AND points < 500  THEN GREATEST(0, points - 1)
-        WHEN points >= 500 AND points < 1000 THEN GREATEST(0, points - 2)
-        ELSE points END"); } catch (Throwable $e) {}
-      // Clear per-player daily_reset keys so lazy-eval doesn't skip them
-      $pdo->exec("DELETE FROM settings WHERE k LIKE 'daily_reset:%'");
+      // Skillsoft decay — must match index.php's lazy per-player reset exactly
+      // (flat -1 per skill, floored at 0) or the two paths silently disagree.
+      try { $pdo->exec("UPDATE player_skills SET points = GREATEST(0, points - 1)"); } catch (Throwable $e) {}
+      // Stamp every player's daily_reset flag to TODAY (Mountain Time) rather
+      // than deleting it outright — deleting would make every player's very
+      // next page load trigger ANOTHER full lazy reset today (double Drive,
+      // double skill decay). Stamping to today's date makes today's lazy
+      // check correctly skip while still firing normally at tomorrow's
+      // midnight, since tomorrow's date won't match what's stored here.
+      $__mtDate = (new DateTime('now', new DateTimeZone('America/Denver')))->format('Y-m-d');
+      $pdo->prepare("INSERT INTO settings (k, v)
+        SELECT CONCAT('daily_reset:', id), ? FROM players
+        ON DUPLICATE KEY UPDATE v = VALUES(v)")->execute([$__mtDate]);
       $msg = "Daily reset triggered. {$rTotal} players affected: "
            . "{$rHealth} had Health restored, {$rSignal} had Signal restored, "
            . ($rDriveNs+$rDriveSb) . " received +250 Drive ({$rDriveSb} subscribers, {$rDriveNs} non-subscribers).";
@@ -934,12 +940,35 @@ if ($sec === 'maintenance' && $isManager) { ?>
     <?= $back ?><?= $flash ?>
     <div style="background:rgba(232,163,61,.05);border:1px solid rgba(232,163,61,.25);border-radius:8px;padding:14px;margin-bottom:16px">
       <h4 style="margin:0 0 8px;color:#e8a33d">&#8635; Daily Reset</h4>
-      <p class="muted" style="font-size:12px;margin:0 0 10px">Runs the daily reset immediately for all players: restores Health &amp; Signal to max, adds +250 Drive (capped). Clears the per-player reset flag so normal daily reset still fires at midnight.</p>
-      <form method="post" onsubmit="return confirm('Trigger daily reset for ALL players now?')">
+      <p class="muted" style="font-size:12px;margin:0 0 10px">Runs the daily reset immediately for all players. Clears the per-player reset flag so normal daily reset still fires at midnight.</p>
+      <form method="post" onsubmit="return confirm('Trigger daily reset for ALL players now?')" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <input type="hidden" name="action" value="trigger_reset">
         <button type="submit" style="background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.4);color:#e8a33d">Trigger Daily Reset</button>
+        <a href="javascript:void(0)" onclick="document.getElementById('resetInfoModal').classList.add('show')" style="font-size:12px;color:var(--accent)">What does this do? &rarr;</a>
       </form>
     </div>
+
+    <!-- Reset explainer popup — kept word-for-word in sync with index.php's daily-reset block (search "Daily reset — lazy-eval") -->
+    <div class="modal-bg" id="resetInfoModal">
+      <div class="modal" style="max-width:420px">
+        <span class="x" onclick="document.getElementById('resetInfoModal').classList.remove('show')">&times;</span>
+        <h3>What the Daily Reset does</h3>
+        <p class="muted" style="font-size:12px;margin-top:-6px">Applied to every player, exactly as it normally runs at midnight Mountain Time:</p>
+        <ul style="font-size:13px;line-height:1.9;margin:10px 0 0;padding-left:20px">
+          <li>Health restored to full.</li>
+          <li>Signal restored to full.</li>
+          <li>Drive (&#9889;) restored by <b>+250</b>, capped at <b>1,500</b> for subscribers or <b>500</b> for non-subscribers.</li>
+          <li>Every skill decays by <b>&minus;1 point</b> (floored at 0) — Combat, Scavenging, Hydroponics, Fabrication, Drone Ops, Netrunning, Streetchem, Cryptocracking.</li>
+        </ul>
+        <p class="muted" style="font-size:11px;margin-top:12px">Applies to every player immediately, regardless of whether their own daily reset already fired today — then stamps today's date on each of them, so nobody gets hit twice today, and it still fires normally again at the next midnight.</p>
+      </div>
+    </div>
+    <script>
+    (function(){
+      var m=document.getElementById('resetInfoModal');
+      if(m) m.addEventListener('click',function(e){ if(e.target===this) m.classList.remove('show'); });
+    })();
+    </script>
 
     <h4 style="margin:18px 0 8px">&#128340; Server Health</h4>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px">
