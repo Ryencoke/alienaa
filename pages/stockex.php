@@ -23,6 +23,14 @@ try {
     price INT NOT NULL, recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_stock_time (stock_id, recorded_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+  // Aggregate buy/sell volume — no player identity needed, this only powers
+  // the detail page's volume chart/stats.
+  $pdo->exec("CREATE TABLE IF NOT EXISTS stock_trade_log (
+    id INT AUTO_INCREMENT PRIMARY KEY, stock_id INT NOT NULL,
+    side ENUM('buy','sell') NOT NULL, qty INT NOT NULL, price INT NOT NULL,
+    traded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_stock_time (stock_id, traded_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (Throwable $e) {}
 
 // Seed stocks if empty
@@ -54,6 +62,71 @@ try {
 } catch (Throwable $e) {}
 $actScore = min(1.0, $gm['active'] / 20.0);
 
+// Deterministic per-ticker price driver: [$boost, $reasonText]. This is the
+// single source of truth for "why is this stock moving" — used both by the
+// price-drift loop below (which adds its own per-tick random jitter on top
+// of this same $boost; a few tickers carry an extra bit of local jitter,
+// preserved separately right where it's applied) and by the detail page's
+// live explanation, so the mechanic and the explanation can never drift
+// apart. Keep this in sync with the price-drift loop's jitter block if the
+// per-ticker logic ever changes.
+function sx_stock_boost(string $ticker, array $gm, float $actScore): array {
+  switch ($ticker) {
+    case 'NXUS': case 'DATV':
+      $b = ($actScore - 0.5) * 0.025;
+      $r = $actScore > 0.5
+        ? 'Player activity is running high right now, and this stock tracks network and server load directly.'
+        : 'Player activity is quiet right now, and demand for grid infrastructure follows the crowd.';
+      return [$b, $r];
+    case 'ARMX':
+      $b = $gm['combats1h'] > 0 ? 0.015 : -0.005;
+      $r = $gm['combats1h'] > 0
+        ? 'Recent PvP activity in the last hour is driving demand for weapons and combat gear.'
+        : 'No recent combat activity in the last hour to drive weapons demand.';
+      return [$b, $r];
+    case 'CHEM': case 'PHRS':
+      $b = ($gm['combats1h'] > 0 ? 0.01 : 0) + ($actScore - 0.4) * 0.015;
+      $r = $gm['combats1h'] > 0
+        ? 'Conflict in the Sprawl over the last hour is pushing demand for stims and combat chemistry.'
+        : 'Quiet streets right now mean quiet demand for stims and street chemistry.';
+      return [$b, $r];
+    case 'NRGY':
+      $b = (1 - $gm['avgDrivePct']) * 0.03 - 0.005;
+      $r = $gm['avgDrivePct'] < 0.5
+        ? 'Average Drive reserves across active players are running low — energy demand is climbing with it.'
+        : 'Drive reserves across active players are healthy right now, so energy demand is soft.';
+      return [$b, $r];
+    case 'GRDX':
+      $b = min(0.04, $gm['sales1h'] * 0.004 + $gm['bids1h'] * 0.002);
+      $r = ($gm['sales1h'] + $gm['bids1h']) > 0
+        ? 'Overall market trading volume — bazaar sales plus auction bids — is elevated over the last hour.'
+        : 'Market trading volume is quiet right now, so this exchange-tracking stock has little to feed on.';
+      return [$b, $r];
+    case 'CRED':
+      $b = 0.002 + min(0.008, $gm['bankSum'] / 50000000 * 0.01);
+      $r = 'A slow, steady drift upward — total banked wealth citywide keeps it climbing gently regardless of daily noise.';
+      return [$b, $r];
+    case 'INFX':
+      $b = $gm['combats1h'] > 5 ? 0.02 : -0.003;
+      $r = $gm['combats1h'] > 5
+        ? 'A spike in combat activity over the last hour reads as a crime wave — security contracts are in demand.'
+        : 'No crime wave right now, so security demand is soft.';
+      return [$b, $r];
+    case 'SCRP':
+      $b = $actScore > 0.5 ? 0.01 : -0.01;
+      $r = $actScore > 0.5
+        ? 'High player activity means more salvage moving through the yards — still volatile either way.'
+        : 'Player activity is low, so salvage flow has gone quiet — still volatile either way.';
+      return [$b, $r];
+    default:
+      $b = ($actScore - 0.5) * 0.01;
+      $r = $actScore > 0.5
+        ? 'General player activity is elevated right now, giving this stock a mild lift.'
+        : 'General player activity is quiet right now, giving this stock a mild drag.';
+      return [$b, $r];
+  }
+}
+
 // Market fluctuation driven by game activity — log price every ~5 minutes
 try {
   $allStocks = $pdo->query("SELECT id, ticker, price FROM stocks")->fetchAll();
@@ -63,17 +136,12 @@ try {
   $doLog    = (time() - $lastLog) >= 300;
   if ($doLog) foreach ($allStocks as $s) {
     $base = (mt_rand(-8, 8) / 1000); // ±0.8% base noise
-    $boost = 0;
+    [$boost, ] = sx_stock_boost($s['ticker'], $gm, $actScore);
+    // A few tickers carry their own extra local jitter on top of the shared driver.
     switch ($s['ticker']) {
-      case 'NXUS': case 'DATV': $boost = ($actScore - 0.5) * 0.025; break;   // tech: rises with player activity
-      case 'ARMX':              $boost = ($gm['combats1h'] > 0 ? 0.015 : -0.005) + (mt_rand(-5,10)/1000); break; // weapons: combat-linked
-      case 'CHEM': case 'PHRS': $boost = ($gm['combats1h'] > 0 ? 0.01 : 0) + ($actScore - 0.4) * 0.015; break;  // pharma/chem: conflict
-      case 'NRGY':              $boost = (1 - $gm['avgDrivePct']) * 0.03 - 0.005; break;  // energy: rises when drive is low
-      case 'GRDX':              $boost = min(0.04, $gm['sales1h'] * 0.004 + $gm['bids1h'] * 0.002); break;       // grid exchange: trading volume
-      case 'CRED':              $boost = 0.002 + min(0.008, $gm['bankSum'] / 50000000 * 0.01); break;             // bank: steady + bank balance
-      case 'INFX':              $boost = ($gm['combats1h'] > 5 ? 0.02 : -0.003) + (mt_rand(-8,8)/1000); break;   // security: crime waves
-      case 'SCRP':              $boost = ($actScore > 0.5 ? 0.01 : -0.01) + (mt_rand(-15,20)/1000); break;       // scraps: boom/bust
-      default:                  $boost = ($actScore - 0.5) * 0.01;
+      case 'ARMX': $boost += (mt_rand(-5,10)/1000); break;   // weapons: combat-linked
+      case 'INFX': $boost += (mt_rand(-8,8)/1000); break;    // security: crime waves
+      case 'SCRP': $boost += (mt_rand(-15,20)/1000); break;  // scraps: boom/bust
     }
     $pct = $base + $boost;
     $np  = max(5, (int)round($s['price'] * (1 + $pct)));
@@ -109,6 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       } else {
         $pdo->prepare('INSERT INTO stock_holdings (player_id, stock_id, shares, avg_buy_price) VALUES (?,?,?,?)')->execute([$pid, $sid, $qty, (int)$stock['price']]);
       }
+      $pdo->prepare('INSERT INTO stock_trade_log (stock_id, side, qty, price) VALUES (?,?,?,?)')->execute([$sid, 'buy', $qty, (int)$stock['price']]);
       $pdo->commit();
       $msg = 'Bought ' . $qty . 'x ' . $stock['ticker'] . ' for ' . number_format($total) . ' credits (incl. fee).';
       $player = current_player();
@@ -130,6 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($dec->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough shares to sell.'); }
       $pdo->prepare('DELETE FROM stock_holdings WHERE player_id=? AND stock_id=? AND shares <= 0')->execute([$pid, $sid]);
       $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$net, $pid]);
+      $pdo->prepare('INSERT INTO stock_trade_log (stock_id, side, qty, price) VALUES (?,?,?,?)')->execute([$sid, 'sell', $qty, (int)$hold['price']]);
       $pdo->commit();
       $msg = 'Sold ' . $qty . 'x ' . $hold['ticker'] . ' for ' . number_format($net) . ' credits (after fee).';
       $player = current_player();
@@ -140,7 +210,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
-$tab = in_array($_GET['tab'] ?? '', ['market','portfolio']) ? $_GET['tab'] : 'market';
+$tab = in_array($_GET['tab'] ?? '', ['market','portfolio','detail']) ? $_GET['tab'] : 'market';
 $stocks = $pdo->query("SELECT * FROM stocks ORDER BY name ASC")->fetchAll();
 $portfolio = [];
 try {
@@ -190,6 +260,62 @@ function sx_sparkpath(array $h, int $w, int $ht): string {
   return trim($pts);
 }
 
+// Bucket ordered [['price'=>int,'recorded_at'=>string], ...] rows into daily
+// OHLC candles. Bucketed in PHP (not SQL GROUP_CONCAT) since ~288 rows/day/
+// stock would risk silently truncating past MySQL's default
+// group_concat_max_len (1024 bytes) if done that way.
+function sx_daily_candles(array $rows): array {
+  $byDay = [];
+  foreach ($rows as $r) {
+    $d = substr($r['recorded_at'], 0, 10);
+    $byDay[$d][] = (int)$r['price'];
+  }
+  $out = [];
+  foreach ($byDay as $d => $prices) {
+    $out[] = ['d' => $d, 'o' => $prices[0], 'h' => max($prices), 'l' => min($prices), 'c' => end($prices)];
+  }
+  return $out;
+}
+
+// Inline SVG candlestick chart with a buy/sell volume strip underneath,
+// same hand-rolled style as sx_sparkpath() — no charting library in this
+// codebase. $volByDay: ['Y-m-d' => ['buy'=>int,'sell'=>int]].
+function sx_render_candles(array $candles, array $volByDay, int $w, int $h): string {
+  $n = count($candles);
+  if ($n < 2) return '';
+  $volH = 34; $chartH = $h - $volH - 6;
+  $allPrices = [];
+  foreach ($candles as $c) { $allPrices[] = $c['h']; $allPrices[] = $c['l']; }
+  $mn = min($allPrices); $mx = max($allPrices); $rng = max(1, $mx - $mn);
+  $slot = $w / $n; $bodyW = max(2, min(10, $slot * 0.6));
+
+  $maxVol = 1;
+  foreach ($volByDay as $v) $maxVol = max($maxVol, (int)$v['buy'], (int)$v['sell']);
+
+  $y = fn($p) => round($chartH - ($p - $mn) / $rng * $chartH, 1);
+
+  $svg = '';
+  foreach ($candles as $i => $c) {
+    $cx = round($i * $slot + $slot / 2, 1);
+    $col = $c['c'] >= $c['o'] ? '#3bcf63' : '#ff2d95';
+    $svg .= '<line x1="'.$cx.'" y1="'.$y($c['h']).'" x2="'.$cx.'" y2="'.$y($c['l']).'" stroke="'.$col.'" stroke-width="1"/>';
+    $bodyTop = $y(max($c['o'], $c['c']));
+    $bodyBot = $y(min($c['o'], $c['c']));
+    $bodyH   = max(1, $bodyBot - $bodyTop);
+    $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.$bodyTop.'" width="'.round($bodyW,1).'" height="'.$bodyH.'" fill="'.$col.'"/>';
+
+    $v = $volByDay[$c['d']] ?? ['buy'=>0,'sell'=>0];
+    $buyH  = round(($v['buy']  / $maxVol) * ($volH/2 - 2), 1);
+    $sellH = round(($v['sell'] / $maxVol) * ($volH/2 - 2), 1);
+    $baseY = $chartH + 6 + $volH/2;
+    if ($buyH  > 0) $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.round($baseY - $buyH,1).'" width="'.round($bodyW,1).'" height="'.$buyH.'" fill="#3bcf63" opacity="0.75"/>';
+    if ($sellH > 0) $svg .= '<rect x="'.round($cx - $bodyW/2,1).'" y="'.$baseY.'" width="'.round($bodyW,1).'" height="'.$sellH.'" fill="#ff2d95" opacity="0.75"/>';
+  }
+  $baseline = $chartH + 6 + $volH/2;
+  $svg = '<line x1="0" y1="'.$baseline.'" x2="'.$w.'" y2="'.$baseline.'" stroke="rgba(255,255,255,.08)" stroke-width="1"/>' . $svg;
+  return $svg;
+}
+
 // Sprawl Composite index — average of each stock's history normalised to its start
 $composite = [];
 $histLens = array_map('count', array_filter($priceHistory, fn($h) => count($h) >= 2));
@@ -215,6 +341,39 @@ foreach ($stocks as $s) {
   $tickerData[] = ['t'=>$s['ticker'], 'p'=>(int)$s['price'],
     'pct'=>$s['prev_price'] > 0 ? round($d / $s['prev_price'] * 100, 1) : 0];
 }
+
+// ── Detail page data (tab=detail&id=N) ──
+$detailStock = null; $detailCandles = []; $detailVolByDay = []; $detailReason = ''; $detailHold = null;
+$detailVol24h = ['buy'=>0,'sell'=>0]; $detailVol7d = ['buy'=>0,'sell'=>0];
+if ($tab === 'detail') {
+  $did = (int)($_GET['id'] ?? 0);
+  if ($did > 0) {
+    $dq = $pdo->prepare('SELECT * FROM stocks WHERE id=?'); $dq->execute([$did]); $detailStock = $dq->fetch();
+  }
+  if (!$detailStock) { $tab = 'market'; } else {
+    try {
+      $pq = $pdo->prepare("SELECT price, recorded_at FROM stock_price_log WHERE stock_id=? AND recorded_at >= NOW() - INTERVAL 30 DAY ORDER BY recorded_at ASC");
+      $pq->execute([$detailStock['id']]);
+      $detailCandles = sx_daily_candles($pq->fetchAll());
+    } catch (Throwable $e) {}
+    try {
+      $vq = $pdo->prepare("SELECT DATE(traded_at) d, side, SUM(qty) q FROM stock_trade_log WHERE stock_id=? AND traded_at >= NOW() - INTERVAL 30 DAY GROUP BY DATE(traded_at), side");
+      $vq->execute([$detailStock['id']]);
+      foreach ($vq as $row) {
+        if (!isset($detailVolByDay[$row['d']])) $detailVolByDay[$row['d']] = ['buy'=>0,'sell'=>0];
+        $detailVolByDay[$row['d']][$row['side']] = (int)$row['q'];
+      }
+      $v24 = $pdo->prepare("SELECT side, COALESCE(SUM(qty),0) q FROM stock_trade_log WHERE stock_id=? AND traded_at >= NOW() - INTERVAL 24 HOUR GROUP BY side");
+      $v24->execute([$detailStock['id']]);
+      foreach ($v24 as $row) $detailVol24h[$row['side']] = (int)$row['q'];
+      $v7 = $pdo->prepare("SELECT side, COALESCE(SUM(qty),0) q FROM stock_trade_log WHERE stock_id=? AND traded_at >= NOW() - INTERVAL 7 DAY GROUP BY side");
+      $v7->execute([$detailStock['id']]);
+      foreach ($v7 as $row) $detailVol7d[$row['side']] = (int)$row['q'];
+    } catch (Throwable $e) {}
+    [, $detailReason] = sx_stock_boost($detailStock['ticker'], $gm, $actScore);
+    foreach ($portfolio as $ph) { if ($ph['stock_id'] == $detailStock['id']) { $detailHold = $ph; break; } }
+  }
+}
 ?>
 <style>
 #sx-canvas{display:block;width:100%;height:130px;border-radius:9px 9px 0 0}
@@ -231,9 +390,6 @@ foreach ($stocks as $s) {
 @keyframes sxDown{0%{background:rgba(255,45,149,.10)}100%{background:transparent}}
 .sx-row.just-up{animation:sxUp 1.6s ease-out}
 .sx-row.just-down{animation:sxDown 1.6s ease-out}
-.sx-detail{display:none;overflow:hidden}
-.sx-detail.open{display:block;animation:sxSlide .22s ease-out}
-@keyframes sxSlide{0%{opacity:0;transform:translateY(-6px)}100%{opacity:1;transform:none}}
 .sx-cost{font-size:9px;color:var(--muted);margin-top:2px;white-space:nowrap}
 .sx-holding{transition:transform .12s,box-shadow .15s}
 .sx-holding:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.3)}
@@ -284,19 +440,17 @@ foreach ($stocks as $s) {
     $diffPct = $s['prev_price'] > 0 ? round($diff / $s['prev_price'] * 100, 1) : 0;
     $catCol  = $catColors[$s['category']] ?? '#8fa3c8';
     $hold    = null; foreach ($portfolio as $ph) { if ($ph['stock_id'] == $s['id']) { $hold = $ph; break; } }
-    $info    = $stockInfo[$s['ticker']] ?? ['desc'=>'','trend'=>''];
     $hist    = $priceHistory[$s['id']] ?? [];
     $spark   = count($hist) >= 2 ? sx_downsample($hist, 40) : [];
     $sparkCol = $spark ? (end($spark) >= $spark[0] ? '#3bcf63' : '#ff2d95') : '#8fa3c8';
     $rowAnim = $diff > 0 ? ' just-up' : ($diff < 0 ? ' just-down' : '');
   ?>
   <div style="border-bottom:1px solid rgba(255,255,255,.04)">
-    <div class="sx-row<?= $rowAnim ?>" style="display:grid;grid-template-columns:1fr 70px 84px 86px 132px;align-items:center;gap:4px;padding:10px 14px;cursor:pointer" onclick="var d=this.nextElementSibling;d.classList.toggle('open')">
+    <div class="sx-row<?= $rowAnim ?>" style="display:grid;grid-template-columns:1fr 70px 84px 86px 132px;align-items:center;gap:4px;padding:10px 14px;cursor:pointer" onclick="window.location.href='index.php?p=stockex&tab=detail&id=<?= (int)$s['id'] ?>'">
       <div>
         <span style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:<?= $catCol ?>"><?= e($s['ticker']) ?></span>
         <span style="font-size:12px;color:var(--text);margin-left:6px"><?= e($s['name']) ?></span>
         <?php if ($hold): ?><span style="font-size:10px;color:var(--accent);margin-left:4px">(<?= number_format($hold['shares']) ?> owned)</span><?php endif; ?>
-        <span style="font-size:10px;color:var(--muted);margin-left:4px">&#9660;</span>
       </div>
       <div style="text-align:center">
         <?php if ($spark): ?>
@@ -318,38 +472,103 @@ foreach ($stocks as $s) {
         </form>
       </div>
     </div>
-    <!-- Detail panel -->
-    <div class="sx-detail" style="padding:12px 14px 14px;background:var(--panel2);border-top:1px solid rgba(255,255,255,.04)">
-      <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start">
-        <div>
-          <div style="font-size:12px;color:var(--text);margin-bottom:6px;line-height:1.5"><?= e($info['desc']) ?></div>
-          <?php if ($info['trend']): ?>
-          <div style="font-size:11px"><span style="color:var(--muted)">Trend: </span><span style="color:#e8d44d"><?= e($info['trend']) ?></span></div>
-          <?php endif; ?>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">Category: <span style="color:<?= $catCol ?>"><?= ucfirst($s['category']) ?></span>
-            &middot; Prev: <?= number_format($s['prev_price']) ?> cr
-            <?php if ($hist): ?>&middot; 7d range: <?= number_format(min($hist)) ?>–<?= number_format(max($hist)) ?> cr<?php endif; ?>
-          </div>
-        </div>
-        <?php if (count($hist) >= 2): $big = sx_downsample($hist, 80); ?>
-        <div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-align:center">7-Day Price</div>
-          <svg width="150" height="46" style="display:block;overflow:visible">
-            <rect width="150" height="46" fill="rgba(0,0,0,.2)" rx="3"/>
-            <path d="<?= sx_sparkpath($big, 150, 46) ?>" fill="none" stroke="<?= $sparkCol ?>" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-          </svg>
-          <div style="font-size:9px;color:var(--muted);text-align:center"><?= number_format($hist[0]) ?> → <?= number_format(end($hist)) ?></div>
-        </div>
-        <?php else: ?>
-        <div style="font-size:10px;color:var(--muted);text-align:center;padding:8px">Not enough<br>history yet</div>
-        <?php endif; ?>
-      </div>
-    </div>
   </div>
   <?php endforeach; ?>
 </div>
 
-<?php else: // portfolio tab ?>
+<?php elseif ($tab === 'detail' && $detailStock):
+  $ds = $detailStock;
+  $diff    = (int)$ds['price'] - (int)$ds['prev_price'];
+  $diffPct = $ds['prev_price'] > 0 ? round($diff / $ds['prev_price'] * 100, 1) : 0;
+  $catCol  = $catColors[$ds['category']] ?? '#8fa3c8';
+  $info    = $stockInfo[$ds['ticker']] ?? ['desc'=>'','trend'=>''];
+?>
+<div class="panel">
+  <a href="index.php?p=stockex&tab=market" style="font-size:11px;color:var(--muted);text-decoration:none">&larr; Back to Market</a>
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:8px">
+    <div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:<?= $catCol ?>"><?= e($ds['ticker']) ?></span>
+        <span style="font-size:15px;color:var(--text)"><?= e($ds['name']) ?></span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">Category: <span style="color:<?= $catCol ?>"><?= ucfirst($ds['category']) ?></span>
+        <?php if ($detailHold): ?> &middot; <span style="color:var(--accent)"><?= number_format($detailHold['shares']) ?> shares owned</span> &middot; avg buy <?= number_format($detailHold['avg_buy_price']) ?> cr<?php endif; ?>
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-family:'Orbitron',sans-serif;font-size:22px;font-weight:700;color:var(--text)"><?= number_format($ds['price']) ?> <span style="font-size:12px;font-weight:400;color:var(--muted)">cr</span></div>
+      <span class="sx-pill <?= $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'flat') ?>"><?= $diff > 0 ? '▲' : ($diff < 0 ? '▼' : '•') ?> <?= abs($diffPct) ?>% since last tick</span>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="border:1px solid rgba(232,212,77,.25);background:rgba(232,212,77,.04)">
+  <div style="font-size:11px;color:#e8d44d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">&#128161; Why it's moving right now</div>
+  <p style="margin:0;font-size:13px;line-height:1.6"><?= e($detailReason) ?></p>
+</div>
+
+<div class="panel">
+  <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">About</div>
+  <p style="margin:0 0 6px;font-size:13px;line-height:1.6"><?= e($info['desc']) ?></p>
+  <?php if ($info['trend']): ?><div style="font-size:11px"><span style="color:var(--muted)">Trend: </span><span style="color:#e8d44d"><?= e($info['trend']) ?></span></div><?php endif; ?>
+</div>
+
+<div class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">30-Day Price &amp; Volume</div>
+    <div style="display:flex;gap:16px;font-size:11px">
+      <span><span class="muted">24h volume:</span> <span style="color:#3bcf63">&#9650;<?= number_format($detailVol24h['buy']) ?></span> / <span style="color:var(--neon2)">&#9660;<?= number_format($detailVol24h['sell']) ?></span></span>
+      <span><span class="muted">7d volume:</span> <span style="color:#3bcf63">&#9650;<?= number_format($detailVol7d['buy']) ?></span> / <span style="color:var(--neon2)">&#9660;<?= number_format($detailVol7d['sell']) ?></span></span>
+    </div>
+  </div>
+  <?php if (count($detailCandles) >= 2): ?>
+  <svg width="100%" height="220" viewBox="0 0 700 220" preserveAspectRatio="none" style="display:block;background:rgba(0,0,0,.2);border-radius:6px">
+    <?= sx_render_candles($detailCandles, $detailVolByDay, 700, 220) ?>
+  </svg>
+  <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:4px">
+    <span><?= e(date('M j', strtotime($detailCandles[0]['d']))) ?></span>
+    <span>Green = buy volume / price up &middot; Pink = sell volume / price down</span>
+    <span><?= e(date('M j', strtotime(end($detailCandles)['d']))) ?></span>
+  </div>
+  <?php else: ?>
+  <div style="padding:30px;text-align:center;color:var(--muted);font-size:12px">Not enough price history yet — check back after a few price updates.</div>
+  <?php endif; ?>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:0;font-size:13px">Trade <?= e($ds['ticker']) ?></h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div>
+      <div style="font-size:11px;font-weight:700;color:#3bcf63;margin-bottom:6px">Buy</div>
+      <form method="post" style="margin:0;display:flex;gap:6px;align-items:center;flex-wrap:wrap" data-sxfx="buy"
+            data-sx-ticker="<?= e($ds['ticker']) ?>" data-sx-price="<?= (int)$ds['price'] ?>">
+        <input type="hidden" name="action" value="buy">
+        <input type="hidden" name="stock_id" value="<?= (int)$ds['id'] ?>">
+        <input type="number" name="qty" value="1" min="1" class="sx-qty" data-price="<?= (int)$ds['price'] ?>" style="width:80px">
+        <button type="submit" style="color:var(--accent);border-color:rgba(25,240,199,.35);background:rgba(25,240,199,.08)">Buy</button>
+        <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$ds['price'] + max(1, (int)ceil($ds['price'] * 0.01))) ?> cr w/fee</span>
+      </form>
+    </div>
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--neon2);margin-bottom:6px">Sell</div>
+      <?php if ($detailHold): ?>
+      <form method="post" style="margin:0;display:flex;gap:6px;align-items:center;flex-wrap:wrap" data-sxfx="sell"
+            data-sx-ticker="<?= e($ds['ticker']) ?>" data-sx-price="<?= (int)$ds['price'] ?>">
+        <input type="hidden" name="action" value="sell">
+        <input type="hidden" name="stock_id" value="<?= (int)$ds['id'] ?>">
+        <input type="number" name="qty" value="1" min="1" max="<?= (int)$detailHold['shares'] ?>" class="sx-qty sell" data-price="<?= (int)$ds['price'] ?>" style="width:80px">
+        <button type="button" class="fill-max" style="font-size:10px" onclick="var i=this.previousElementSibling;i.value=<?= (int)$detailHold['shares'] ?>;i.dispatchEvent(new Event('input'))">All</button>
+        <button type="submit" style="color:var(--neon2);border-color:rgba(255,45,149,.3);background:rgba(255,45,149,.08)">Sell</button>
+        <span class="sx-cost" style="flex-basis:100%">= <?= number_format((int)$ds['price'] - max(1, (int)ceil($ds['price'] * 0.01))) ?> cr after fee</span>
+      </form>
+      <?php else: ?>
+      <p class="muted" style="font-size:12px;margin:0">You don't own any shares to sell.</p>
+      <?php endif; ?>
+    </div>
+  </div>
+</div>
+
+<?php elseif ($tab === 'portfolio'): // portfolio tab ?>
 <div class="panel">
   <?php if (empty($portfolio)): ?>
     <div style="padding:24px;text-align:center;color:var(--muted)">No holdings. Buy shares from the Market tab.</div>
