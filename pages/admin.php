@@ -730,9 +730,9 @@ if ($sec === 'moderation') {
 
 /* ============================ IP LOG ============================ */
 if ($sec === 'iplog') {
-  // IP data is moderator+ (chatmods pass the page-level $canMod gate but must not see IPs)
-  if (!in_array($role, ['moderator','admin','manager'], true)) {
-    echo '<div class="panel"><h2>&#127758; IP &amp; Access Log</h2><p class="muted">Moderator access required.</p></div>';
+  // IP data is admin+ (moderators/chatmods pass the page-level $canMod gate but must not see IPs)
+  if (!in_array($role, ['admin','manager'], true)) {
+    echo '<div class="panel"><h2>&#127758; IP &amp; Access Log</h2><p class="muted">Admin access required.</p></div>';
     return;
   }
   $filterIp     = trim($_GET['ip'] ?? '');
@@ -1408,11 +1408,11 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
     <span class="req">Admin+</span>
   </a>
   <?php endif; ?>
-  <?php if (in_array($role, ['moderator','admin','manager'], true)): ?>
+  <?php if (in_array($role, ['admin','manager'], true)): ?>
   <a class="staffcard" href="index.php?p=admin&sec=iplog" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
     <span class="ic">&#127758;</span><h4>IP &amp; Access Log</h4>
     <p>Track logins, IP addresses, and flag suspicious session activity.</p>
-    <span class="req">Mod+</span>
+    <span class="req">Admin+</span>
   </a>
   <?php endif; ?>
   <a class="staffcard" href="index.php?p=admin&sec=moderation" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">

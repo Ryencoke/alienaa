@@ -1,13 +1,28 @@
-<?php /* pages/transit.php — The Loading Docks: Transit Hub (cargo runs + mining) */
+<?php /* pages/transit.php — The Loading Docks: Transit Hub (cargo runs + mining)
+   Cargo runs used to be a single click that resolved instantly, entirely
+   server-decided with no player input beyond "go." Reworked into a 3-
+   checkpoint run: the player picks an approach at each checkpoint (Push
+   Through / Play It Safe / Scan & Reroute), and those choices actually shift
+   the ambush odds and the payout for that leg — same session-stored
+   multi-step pattern as daemon.php's blackjack, not a new architecture. */
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 $fxEvent = null; // ceremony payload for the client
 
 $routes = [
-  'short' => ['name'=>'Short Hop', 'sub'=>'Inner Stacks',    'cost'=>1, 'pay_min'=>20,  'pay_max'=>50,  'ambush'=>12, 'xp'=>5,  'icon'=>'&#128666;', 'col'=>'#3bcf63'],
-  'mid'   => ['name'=>'Haul Run',  'sub'=>'Cross-Sprawl',    'cost'=>2, 'pay_min'=>60,  'pay_max'=>130, 'ambush'=>18, 'xp'=>9,  'icon'=>'&#128643;', 'col'=>'#e8a33d'],
-  'long'  => ['name'=>'Outer Run', 'sub'=>'Outer Stacks',    'cost'=>4, 'pay_min'=>150, 'pay_max'=>320, 'ambush'=>25, 'xp'=>16, 'icon'=>'&#128740;', 'col'=>'#ff2d95'],
+  'short' => ['name'=>'Short Hop', 'sub'=>'Inner Stacks',    'cost'=>1, 'pay_min'=>20,  'pay_max'=>50,  'ambush'=>5,  'xp'=>5,  'icon'=>'&#128666;', 'col'=>'#3bcf63'],
+  'mid'   => ['name'=>'Haul Run',  'sub'=>'Cross-Sprawl',    'cost'=>2, 'pay_min'=>60,  'pay_max'=>130, 'ambush'=>7,  'xp'=>9,  'icon'=>'&#128643;', 'col'=>'#e8a33d'],
+  'long'  => ['name'=>'Outer Run', 'sub'=>'Outer Stacks',    'cost'=>4, 'pay_min'=>150, 'pay_max'=>320, 'ambush'=>10, 'xp'=>16, 'icon'=>'&#128740;', 'col'=>'#ff2d95'],
+];
+// ambush% above is now a PER-CHECKPOINT base rate (3 checkpoints per run),
+// not the old one-shot whole-route rate — routes actually keep a similar
+// overall risk across the full run, just spread across 3 decision points.
+const RUN_CHECKPOINTS = 3;
+const CHECKPOINT_ACTIONS = [
+  'push' => ['label'=>'Push Through', 'risk_mult'=>1.5, 'pay_mult'=>1.35, 'drive_cost'=>0, 'desc'=>'Faster, louder, more likely to draw attention — but pays out more if it's clear.'],
+  'safe' => ['label'=>'Play It Safe',  'risk_mult'=>0.6, 'pay_mult'=>1.0,  'drive_cost'=>0, 'desc'=>'Standard pace, standard cut. The reliable choice.'],
+  'scan' => ['label'=>'Scan & Reroute','risk_mult'=>0.25,'pay_mult'=>0.9,  'drive_cost'=>2, 'desc'=>'Burns Drive to route around trouble. Safest option, smaller cut.'],
 ];
 
 $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points)
@@ -21,29 +36,65 @@ foreach ($sp as $row) { $skillPts[$row['code']] = (int)$row['points']; $skillNam
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = $_POST['action'] ?? '';
   try {
-    if ($action === 'run') {
+    if ($action === 'start_run') {
+      if (!empty($_SESSION['transit_run'])) throw new RuntimeException('You already have a run in progress.');
       $key = $_POST['route'] ?? '';
       if (!isset($routes[$key])) throw new RuntimeException('No such route on the board.');
       $rt = $routes[$key];
-      $pdo->beginTransaction();
       $u = $pdo->prepare('UPDATE players SET integrity = integrity - ? WHERE id = ? AND integrity >= ?');
       $u->execute([$rt['cost'], $pid, $rt['cost']]);
-      if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException("Too damaged for the {$rt['name']} — patch up first."); }
-      if (random_int(1, 100) <= $rt['ambush']) {
+      if ($u->rowCount() !== 1) throw new RuntimeException("Too damaged for the {$rt['name']} — patch up first.");
+      $_SESSION['transit_run'] = ['route' => $key, 'checkpoint' => 1, 'payout' => 0, 'log' => []];
+      $player = current_player();
+      $msg = "Convoy dispatched on the {$rt['name']}. First checkpoint ahead — pick your approach.";
+      $msgType = 'ok';
+
+    } elseif ($action === 'checkpoint_action') {
+      $run = $_SESSION['transit_run'] ?? null;
+      if (!$run) throw new RuntimeException('No run in progress — dispatch a convoy first.');
+      $rt = $routes[$run['route']] ?? null;
+      if (!$rt) { unset($_SESSION['transit_run']); throw new RuntimeException('Route data missing — run cancelled.'); }
+      $choice = $_POST['choice'] ?? '';
+      if (!isset(CHECKPOINT_ACTIONS[$choice])) throw new RuntimeException('Pick an approach for this checkpoint.');
+      $ca = CHECKPOINT_ACTIONS[$choice];
+
+      if ($ca['drive_cost'] > 0) {
+        $dc = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');
+        $dc->execute([$ca['drive_cost'], $pid, $ca['drive_cost']]);
+        if ($dc->rowCount() !== 1) throw new RuntimeException("Not enough Drive to scan ahead — needs {$ca['drive_cost']}.");
+      }
+
+      $checkpointAmbush = min(90, (int)round($rt['ambush'] * $ca['risk_mult']));
+      $ambushed = random_int(1, 100) <= $checkpointAmbush;
+
+      if ($ambushed) {
         $extra = random_int(1, $rt['cost'] + 2);
         $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id = ?')->execute([$extra, $pid]);
-        $pdo->commit();
-        $msg = "Ambushed on the {$rt['name']}! Took {$extra} extra damage and lost the cargo.";
+        unset($_SESSION['transit_run']);
+        $player = current_player();
+        $msg = "Ambushed at checkpoint {$run['checkpoint']} on the {$rt['name']}! Took {$extra} extra damage and lost the cargo.";
         $msgType = 'err';
         $fxEvent = ['t'=>'run','ok'=>false,'dmg'=>$extra,'route'=>$rt['name']];
       } else {
-        $pay = random_int($rt['pay_min'], $rt['pay_max']);
-        $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$pay, $pid]);
-        $pdo->commit();
-        $msg = "Ran the {$rt['name']} clean — hauled in <b style=\"color:var(--accent)\">" . number_format($pay) . " cr</b>.";
-        $msgType = 'ok';
-        $fxEvent = ['t'=>'run','ok'=>true,'pay'=>$pay,'route'=>$rt['name']];
+        $legPay = (int)round(random_int($rt['pay_min'], $rt['pay_max']) / RUN_CHECKPOINTS * $ca['pay_mult']);
+        $run['payout'] += $legPay;
+        $run['log'][] = ['cp' => $run['checkpoint'], 'choice' => $ca['label'], 'pay' => $legPay];
+        if ($run['checkpoint'] >= RUN_CHECKPOINTS) {
+          $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$run['payout'], $pid]);
+          try { grant_xp($pid, $rt['xp']); } catch (Throwable $e) {}
+          unset($_SESSION['transit_run']);
+          $player = current_player();
+          $msg = "Ran the {$rt['name']} clean — hauled in <b style=\"color:var(--accent)\">" . number_format($run['payout']) . " credits</b>.";
+          $msgType = 'ok';
+          $fxEvent = ['t'=>'run','ok'=>true,'pay'=>$run['payout'],'route'=>$rt['name']];
+        } else {
+          $run['checkpoint']++;
+          $_SESSION['transit_run'] = $run;
+          $msg = "Checkpoint clear (+" . number_format($legPay) . " credits so far). Checkpoint {$run['checkpoint']} ahead.";
+          $msgType = 'ok';
+        }
       }
+
     } elseif ($action === 'mine') {
       $g = $pdo->prepare("SELECT g.*, i.name AS item_name FROM gather_nodes g JOIN items i ON i.id = g.item_id WHERE g.code = ? AND g.venue = 'transit'");
       $g->execute([$_POST['node'] ?? '']);
@@ -83,6 +134,9 @@ $mines = [];
 try { $mines = $pdo->query("SELECT g.*, i.name AS item_name FROM gather_nodes g JOIN items i ON i.id = g.item_id WHERE g.venue = 'transit' ORDER BY g.skill_req")->fetchAll(); } catch (Throwable $e) {}
 $drone = (int)($skillPts['drone'] ?? 0);
 $msgType = $msgType ?? 'ok';
+$activeRun = $_SESSION['transit_run'] ?? null;
+$activeRoute = $activeRun ? ($routes[$activeRun['route']] ?? null) : null;
+if ($activeRun && !$activeRoute) { unset($_SESSION['transit_run']); $activeRun = null; } // stale/invalid route code
 ?>
 <style>
 #tr-canvas{display:block;width:100%;height:118px;border-radius:9px 9px 0 0}
@@ -122,17 +176,60 @@ $msgType = $msgType ?? 'ok';
 <?php endif; ?>
 
 <!-- Cargo Runs -->
+<?php if ($activeRun && $activeRoute): ?>
+<div class="panel" style="padding:0;overflow:hidden" id="tr-run-active">
+  <div style="padding:12px 14px;border-bottom:1px solid var(--line)">
+    <div style="font-size:13px;font-weight:700"><?= $activeRoute['icon'] ?> Convoy En Route &mdash; <?= e($activeRoute['name']) ?></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:1px">Checkpoint <?= (int)$activeRun['checkpoint'] ?> of <?= RUN_CHECKPOINTS ?> &middot; <?= number_format($activeRun['payout']) ?> credits secured so far</div>
+  </div>
+  <div style="padding:14px 16px">
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <?php for ($cp = 1; $cp <= RUN_CHECKPOINTS; $cp++): ?>
+      <div style="flex:1;height:6px;border-radius:3px;background:<?= $cp < $activeRun['checkpoint'] ? '#3bcf63' : ($cp === $activeRun['checkpoint'] ? $activeRoute['col'] : 'rgba(255,255,255,.08)') ?>"></div>
+      <?php endfor; ?>
+    </div>
+    <?php if ($activeRun['log']): ?>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px">
+      <?php foreach ($activeRun['log'] as $entry): ?>
+      <div>Checkpoint <?= (int)$entry['cp'] ?>: <b style="color:var(--text)"><?= e($entry['choice']) ?></b> &mdash; clear, <span style="color:#3bcf63">+<?= number_format($entry['pay']) ?> credits</span></div>
+      <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+      <?php foreach (CHECKPOINT_ACTIONS as $ck => $ca):
+        $cpRisk = min(90, (int)round($activeRoute['ambush'] * $ca['risk_mult']));
+        $riskCol = $cpRisk <= 5 ? '#3bcf63' : ($cpRisk <= 10 ? '#e8a33d' : 'var(--neon2)');
+        $canAfford = $ca['drive_cost'] <= (int)$player['cycles'];
+      ?>
+      <form method="post" style="margin:0" data-trfx="checkpoint" data-tr-route="<?= e($activeRoute['name']) ?>" data-tr-col="<?= $activeRoute['col'] ?>">
+        <input type="hidden" name="action" value="checkpoint_action">
+        <input type="hidden" name="choice" value="<?= e($ck) ?>">
+        <div style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:10px 12px;<?= !$canAfford ? 'opacity:.5' : '' ?>">
+          <div style="font-weight:700;font-size:13px;margin-bottom:3px"><?= e($ca['label']) ?></div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;min-height:28px"><?= e($ca['desc']) ?></div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:8px">
+            <span>Risk: <b style="color:<?= $riskCol ?>"><?= $cpRisk ?>%</b></span>
+            <?php if ($ca['drive_cost'] > 0): ?><span style="color:#e8a33d">&minus;<?= $ca['drive_cost'] ?> Drive</span><?php endif; ?>
+          </div>
+          <button type="submit" class="tr-go" <?= !$canAfford ? 'disabled' : '' ?>><?= $canAfford ? 'Choose' : 'Not Enough Drive' ?></button>
+        </div>
+      </form>
+      <?php endforeach; ?>
+    </div>
+  </div>
+</div>
+<?php else: ?>
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
     <div>
       <div style="font-size:13px;font-weight:700">&#128230; Cargo Runs</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:1px">Spend Health, earn credits. Ambush risk increases with distance.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:1px">Spend Health, earn credits over 3 checkpoints. Your approach at each one shifts the risk and the payout.</div>
     </div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0;border-top:none">
     <?php foreach ($routes as $k => $rt):
       $canRun = (int)$player['integrity'] >= $rt['cost'];
-      $ambushColor = $rt['ambush'] <= 15 ? '#3bcf63' : ($rt['ambush'] <= 22 ? '#e8a33d' : 'var(--neon2)');
+      $ambushColor = $rt['ambush'] <= 6 ? '#3bcf63' : ($rt['ambush'] <= 8 ? '#e8a33d' : 'var(--neon2)');
     ?>
     <div class="tr-route" style="--tr-col:<?= $rt['col'] ?>;<?= !$canRun ? 'opacity:.5' : '' ?>">
       <div style="display:flex;align-items:center;gap:8px">
@@ -145,15 +242,15 @@ $msgType = $msgType ?? 'ok';
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
         <div style="background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:5px 8px">
           <div style="color:var(--muted)">Payout</div>
-          <div style="color:#3bcf63;font-weight:700"><?= number_format($rt['pay_min']) ?>–<?= number_format($rt['pay_max']) ?> cr</div>
+          <div style="color:#3bcf63;font-weight:700"><?= number_format($rt['pay_min']) ?>–<?= number_format($rt['pay_max']) ?> credits</div>
         </div>
         <div style="background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:5px 8px">
           <div style="color:var(--muted)">Cost</div>
           <div style="color:#e8a33d;font-weight:700"><?= $rt['cost'] ?> Health</div>
         </div>
         <div style="background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:5px 8px;grid-column:span 2">
-          <div style="display:flex;justify-content:space-between;color:var(--muted)"><span>Ambush risk</span><b style="color:<?= $ambushColor ?>"><?= $rt['ambush'] ?>%</b></div>
-          <div class="tr-risk" style="margin-top:4px"><div style="width:<?= min(100, $rt['ambush'] * 3) ?>%;background:<?= $ambushColor ?>"></div></div>
+          <div style="display:flex;justify-content:space-between;color:var(--muted)"><span>Base risk / checkpoint</span><b style="color:<?= $ambushColor ?>"><?= $rt['ambush'] ?>%</b></div>
+          <div class="tr-risk" style="margin-top:4px"><div style="width:<?= min(100, $rt['ambush'] * 8) ?>%;background:<?= $ambushColor ?>"></div></div>
         </div>
         <div style="background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:5px 8px;grid-column:span 2;display:flex;justify-content:space-between">
           <span style="color:var(--muted)">XP reward</span>
@@ -161,10 +258,10 @@ $msgType = $msgType ?? 'ok';
         </div>
       </div>
       <?php if ($canRun): ?>
-      <form method="post" style="margin:0" data-trfx="run" data-tr-route="<?= e($rt['name']) ?>" data-tr-col="<?= $rt['col'] ?>">
-        <input type="hidden" name="action" value="run">
+      <form method="post" style="margin:0" data-trfx="start" data-tr-route="<?= e($rt['name']) ?>">
+        <input type="hidden" name="action" value="start_run">
         <input type="hidden" name="route" value="<?= e($k) ?>">
-        <button type="submit" class="tr-go">Run Route</button>
+        <button type="submit" class="tr-go">Dispatch Convoy</button>
       </form>
       <?php else: ?>
       <div style="text-align:center;font-size:11px;color:var(--muted);padding:6px;border:1px solid var(--line);border-radius:5px;font-style:italic">Need <?= $rt['cost'] ?> Health</div>
@@ -173,6 +270,7 @@ $msgType = $msgType ?? 'ok';
     <?php endforeach; ?>
   </div>
 </div>
+<?php endif; ?>
 
 <!-- Tunnel Mining -->
 <div class="panel" style="padding:0;overflow:hidden">
@@ -287,7 +385,7 @@ $msgType = $msgType ?? 'ok';
     setTimeout(function(){
       if(ok){
         window.trFX.chime();
-        label.innerHTML='RUN COMPLETE<span class="trfx-sub">'+route+' — +'+amount.toLocaleString('en-US')+' cr</span>';
+        label.innerHTML='RUN COMPLETE<span class="trfx-sub">'+route+' — +'+amount.toLocaleString('en-US')+' credits</span>';
       } else {
         window.trFX.alarm();
         var boom=document.createElement('div');

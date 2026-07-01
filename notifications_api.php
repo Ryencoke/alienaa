@@ -56,7 +56,9 @@ foreach ($rows as $r) {
     'type' => $r['type'],
     'text' => $r['text'],
     'ts'   => fmt_game_time($r['ts'], 'M j, g:ia', $mysqlNow),
-    'raw'  => false,
+    // 'guild_loan'/'transfer' bodies embed a safely-escaped notif_player_link()
+    // profile link — see the matching flag logic in home.php's PHP render.
+    'raw'  => in_array($r['type'], ['guild_loan','transfer'], true),
   ];
 }
 

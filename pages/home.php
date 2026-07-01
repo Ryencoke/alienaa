@@ -173,7 +173,12 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
   <?php else: foreach ($newsFeed as $item):
     $nicon = ['message'=>'&#9993;','transfer'=>'&#128178;','news'=>'&#128203;','levelup'=>'&#11088;','friend_add'=>'&#128101;','pvp'=>'&#9876;','guild_loan'=>'&#9874;'][$item['type']] ?? '&#8226;';
     $ncol  = ['message'=>'var(--accent)','transfer'=>'#3bcf63','news'=>'#e8d44d','levelup'=>'#e8d44d','friend_add'=>'var(--accent)','pvp'=>'var(--neon2)','guild_loan'=>'#e8a33d'][$item['type']] ?? 'var(--muted)';
-    $rawHtml = $item['type'] === 'levelup';
+    // 'guild_loan'/'transfer' bodies now embed a notif_player_link() profile
+    // link (lib.php/guilds.php escape everything else in them via e()) —
+    // safe to render raw for those two types specifically. Every other type
+    // stays escaped-by-default since not every insert site across the
+    // codebase has been audited for this.
+    $rawHtml = in_array($item['type'], ['levelup','guild_loan','transfer'], true);
     $canDismiss = $item['id'] !== null;
   ?>
   <div class="hm-notif" style="animation-delay:<?= min(10, $nfI = ($nfI ?? 0) + 1) * 45 ?>ms;display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">

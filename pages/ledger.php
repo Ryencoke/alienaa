@@ -147,13 +147,11 @@ $feePct = WITHDRAW_FEE_PCT;
       <h2 style="margin:0">&#127974; Iron Ledger</h2>
       <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">Skimming a little off the top since the blackout.</p>
     </div>
+    <?php if ($loan > 0): ?>
     <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:8px;display:flex;gap:10px">
-      <div class="bank-chip"><b style="color:var(--accent)"><?= number_format($player['creds_bank']) ?></b><span>Bank</span></div>
-      <div class="bank-chip"><b style="color:#e8a33d"><?= number_format($player['creds_pocket']) ?></b><span>Pocket</span></div>
-      <?php if ($loan > 0): ?>
       <div class="bank-chip" style="border-color:rgba(255,45,149,.35)"><b style="color:var(--neon2)"><?= number_format($loan) ?></b><span>Owed</span></div>
-      <?php endif; ?>
     </div>
+    <?php endif; ?>
     <button id="bank-mute" onclick="toggleBankSound()" title="Toggle sound" style="position:absolute;top:8px;right:10px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
   </div>
   <div style="padding:10px 14px 12px">

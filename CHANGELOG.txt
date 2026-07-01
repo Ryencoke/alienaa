@@ -2,6 +2,191 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-07-01 BATCH-65 ---
+
+NEW — STASH.PHP BACKPACK SORTING
+------------------------------------------------------
+Added a sort dropdown (name/qty/atk/def/category) that reorders `.itemcard`
+elements client-side via `data-*` attributes already present on each card.
+
+ADMIN — IP/ACCESS LOG NOW ADMIN+ (admin.php)
+------------------------------------------------------
+Was reachable by moderator+; restricted to admin+ in both the ?sec= page
+gate and the staffcard nav visibility check, label changed "Mod+" to
+"Admin+". Confirmed sec=grant's player-handle autocomplete was already
+correctly wired to the shared player_ac.js — no change needed there.
+
+BUGFIX — NOTIFICATIONS REAPPEARING AFTER DISMISS (home.php, lib.php)
+------------------------------------------------------
+Root cause: `seed_player_notifications()` relied entirely on INSERT IGNORE
+plus a uq_pn_ref unique key added via a best-effort ALTER TABLE wrapped in
+a silent try/catch in `ensure_player_notifications_table()`. If that ALTER
+ever failed against pre-existing duplicate data, dedup provided nothing, so
+every ~12s poll could insert a fresh duplicate for the same still-unread
+message/transfer -- dismissed notifications appeared to "reappear" and the
+unread count didn't go down. Fixed with explicit SELECT-before-INSERT
+dedup at the application level, independent of DB constraint state. Also
+fixed notification text overlapping other text (missing
+overflow-wrap/word-break on the notification body containers, both server
+render and the JS live-poll render() path).
+
+NEW — PROFILE-LINKED, STAFF-COLORED NAMES IN NOTIFICATIONS (lib.php, guilds.php)
+------------------------------------------------------
+New `notif_player_link()` helper renders a profile-linked, role-colored
+player name for embedding in notification bodies. Wired into guild
+Stockpile-give/Armoury-loan/recall notifications (guilds.php). Scoped the
+raw-HTML notification whitelist to only `levelup`/`guild_loan`/`transfer`
+after auditing every INSERT INTO player_notifications / syn_notify() call
+site across the codebase for unescaped input -- several sites (guilds.php)
+were embedding usernames unescaped, relying entirely on output-side
+escaping; those were fixed to escape at the insert site before being added
+to the raw-HTML whitelist, so no other notification type became an XSS
+vector by enabling raw HTML rendering.
+
+REDESIGN — PLAYER PROFILE PAGE (profile.php)
+------------------------------------------------------
+Was a single long column of stacked panels, felt "clunky/big" per user
+feedback with not much information density. Reorganized into a 2-column
+layout (Stats/Combat Record/Badges on the left, Syndicate/Loadout/Quick
+Actions on the right) instead of one long vertical stack. Added a new
+"Loadout" panel showing current residence (from player_apartments) and
+equipped weapon/armor (checks player_gear then falls back to player_items,
+matching stash.php's lookup order). "View Journal" quick action was
+previously hidden unless the target had already written something --
+journal.php already renders a friendly "hasn't written anything yet" empty
+state, so the link is now always shown.
+
+UPDATE — ITEM LIBRARY (library.php, lib.php, weaponcraft.php)
+------------------------------------------------------
+Weapons/armor tabs only ever showed Blacksmith (bought) items -- the entire
+Fabrication Lab catalog (37 homebrew crafted builds) was invisible here,
+so "how to make it" was only ever answerable for bought gear. Moved
+weaponcraft.php's `$RECIPES`/`$TIERS` inline arrays into shared lib.php
+functions (`weaponcraft_recipes()`, `weaponcraft_tiers()`) so library.php
+can list them too, without duplicating ~90 lines of catalog data (drift
+risk). Crafted items now render with an ore-cost breakdown and a link to
+the Fabrication Lab instead of a credit price. Also added a "Mining Ore"
+section to the Materials tab -- the 7 ore types live in a separate
+`player_ore` table from `items`/`player_items`, so they never showed up in
+the Library's materials list at all before this.
+
+UI — IRON LEDGER HEADER CLEANUP (ledger.php)
+------------------------------------------------------
+Removed the Bank and Pocket credit chips from the top panel; kept only the
+conditional "Owed" chip when the player has an active loan.
+
+NEW — PVP TARGET SEARCH (pvp.php)
+------------------------------------------------------
+New "Target Search" tab: filter attackable ghosts by level range, max
+Health remaining %, alignment (good/evil/neutral), syndicate (none / in a
+syndicate / not in my syndicate / specific syndicate), and exclude-friends.
+Results always exclude jailed players, active Commerce Accord merchants,
+game staff, and banned accounts -- these are hard game-state exclusions,
+not filter toggles. Up to 5 named searches can be saved/loaded/deleted
+(new `pvp_saved_searches` table). Attack directly from a result row via
+`?tab=arena&target=username` -- while building this, found the Arena tab
+never actually read `?target=` from the URL (profile.php's "Attack" quick
+action has been linking to it since it was added, silently landing on a
+blank form); fixed by prefilling `#pvpTarget`'s value from the GET param.
+
+OVERHAUL — TRANSIT HUB CARGO RUNS (transit.php)
+------------------------------------------------------
+Cargo runs used to be a single click that resolved entirely server-side
+with no player input beyond "go" -- ambush-or-clean was decided the
+instant you clicked Run Route. Reworked into a 3-checkpoint run (mirrors
+daemon.php's blackjack session-state pattern): each checkpoint the player
+picks an approach -- Push Through (higher risk, bonus payout), Play It
+Safe (standard), or Scan & Reroute (costs Drive, lowest risk) -- and that
+choice actually shifts the ambush odds and payout share for that leg.
+Ambush at any checkpoint ends the run immediately with no payout, same
+tension as before, but now the player's decisions determine the outcome
+instead of a single hidden roll. Also fixed: the route's promised XP
+reward was never actually granted on a clean run (grant_xp() was never
+called) -- now is. All "cr" credit abbreviations changed to "credits".
+
+NEW — DRAG-TO-REORDER QUICKLINKS (account.php sec=sidebar)
+------------------------------------------------------
+The existing up/down arrows were already fully functional; added native
+HTML5 drag-and-drop (no drag library in this codebase) as an additional
+reordering method, with a grip handle and drop-position preview based on
+cursor Y relative to the hovered row.
+
+NEW — REAL-TIME BOARD REPLIES & VOTING (boards.php, new boards_vote_api.php)
+------------------------------------------------------
+Replying used to navigate via `?reply=N#replyform`, causing a full page
+reload and no clear indication of which post was being replied to. Reply
+links are now buttons that set a hidden `parent_id` field and show "Replying
+to <name>" inline, no navigation. Upvote/downvote converted from two
+`<form>` submits per post to buttons wired to a new standalone
+`boards_vote_api.php` endpoint (same pattern as notifications_api.php/
+chat_api.php -- avoids the sitewide AJAX form-swap handler entirely), so
+the score and the voter's own arrow highlight update in place with no page
+reload.
+
+--- SESSION: 2026-06-30/07-01 BATCH-64 ---
+
+BUGFIX — DAEMON.PHP SPIN/ROLL RESULT-BEFORE-REVEAL (4th and actual root cause)
+------------------------------------------------------
+User reported this exact symptom four separate times across sessions; the
+first three fixes (reel-symbol HTML flash, result-text flash, per-reel
+win/lose class flash) each fixed a real but different bug without fixing
+the one causing the reported symptom. Actual cause: clicking Spin/Roll
+again right after a previous result had correctly revealed never cleared
+that old message -- the previous spin's "Three of a kind! +400 creds!"
+sat fully visible through the entire next fake-spin animation (which runs
+client-side immediately on submit, before the server responds). Fixed by
+having each game's pre-submit listener zero `.daemon-result`'s opacity the
+instant a new spin starts. Also: `daemon_fmt_result()` now splits the
+trailing "+N creds!"/"-N creds!" onto its own styled line instead of one
+run-on sentence; Hand Rankings changed from a bare text link to a styled
+button; fixed raw HTML entities (`&#9654;`, `&#127881;`) baked into result
+strings that were getting double-escaped; root-caused "???" in Recent
+Plays stats to `casino_log` never specifying a charset (inherited the DB
+default, mangling slot/card emoji) -- added a self-healing CONVERT TO
+utf8mb4 ALTER plus a proper DEFAULT CHARSET in schema_casino.sql for new
+installs.
+
+EXPANSION — BLACKSMITH CATALOG (lib.php, blacksmith.php)
+------------------------------------------------------
+Added 12 weapons + 13 armor pieces up to level 100 (was capped at 58/64).
+Added a sort dropdown (price/level/attack/defense/speed/name) to
+blacksmith.php; removed the Pockets credit readout from the top banner
+per user request.
+
+OVERHAUL — STOCK EXCHANGE ORDER FLOW & CHART (stockex.php)
+------------------------------------------------------
+The buy/sell confirmation popup used to auto-dismiss before the player
+could actually read what they'd bought/sold, fees included; now stays
+open until the player clicks Okay (or clicks the backdrop). Fixed the
+30-day candlestick popup's date labels overlapping near the most recent
+day (periodic tick-label loop now stops early once within 30px of the
+final label's position). Added pan/zoom to the chart (CSS transform,
+wheel zoom, mouse drag, touch pinch/drag, +/-/reset buttons). Added
+`sx_stock_factors()` -- real per-ticker "why it's moving" stats pulled
+from the same live economy metrics that already drive the price-boost
+formula, rather than only a static company blurb.
+
+NEW — APARTMENTS: RENTAL CONTRACTS, EXPANDED CATALOG, DETAIL VIEW (apartments.php)
+------------------------------------------------------
+Full two-sided rental system: owners can now list a unit for rent to a
+specific player for X days at X credits; the target gets a notification
+with the terms and Accept/Decline. Accepting charges the lump sum
+up-front and grants the renter 50% of the unit's perk value under a
+separate settings namespace so it stacks independently of an owned
+primary's full perk. A lazy expiry check runs on every page load and
+auto-closes anything past its `expires_at`. Fixed a real reported bug:
+players could not list/sell their apartment if it was their only
+residence -- now allowed, with the seller's perk explicitly revoked at
+sale time to close what would otherwise be a keep-the-perk-forever
+exploit. Catalog expanded from 7 to 40 apartment types across 4 wealth
+tiers (poor/working/affluent/elite) x 4 districts, shown in collapsible
+per-district sections with a quick-jump nav strip. Added a detail-view
+modal per apartment (description, perks, neighbors who own the same
+type) and a real-time player search (ID or username) via the shared
+players_search.php autocomplete. Furnishings can no longer be deleted
+outright -- only sold back for half price, with the Sell Back button's
+color styling removed per user request.
+
 --- SESSION: 2026-06-30 BATCH-56 ---
 
 BUGFIX — GUILD ARMOURY LOAN ERROR

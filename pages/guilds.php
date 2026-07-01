@@ -428,7 +428,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $delQ->execute(array_merge($rowIds, [$mySyn['syndicate_id']]));
       $qtyTag = $giveQty > 1 ? ' &times;' . $giveQty : '';
       syn_log($pdo,$mySyn['syndicate_id'],$recipient,$pid,'stockpile_give','"'.$si['item_name'].'"'.$qtyTag.' given'); // recipient rendered as a profile link (see tab=log)
-      syn_notify($pdo, $recipient, 'guild_loan', ($giveQty > 1 ? $giveQty.'&times; ' : '').'"'.$si['item_name'].'" '.($giveQty > 1 ? 'were' : 'was').' given to you from the Stockpile by '.$player['username'].'.');
+      syn_notify($pdo, $recipient, 'guild_loan', ($giveQty > 1 ? $giveQty.'&times; ' : '').'&ldquo;'.e($si['item_name']).'&rdquo; '.($giveQty > 1 ? 'were' : 'was').' given to you from the Stockpile by '.notif_player_link((int)$pid, $player['username'], $player['role'] ?? null).'.');
       $msg = 'Gave ' . ($giveQty > 1 ? $giveQty.'× ' : '') . '"' . $si['item_name'] . '" to ' . $rname . '.';
 
     } elseif ($act === 'loan_item') {
@@ -453,7 +453,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('UPDATE syndicate_stockpile SET available=0 WHERE id=?')->execute([$iid]);
       $bname = $pdo->prepare('SELECT username FROM players WHERE id=?'); $bname->execute([$borrower]); $bn = $bname->fetchColumn() ?: '?';
       syn_log($pdo,$mySyn['syndicate_id'],$borrower,$pid,'loan_out','"'.$si['item_name'].'" loaned'); // borrower rendered as a profile link (see tab=log)
-      syn_notify($pdo, $borrower, 'guild_loan', '"'.$si['item_name'].'" was loaned to you from the Armoury by '.$player['username'].'.');
+      syn_notify($pdo, $borrower, 'guild_loan', '&ldquo;'.e($si['item_name']).'&rdquo; was loaned to you from the Armoury by '.notif_player_link((int)$pid, $player['username'], $player['role'] ?? null).'.');
       $msg = '"' . $si['item_name'] . '" loaned to ' . $bn . '.';
 
     } elseif ($act === 'return_item') {
@@ -472,7 +472,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       syn_log($pdo,$mySyn['syndicate_id'],$ln['player_id'],$pid,'returned','"'.$sname.'" returned to stockpile');
       // Only notify on an officer-initiated recall — a player returning their own
       // loan already knows, so a notification would just be noise.
-      if (!$isSelfReturn) syn_notify($pdo, (int)$ln['player_id'], 'guild_loan', '"'.$sname.'" was recalled to the Armoury by '.$player['username'].'.');
+      if (!$isSelfReturn) syn_notify($pdo, (int)$ln['player_id'], 'guild_loan', '&ldquo;'.e($sname).'&rdquo; was recalled to the Armoury by '.notif_player_link((int)$pid, $player['username'], $player['role'] ?? null).'.');
       $msg = '"' . $sname . '" returned to stockpile.';
     }
   } catch (Throwable $ex) {

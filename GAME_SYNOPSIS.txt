@@ -1,7 +1,7 @@
 SPRAWL-9 — GAME SYNOPSIS & PROJECT OVERVIEW
 ============================================
 File: C:\Users\mcfar\Desktop\Coding\GAME_SYNOPSIS.txt
-Last updated: 2026-06-11
+Last updated: 2026-07-01
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WHAT IS SPRAWL-9?
@@ -60,7 +60,9 @@ syndicate board access if leader, apartment market, cosmetics.
 KEY PAGES (pages/*.php)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 home.php          → Hideout / dashboard; hero/XP bar, then notifications, then stats grid
-profile.php       → Public player profile; badges, combat record, quick actions
+profile.php       → Public player profile; 2-column layout — stats/combat record/badges
+                    plus a Syndicate/Loadout(residence+gear)/Quick Actions sidebar
+                    (incl. always-visible Journal link)
 account.php       → Settings: password, bio, sidebar customization, font, country
 messages.php      → Private messages; inbox + conversation thread; ID or handle search
 friends.php       → Friends list; search by username or player ID; online status
@@ -70,7 +72,9 @@ auction.php       → Black Market Auctions; timed listings
 stash.php         → Inventory / loadout; equip/unequip items
 ledger.php        → Bank: deposit/withdraw/transfer credits; bank interest
 trade.php         → Secure Trade Post: escrow trades (items+credits+shards), direct transfer
-pvp.php           → Combat Arena: PvP fights using str/spd/end stats
+pvp.php           → Combat Arena: PvP fights using str/spd/end stats; Target Search tab
+                    (level/HP%/alignment/syndicate filters, up to 5 saved searches,
+                    attack directly from results)
 training.php      → Neural Training: spend Drive to gain STR/SPD/END; 30min cooldown
 datacore.php      → Skillsoft Lab: spend Drive on skills (combat, stealth, hack, etc.)
 mining.php        → The Sump: interactive cave crawler; proc-gen 5-depth mines; WASD/click movement; fog of war; ore harvesting costs Drive; Drone Ops skill gates depth access
@@ -91,7 +95,12 @@ synth.php         → Synthesis Den: gather compounds (Drive cost), brew potions
 exchange.php      → The Exchange
 accord.php        → Commerce Accord: trader registration; reduces bank fees
 cityhall.php      → City Hall hub
-library.php       → Item/skill reference
+library.php       → Item/skill reference; weapons/armor tabs list both Blacksmith
+                    (bought) and Fabrication Lab (crafted, ore cost shown) gear live
+                    from their catalogs; Materials tab includes the 7 mining ore types
+transit.php       → The Loading Docks: 3-checkpoint interactive cargo runs (Push
+                    Through/Play It Safe/Scan & Reroute choices shift risk+payout
+                    per leg) + Tunnel Mining (Drive-gated ore digs)
 updates.php       → Game update announcements
 welcome.php       → New player welcome screen
 login.php         → Auth: handle/email + password login
@@ -147,6 +156,8 @@ tx_log            → transaction log (from_id, to_id, kind, amount, note)
 admin_log         → staff edit history (admin_id, target_id, field, old_value, new_value)
 pending_signups   → email verification codes for new accounts
 updates           → game update announcements
+pvp_saved_searches → up to 5 named Target Search filter presets per player
+                    (player_id, slot 1-5, name, filters JSON)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LAYOUT STRUCTURE (index.php)
@@ -194,6 +205,30 @@ Typical session workflow:
 2. Changes are implemented across relevant pages
 3. CHANGELOG.txt is updated
 4. Changes are committed to git
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECENTLY COMPLETED (2026-07-01 BATCH-64/65)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- transit.php Cargo Runs overhauled from a single-click instant result into a
+  3-checkpoint interactive run — player approach choices (Push Through/Play It
+  Safe/Scan & Reroute) shift ambush risk and payout per leg
+- pvp.php Target Search tab: multi-criteria filtering + up to 5 saved/named
+  searches + attack directly from results
+- profile.php redesigned into a 2-column layout with a new Loadout panel
+  (residence + equipped gear) and an always-visible Journal quick action
+- library.php now lists Fabrication Lab crafted gear (ore cost + link) and
+  mining ore alongside Blacksmith items, previously invisible there
+- boards.php replies/votes are now real-time (no page reload), via a new
+  standalone boards_vote_api.php endpoint
+- apartments.php: two-sided rental contracts (propose/accept/decline), 40-type
+  catalog across 4 districts, detail-view modal with neighbors list
+- blacksmith.php catalog extended to level 100; stockex.php order popup stays
+  open until dismissed, chart pan/zoom, live "why it's moving" stats
+- daemon.php spin/roll result-before-reveal bug fully root-caused (stale
+  result text from the previous spin, not a rendering-order issue)
+- home.php notification dedup fixed at the application level (was relying on
+  a DB unique key that could silently fail to apply)
+Full detail in CHANGELOG.txt BATCH-64/BATCH-65.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RECENTLY COMPLETED (as of 2026-06-10)

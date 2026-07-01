@@ -15,6 +15,11 @@ try {
 /* ----- The Forge catalog (sourced from the live blacksmith catalog) ----- */
 // Library rarity mirrors blacksmith's bs_tier(): Legendary / EPIC>=15k /
 // RARE>=6k / UNCOMMON>=2.5k / else COMMON (EPIC shown as "elite" here).
+// Row shape: [code, icon, name, sub-type, atk, def, price, desc, rarity,
+// source, cost, level_req]. price/cost are mutually exclusive: Forge items
+// are bought for credits (cost=null); Fabrication Lab items are crafted
+// from ore (price=null, cost=ore array) — the "how to make it" the Library
+// was missing entirely before, since only bought gear ever showed up here.
 $lib_rarity = function ($sub, $price) {
   if ($sub === 'Legendary') return 'legendary';
   if ($price >= 15000)      return 'elite';
@@ -24,9 +29,19 @@ $lib_rarity = function ($sub, $price) {
 };
 $BS_WEAPONS = []; $BS_ARMOR = [];
 foreach (blacksmith_catalog() as $c) {
-  // render row: [code, icon, name, sub-type, atk, def, price, desc, rarity]
-  $row = [$c[0], $c[2], $c[1], $c[4], (int)$c[5], (int)$c[6], (int)$c[8], $c[9], $lib_rarity($c[4], (int)$c[8])];
+  $row = [$c[0], $c[2], $c[1], $c[4], (int)$c[5], (int)$c[6], (int)$c[8], $c[9], $lib_rarity($c[4], (int)$c[8]), 'forge', null, (int)($c[10] ?? 1)];
   if ($c[3] === 'weapon') $BS_WEAPONS[] = $row; else $BS_ARMOR[] = $row;
+}
+
+// ----- Fabrication Lab recipes (sourced from the live weaponcraft catalog) -----
+// Rarity mirrors the ore tier itself — scrap/copper=common, iron/titanium=
+// uncommon..rare, nanocarbon/quantum=elite, void=legendary — since these
+// aren't priced in credits at all, tier is the only signal of how rare one is.
+$lib_lab_rarity = ['scrap'=>'common','copper'=>'common','iron'=>'uncommon','titanium'=>'rare','nanocarbon'=>'rare','quantum'=>'elite','void'=>'legendary'];
+$WC_TIERS = weaponcraft_tiers();
+foreach (weaponcraft_recipes() as $r) {
+  $row = [$r['id'], $r['icon'], $r['name'], $WC_TIERS[$r['tier']]['label'] ?? ucfirst($r['tier']), (int)$r['atk'], (int)$r['def'], null, $r['desc'], $lib_lab_rarity[$r['tier']] ?? 'common', 'lab', $r['cost'], (int)($WC_TIERS[$r['tier']]['level_req'] ?? 1)];
+  if ($r['type'] === 'weapon') $BS_WEAPONS[] = $row; else $BS_ARMOR[] = $row;
 }
 
 /* ----- Consumables (sourced from the live General Store catalog) ----- */
@@ -109,13 +124,16 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
   <div class="lib-result-count" id="libCount"></div>
 
   <div class="lib-grid" id="libGrid">
-    <?php foreach ($items as $w):
-      [$code,$icon,$name,$type,$atk,$def,$price,$desc,$rarity] = $w;
+    <?php
+    $LIB_ORE_NAMES = ['scrap'=>['Junk Metal','&#129419;'],'copper'=>['Copper Wire','&#127312;'],'iron'=>['Iron Alloy','&#9760;'],'titanium'=>['Titanium Core','&#128311;'],'nanocarbon'=>['Nano-Carbon','&#128302;'],'quantum'=>['Quantum Crystal','&#128142;'],'void'=>['Void Metal','&#11088;']];
+    foreach ($items as $w):
+      [$code,$icon,$name,$type,$atk,$def,$price,$desc,$rarity,$source,$cost,$lvlReq] = $w;
       $statVal = $tab === 'weapons' ? $atk : $def;
+      $isLab = $source === 'lab';
     ?>
     <div class="lib-card <?= lib_rarity_class($rarity) ?> lib-expandable"
          data-rarity="<?= $rarity ?>"
-         data-price="<?= $price ?>"
+         data-price="<?= $isLab ? 0 : $price ?>"
          data-stat="<?= $statVal ?>"
          data-name="<?= strtolower(e($name)) ?>"
          style="cursor:pointer">
@@ -123,7 +141,7 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
         <div class="lib-icon"><?= $icon ?></div>
         <div style="flex:1;min-width:0">
           <div class="lib-name"><?= e($name) ?></div>
-          <div class="lib-cat" style="color:<?= lib_rarity_color($rarity) ?>"><?= ucfirst($rarity) ?> &mdash; <?= ucfirst($type) ?></div>
+          <div class="lib-cat" style="color:<?= lib_rarity_color($rarity) ?>"><?= ucfirst($rarity) ?> &mdash; <?= e($type) ?> <?= $isLab ? '&middot; Crafted' : '' ?></div>
         </div>
         <span class="lib-expand-arrow" style="color:var(--muted);font-size:11px;flex:none;align-self:center;transition:transform .2s">&#9660;</span>
       </div>
@@ -131,19 +149,37 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
       <div class="lib-stats">
         <?php if ($atk): ?><span class="lib-stat">&#9876; +<?= $atk ?> ATK</span><?php endif; ?>
         <?php if ($def): ?><span class="lib-stat def">&#128737; +<?= $def ?> DEF</span><?php endif; ?>
-        <span class="lib-stat price">&#9733; <?= number_format($price) ?> cr</span>
+        <?php if ($isLab): ?>
+        <span class="lib-stat price">&#9881; Lv<?= $lvlReq ?>+ to equip</span>
+        <?php else: ?>
+        <span class="lib-stat price">&#9733; <?= number_format($price) ?> credits</span>
+        <?php endif; ?>
       </div>
       <div class="lib-detail" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:12px">
         <div style="color:var(--muted);margin-bottom:6px"><?= e($desc) ?></div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
           <?php if ($atk): ?><span style="background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.2);color:var(--neon2);padding:2px 8px;border-radius:4px;font-size:11px">&#9876; <?= $atk ?> ATK</span><?php endif; ?>
           <?php if ($def): ?><span style="background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.2);color:var(--accent);padding:2px 8px;border-radius:4px;font-size:11px">&#128737; <?= $def ?> DEF</span><?php endif; ?>
-          <span style="background:rgba(232,212,77,.08);border:1px solid rgba(232,212,77,.2);color:#e8d44d;padding:2px 8px;border-radius:4px;font-size:11px">&#9670; <?= number_format($price) ?> cr</span>
+          <?php if (!$isLab): ?>
+          <span style="background:rgba(232,212,77,.08);border:1px solid rgba(232,212,77,.2);color:#e8d44d;padding:2px 8px;border-radius:4px;font-size:11px">&#9670; <?= number_format($price) ?> credits</span>
+          <?php endif; ?>
         </div>
+        <?php if ($isLab): ?>
+        <div style="font-size:11px;margin-bottom:6px">
+          <span style="color:var(--muted)">How to make it: </span>craft at the <a href="index.php?p=weaponcraft" style="color:var(--accent)">&#9874; Fabrication Lab</a> for:
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <?php foreach ($cost as $oreKey => $oreQty): $on = $LIB_ORE_NAMES[$oreKey] ?? [$oreKey, '']; ?>
+          <span style="background:var(--panel2);border:1px solid var(--line);padding:2px 8px;border-radius:4px;font-size:11px"><?= $on[1] ?> <?= (int)$oreQty ?>&times; <?= e($on[0]) ?></span>
+          <?php endforeach; ?>
+        </div>
+        <div style="font-size:11px;margin-top:6px;color:var(--muted)">Requires Level <?= $lvlReq ?>+ to equip once built (mine ore at <a href="index.php?p=transit" style="color:var(--accent)">The Loading Docks</a> or <a href="index.php?p=mining" style="color:var(--accent)">The Sump</a>).</div>
+        <?php else: ?>
         <div style="font-size:11px">
-          <span style="color:var(--muted)">Buy at: </span>
-          <a href="index.php?p=blacksmith&tab=<?= $tab === 'weapons' ? 'weapons' : 'armor' ?>" style="color:var(--accent)">&#128296; The Forge</a>
+          <span style="color:var(--muted)">How to get it: </span>
+          buy at <a href="index.php?p=blacksmith&tab=<?= $tab === 'weapons' ? 'weapons' : 'armor' ?>" style="color:var(--accent)">&#128296; The Forge</a> &middot; requires Level <?= $lvlReq ?>+ to equip
         </div>
+        <?php endif; ?>
       </div>
     </div>
     <?php endforeach; ?>
@@ -237,6 +273,30 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
   <?php else: ?>
     <p class="muted" style="text-align:center;padding:32px 0">No materials catalogued yet.</p>
   <?php endif; ?>
+</div>
+
+<div class="panel">
+  <h3 style="margin-bottom:4px">Mining Ore</h3>
+  <p class="muted" style="margin-bottom:14px">Tracked separately from the Backpack — dig these at <a href="index.php?p=transit" style="color:var(--accent)">The Loading Docks</a> or <a href="index.php?p=mining" style="color:var(--accent)">The Sump</a>, and spend them at the <a href="index.php?p=weaponcraft" style="color:var(--accent)">Fabrication Lab</a>.</p>
+  <div class="lib-grid">
+    <?php
+      $wcTiersForOre = weaponcraft_tiers();
+      $oreNamesForLib = ['scrap'=>['Junk Metal','&#129419;'],'copper'=>['Copper Wire','&#127312;'],'iron'=>['Iron Alloy','&#9760;'],'titanium'=>['Titanium Core','&#128311;'],'nanocarbon'=>['Nano-Carbon','&#128302;'],'quantum'=>['Quantum Crystal','&#128142;'],'void'=>['Void Metal','&#11088;']];
+      foreach ($oreNamesForLib as $oreKey => [$oreName, $oreIcon]):
+        $oreTier = $wcTiersForOre[$oreKey] ?? null;
+    ?>
+    <div class="lib-card" style="border-left:3px solid <?= $oreTier['col'] ?? 'var(--muted)' ?>">
+      <div class="lib-card-head">
+        <div class="lib-icon"><?= $oreIcon ?></div>
+        <div>
+          <div class="lib-name"><?= e($oreName) ?></div>
+          <div class="lib-cat" style="color:<?= $oreTier['col'] ?? 'var(--muted)' ?>"><?= e($oreTier['label'] ?? ucfirst($oreKey)) ?> Tier</div>
+        </div>
+      </div>
+      <div class="lib-desc">Used to craft <?= e($oreTier['label'] ?? ucfirst($oreKey)) ?>-tier gear at the Fabrication Lab.</div>
+    </div>
+    <?php endforeach; ?>
+  </div>
 </div>
 
 <?php elseif ($tab === 'skills'): ?>

@@ -103,18 +103,17 @@ function topic_board_id(PDO $pdo, int $topicId): int {
   catch (Throwable $e) { return 0; }
 }
 
-// Vote arrows for a post (two tiny POST forms). $myVote: 1=up, -1=down, 0=none
+// Vote arrows for a post — plain buttons wired to boards_vote_api.php via
+// fetch (see the script at the bottom of this file), not <form> submits, so
+// voting updates in place instead of triggering the sitewide AJAX handler's
+// full main.center swap. $myVote: 1=up, -1=down, 0=none
 function votebox_html($postId, $score, $myVote = 0) {
   $upA  = $myVote === 1  ? ' vote-active' : '';
   $dnA  = $myVote === -1 ? ' vote-active' : '';
-  $o  = '<div class="votebox">';
-  $o .= '<form method="post" style="margin:0"><input type="hidden" name="action" value="vote">'
-      . '<input type="hidden" name="post_id" value="' . (int)$postId . '">'
-      . '<input type="hidden" name="dir" value="up"><button class="vote' . $upA . '" title="up">&#9650;</button></form>';
+  $o  = '<div class="votebox" data-post-id="' . (int)$postId . '">';
+  $o .= '<button type="button" class="vote vote-up' . $upA . '" data-dir="up" title="up">&#9650;</button>';
   $o .= '<div class="score">' . (int)$score . '</div>';
-  $o .= '<form method="post" style="margin:0"><input type="hidden" name="action" value="vote">'
-      . '<input type="hidden" name="post_id" value="' . (int)$postId . '">'
-      . '<input type="hidden" name="dir" value="down"><button class="vote' . $dnA . '" title="down">&#9660;</button></form>';
+  $o .= '<button type="button" class="vote vote-down' . $dnA . '" data-dir="down" title="down">&#9660;</button>';
   $o .= '</div>';
   return $o;
 }
@@ -131,7 +130,7 @@ if (!function_exists('render_post')) {
     if ($p['role'] !== 'member') echo ' <em style="font-size:11px;font-style:italic;color:' . e(chat_color($p['role'],'')) . '">' . e(role_label($p['role'])) . '</em>';
     echo ' <span class="muted">' . e($p['created_at']) . '</span>';
     if ($isNew) echo ' <span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.06em">NEW</span>';
-    echo ' &middot; <a href="index.php?p=boards&t=' . (int)$tid . '&reply=' . (int)$p['id'] . '#replyform">Reply</a>';
+    echo ' &middot; <button type="button" class="reply-trigger" data-post-id="' . (int)$p['id'] . '" data-author="' . e($p['author']) . '">Reply</button>';
     if ($canModB) echo ' &middot; <form method="post" style="display:inline;margin:0"><input type="hidden" name="action" value="modkill"><input type="hidden" name="post_id" value="' . (int)$p['id'] . '"><button class="vote" style="color:var(--neon2)">delete</button></form>';
     echo '</div><div>' . bbcode($p['body']) . '</div>';
     if (!empty($p['signature'])) echo '<div class="muted" style="border-top:1px solid var(--line);margin-top:6px;padding-top:4px;font-size:11px">' . bbcode($p['signature']) . '</div>';
@@ -308,12 +307,9 @@ if ($tid) {
     $children[$par][] = $p;
   }
 
-  // OP author post-count + reply target
+  // OP author post-count
   $opc = 0;
   if ($op) { $q = $pdo->prepare('SELECT COUNT(*) FROM posts WHERE author_id = ?'); $q->execute([$op['author_id']]); $opc = (int)$q->fetchColumn(); }
-  $replyTo = (int)($_GET['reply'] ?? 0);
-  $replyParent = $opId; $replyToName = '';
-  foreach ($posts as $p) { if ($p['id'] == $replyTo) { $replyParent = $replyTo; $replyToName = $p['author']; break; } }
   ?>
   <div class="panel">
     <h2><?= e($topic['title']) ?></h2>
@@ -329,7 +325,7 @@ if ($tid) {
           <?php if ($op['role'] !== 'member'): ?> <em style="font-size:11px;font-style:italic;color:<?= e(chat_color($op['role'],'')) ?>"><?= e(role_label($op['role'])) ?></em><?php endif; ?>
           <span class="muted">&middot; #<?= (int)$op['id'] ?> &middot; <?= $opc ?> posts
             &middot; <?= e($op['created_at']) ?> &middot; <?= (int)$topic['views'] ?> views
-            &middot; <a href="index.php?p=boards&t=<?= (int)$tid ?>&reply=<?= (int)$op['id'] ?>#replyform">Reply</a><?php if ($canModB): ?> &middot; <form method="post" style="display:inline;margin:0"><input type="hidden" name="action" value="modkill"><input type="hidden" name="post_id" value="<?= (int)$op['id'] ?>"><button class="vote" style="color:var(--neon2)">delete</button></form><?php endif; ?></span>
+            &middot; <button type="button" class="reply-trigger" data-post-id="<?= (int)$op['id'] ?>" data-author="<?= e($op['author']) ?>">Reply</button><?php if ($canModB): ?> &middot; <form method="post" style="display:inline;margin:0"><input type="hidden" name="action" value="modkill"><input type="hidden" name="post_id" value="<?= (int)$op['id'] ?>"><button class="vote" style="color:var(--neon2)">delete</button></form><?php endif; ?></span>
         </div>
         <div><?= bbcode($op['body']) ?></div>
         <?php if (!empty($op['signature'])): ?><div class="muted" style="border-top:1px solid var(--line);margin-top:6px;padding-top:4px;font-size:11px"><?= bbcode($op['signature']) ?></div><?php endif; ?>
@@ -345,18 +341,74 @@ if ($tid) {
   ?>
 
   <div class="panel" id="replyform">
-    <h3><?= $replyToName ? 'Reply to ' . e($replyToName) : 'Post a Reply' ?></h3>
+    <h3 id="replyform-title">Post a Reply</h3>
+    <div id="replyform-target" style="display:none;font-size:12px;color:var(--muted);margin:-8px 0 10px">
+      Replying to <b id="replyform-target-name" style="color:var(--accent)"></b>
+      &middot; <a href="javascript:void(0)" id="replyform-cancel">Cancel &mdash; reply to thread instead</a>
+    </div>
     <form method="post">
       <input type="hidden" name="action" value="reply">
       <input type="hidden" name="topic_id" value="<?= (int)$tid ?>">
-      <input type="hidden" name="parent_id" value="<?= (int)$replyParent ?>">
+      <input type="hidden" name="parent_id" id="replyform-parent" value="0">
       <div class="field">
-        <textarea name="body" maxlength="<?= BODY_MAX ?>" style="min-height:110px"></textarea>
+        <textarea name="body" id="replyform-body" maxlength="<?= BODY_MAX ?>" style="min-height:110px"></textarea>
         <span class="muted" style="font-size:11px;text-transform:none;letter-spacing:0">Formatting: <code>[b]bold[/b] [i]italics[/i] [u]underline[/u]</code></span>
       </div>
       <button type="submit" class="bd-submit">Transmit</button>
     </form>
   </div>
+  <script>
+  (function(){
+    var title=document.getElementById('replyform-title'), targetBox=document.getElementById('replyform-target'),
+        targetName=document.getElementById('replyform-target-name'), parentInp=document.getElementById('replyform-parent'),
+        body=document.getElementById('replyform-body'), cancelBtn=document.getElementById('replyform-cancel');
+    function setTarget(postId, authorName){
+      parentInp.value = postId || 0;
+      if (postId) {
+        title.textContent = 'Post a Reply';
+        targetName.textContent = authorName;
+        targetBox.style.display = '';
+      } else {
+        targetBox.style.display = 'none';
+      }
+    }
+    document.querySelectorAll('.reply-trigger').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        setTarget(btn.getAttribute('data-post-id'), btn.getAttribute('data-author'));
+        document.getElementById('replyform').scrollIntoView({behavior:'smooth', block:'center'});
+        if (body) body.focus();
+      });
+    });
+    if (cancelBtn) cancelBtn.addEventListener('click', function(){ setTarget(0, ''); });
+
+    // Real-time upvote/downvote — plain buttons (not <form> submits) wired
+    // to boards_vote_api.php directly, so a vote updates the score in place
+    // instead of the sitewide AJAX handler swapping the whole page content.
+    document.querySelectorAll('.votebox').forEach(function(box){
+      var postId = box.getAttribute('data-post-id');
+      var scoreEl = box.querySelector('.score');
+      box.querySelectorAll('.vote').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          if (btn.disabled) return;
+          var dir = btn.getAttribute('data-dir');
+          box.querySelectorAll('.vote').forEach(function(b){ b.disabled = true; });
+          var fd = new FormData();
+          fd.append('post_id', postId); fd.append('dir', dir);
+          fetch('boards_vote_api.php', {method:'POST', body:fd, credentials:'same-origin'})
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              if (!d.ok) return;
+              scoreEl.textContent = d.score;
+              box.querySelector('.vote-up').classList.toggle('vote-active', d.myVote === 1);
+              box.querySelector('.vote-down').classList.toggle('vote-active', d.myVote === -1);
+            })
+            .catch(function(){})
+            .then(function(){ box.querySelectorAll('.vote').forEach(function(b){ b.disabled = false; }); });
+        });
+      });
+    });
+  })();
+  </script>
   <?php
   return;
 }

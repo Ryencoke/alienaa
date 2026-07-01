@@ -631,6 +631,9 @@ code{color:var(--neon2);font-size:12px}
 .sbmove,.sbdel{cursor:pointer;user-select:none;color:var(--muted);transition:color var(--t)}
 .sbmove:hover{color:var(--accent)}
 .sbdel{color:var(--neon2)}.sbdel:hover{color:#fff}
+.sbgrip{cursor:grab;user-select:none;color:var(--muted);letter-spacing:-2px;font-size:15px}
+.sbgrip:active{cursor:grabbing}
+.sbrow.sbdragging{opacity:.4;border-color:var(--accent)}
 
 /* ============================================================ Scrollbar */
 *::-webkit-scrollbar{width:8px;height:8px}

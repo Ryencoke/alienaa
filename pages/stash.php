@@ -160,7 +160,22 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
 </div>
 
 <div class="panel">
-  <h3>Backpack</h3>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+    <h3 style="margin:0">Backpack</h3>
+    <?php if ($inv): ?>
+    <div style="display:flex;align-items:center;gap:6px">
+      <label for="inv-sort" style="font-size:11px;color:var(--muted)">Sort</label>
+      <select id="inv-sort" style="width:auto;font-size:12px;padding:4px 7px">
+        <option value="default">Default</option>
+        <option value="name-asc">Name: A to Z</option>
+        <option value="qty-desc">Quantity: High to Low</option>
+        <option value="atk-desc">Attack: High to Low</option>
+        <option value="def-desc">Defense: High to Low</option>
+        <option value="cat-asc">Category</option>
+      </select>
+    </div>
+    <?php endif; ?>
+  </div>
   <?php if ($inv): ?>
   <div class="tabs">
     <div class="tab active" data-cat="all">All</div>
@@ -172,7 +187,7 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
             || ($r['slot'] === 'armor' && $ea && $ea['id'] == $r['id'] && $eaSrc === $r['source']));
       $icCol = item_color($r['category'], $r['slot']);
     ?>
-    <div class="itemcard" data-cat="<?= e($r['category']) ?>" style="border-left:3px solid <?= $icCol ?>">
+    <div class="itemcard" data-cat="<?= e($r['category']) ?>" data-name="<?= e($r['name']) ?>" data-qty="<?= (int)$r['qty'] ?>" data-atk="<?= (int)($r['atk'] ?? 0) ?>" data-def="<?= (int)($r['def'] ?? 0) ?>" style="border-left:3px solid <?= $icCol ?>">
       <div class="ic" style="color:<?= $icCol ?>"><?= item_icon($r['category'], $r['slot']) ?></div>
       <div class="body">
         <div class="nm"><?= e($r['name']) ?><?php if ($r['slot']): ?> <span class="muted">(<?= ucfirst($r['slot']) ?>)</span><?php endif; ?> <span class="muted">&times;<?= (int)$r['qty'] ?></span><?php if ((int)($r['loan_id'] ?? 0) > 0): ?> <span style="font-size:9px;font-weight:700;color:#e8a33d;text-transform:uppercase;letter-spacing:.4px;border:1px solid rgba(232,163,61,.4);border-radius:4px;padding:1px 5px;vertical-align:middle">&#9874; Guild Loan</span><?php endif; ?></div>
@@ -208,6 +223,23 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
         c.style.display=(cat==='all'||c.getAttribute('data-cat')===cat)?'':'none';
       });
     });
+
+    var sortSel=document.getElementById('inv-sort');
+    if(sortSel){
+      var origOrder=Array.prototype.slice.call(list.children);
+      var sorters={
+        'name-asc': function(a,b){ return a.dataset.name.localeCompare(b.dataset.name); },
+        'qty-desc': function(a,b){ return parseInt(b.dataset.qty,10)-parseInt(a.dataset.qty,10); },
+        'atk-desc': function(a,b){ return parseInt(b.dataset.atk,10)-parseInt(a.dataset.atk,10); },
+        'def-desc': function(a,b){ return parseInt(b.dataset.def,10)-parseInt(a.dataset.def,10); },
+        'cat-asc':  function(a,b){ return a.dataset.cat.localeCompare(b.dataset.cat); }
+      };
+      sortSel.addEventListener('change',function(){
+        var v=sortSel.value;
+        var cards=v==='default'?origOrder.slice():Array.prototype.slice.call(list.children).sort(sorters[v]);
+        cards.forEach(function(c){ list.appendChild(c); });
+      });
+    }
   })();
   </script>
   <?php else: ?><p class="muted">Empty. The Sprawl gave you nothing and you kept all of it.</p><?php endif; ?>

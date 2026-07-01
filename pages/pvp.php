@@ -274,11 +274,130 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'credits_looted' => $creditsLooted, 'log_id'    => $logId,
         'mortality_delta'=> $mortalityDelta ?? 0,
       ]);
+
+    } elseif ($act === 'save_search') {
+      $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_saved_searches (
+        id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, slot TINYINT NOT NULL,
+        name VARCHAR(40) NOT NULL, filters TEXT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_pss (player_id, slot)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+      $slot = (int)($_POST['slot'] ?? 0);
+      if ($slot < 1 || $slot > 5) throw new RuntimeException('Pick a save slot (1-5).');
+      $sname = trim($_POST['search_name'] ?? '');
+      if ($sname === '') $sname = 'Search ' . $slot;
+      $sname = mb_substr($sname, 0, 40);
+      $filters = [
+        'lvl_min' => max(0, (int)($_POST['lvl_min'] ?? 0)),
+        'lvl_max' => max(0, (int)($_POST['lvl_max'] ?? 0)),
+        'hp_max'  => max(0, min(100, (int)($_POST['hp_max'] ?? 100))),
+        'align'   => in_array($_POST['align'] ?? '', ['any','good','evil','neutral'], true) ? $_POST['align'] : 'any',
+        'exclude_friends' => !empty($_POST['exclude_friends']),
+        'guild_mode' => in_array($_POST['guild_mode'] ?? '', ['any','none','mine_exclude','has_guild','specific'], true) ? $_POST['guild_mode'] : 'any',
+        'guild_id' => (int)($_POST['guild_id'] ?? 0),
+      ];
+      $pdo->prepare('INSERT INTO pvp_saved_searches (player_id, slot, name, filters) VALUES (?,?,?,?)
+                     ON DUPLICATE KEY UPDATE name=VALUES(name), filters=VALUES(filters)')
+          ->execute([$pid, $slot, $sname, json_encode($filters)]);
+      $msg = 'Search saved to slot ' . $slot . '.';
+
+    } elseif ($act === 'delete_search') {
+      $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_saved_searches (
+        id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, slot TINYINT NOT NULL,
+        name VARCHAR(40) NOT NULL, filters TEXT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_pss (player_id, slot)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+      $slot = (int)($_POST['slot'] ?? 0);
+      $pdo->prepare('DELETE FROM pvp_saved_searches WHERE player_id=? AND slot=?')->execute([$pid, $slot]);
+      $msg = 'Saved search cleared.';
     }
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
 }
 
-$tab = in_array($_GET['tab'] ?? '', ['arena','stats','log']) ? $_GET['tab'] : 'arena';
+$tab = in_array($_GET['tab'] ?? '', ['arena','stats','log','search']) ? $_GET['tab'] : 'arena';
+
+// ── Target Search ────────────────────────────────────────────────────────
+$savedSearches = [];
+try {
+  $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_saved_searches (
+    id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, slot TINYINT NOT NULL,
+    name VARCHAR(40) NOT NULL, filters TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_pss (player_id, slot)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+  $ssq = $pdo->prepare('SELECT * FROM pvp_saved_searches WHERE player_id=? ORDER BY slot');
+  $ssq->execute([$pid]);
+  foreach ($ssq as $row) { $row['filters'] = json_decode($row['filters'], true) ?: []; $savedSearches[(int)$row['slot']] = $row; }
+} catch (Throwable $e) {}
+
+$myGuildRow = null;
+try {
+  $mgq = $pdo->prepare('SELECT syndicate_id FROM syndicate_members WHERE player_id=?');
+  $mgq->execute([$pid]); $myGuildRow = $mgq->fetch();
+} catch (Throwable $e) {}
+$myGuildId = $myGuildRow ? (int)$myGuildRow['syndicate_id'] : 0;
+
+$guildList = [];
+try { $guildList = $pdo->query('SELECT id, name, tag FROM syndicates ORDER BY name')->fetchAll(); } catch (Throwable $e) {}
+
+$searchResults = [];
+$searchApplied = false;
+if ($tab === 'search') {
+  // Loading a saved search (?load=N) or running the inline form (?run=1) — a
+  // GET-driven search, not POST, so clicking Attack from results doesn't need
+  // to resubmit anything and the results survive a page refresh.
+  $loadSlot = (int)($_GET['load'] ?? 0);
+  $f = ($loadSlot && isset($savedSearches[$loadSlot])) ? $savedSearches[$loadSlot]['filters'] : [];
+  if (isset($_GET['run']) || $loadSlot) {
+    $searchApplied = true;
+    $lvlMin = max(0, (int)($_GET['lvl_min'] ?? $f['lvl_min'] ?? 0));
+    $lvlMax = (int)($_GET['lvl_max'] ?? $f['lvl_max'] ?? 0);
+    $hpMax  = max(0, min(100, (int)($_GET['hp_max'] ?? $f['hp_max'] ?? 100)));
+    $align  = $_GET['align'] ?? $f['align'] ?? 'any';
+    $excludeFriends = isset($_GET['run']) ? !empty($_GET['exclude_friends']) : !empty($f['exclude_friends']);
+    $guildMode = $_GET['guild_mode'] ?? $f['guild_mode'] ?? 'any';
+    $guildIdFilter = (int)($_GET['guild_id'] ?? $f['guild_id'] ?? 0);
+
+    $sql = "SELECT p.*,
+              (SELECT COUNT(*) FROM jail_records j WHERE j.player_id=p.id AND j.status='active' AND j.release_at > NOW()) AS is_jailed,
+              sm.syndicate_id AS guild_id, s.name AS guild_name, s.tag AS guild_tag
+            FROM players p
+            LEFT JOIN syndicate_members sm ON sm.player_id = p.id
+            LEFT JOIN syndicates s ON s.id = sm.syndicate_id
+            WHERE p.id != ? AND p.role NOT IN ('admin','manager','moderator','chatmod','banned')
+              AND (p.merchant_until IS NULL OR p.merchant_until < CURDATE())";
+    $params = [$pid];
+    if ($lvlMin > 0)  { $sql .= ' AND p.level >= ?'; $params[] = $lvlMin; }
+    if ($lvlMax > 0)  { $sql .= ' AND p.level <= ?'; $params[] = $lvlMax; }
+    if ($align === 'good')    $sql .= ' AND p.mortality > 0';
+    elseif ($align === 'evil') $sql .= ' AND p.mortality < 0';
+    elseif ($align === 'neutral') $sql .= ' AND p.mortality = 0';
+    if ($guildMode === 'none') $sql .= ' AND sm.syndicate_id IS NULL';
+    elseif ($guildMode === 'has_guild') $sql .= ' AND sm.syndicate_id IS NOT NULL';
+    elseif ($guildMode === 'mine_exclude' && $myGuildId) { $sql .= ' AND (sm.syndicate_id IS NULL OR sm.syndicate_id != ?)'; $params[] = $myGuildId; }
+    elseif ($guildMode === 'specific' && $guildIdFilter) { $sql .= ' AND sm.syndicate_id = ?'; $params[] = $guildIdFilter; }
+    $sql .= ' ORDER BY p.level DESC LIMIT 60';
+
+    try {
+      $rq = $pdo->prepare($sql);
+      $rq->execute($params);
+      $rows = $rq->fetchAll();
+      $friendIds = [];
+      try {
+        $fq = $pdo->prepare('SELECT friend_id FROM friends WHERE player_id=?'); $fq->execute([$pid]);
+        $friendIds = array_map('intval', $fq->fetchAll(PDO::FETCH_COLUMN));
+      } catch (Throwable $e) {}
+      foreach ($rows as $r) {
+        $hpPct = (int)$r['integrity_max'] > 0 ? round((int)$r['integrity'] / (int)$r['integrity_max'] * 100) : 0;
+        if ($hpPct > $hpMax) continue;
+        if ((int)$r['is_jailed'] > 0) continue;
+        if ($excludeFriends && in_array((int)$r['id'], $friendIds, true)) continue;
+        $searchResults[] = $r;
+      }
+    } catch (Throwable $e) {}
+  }
+}
 
 // Recent PvP log
 $recentPvp = [];
@@ -374,7 +493,7 @@ if (($tab === 'log') && isset($_GET['detail'])) {
 <?php endif; ?>
 
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-  <?php foreach (['arena'=>'&#9876; Arena','stats'=>'&#128202; My Stats','log'=>'&#128203; Combat Log ('.count($recentPvp).')'] as $tid=>$tl): ?>
+  <?php foreach (['arena'=>'&#9876; Arena','search'=>'&#128269; Target Search','stats'=>'&#128202; My Stats','log'=>'&#128203; Combat Log ('.count($recentPvp).')'] as $tid=>$tl): ?>
   <a href="index.php?p=pvp&tab=<?= $tid ?>" class="pvp-tab <?= $tab===$tid ? 'on' : '' ?>"><?= $tl ?></a>
   <?php endforeach; ?>
 </div>
@@ -508,7 +627,7 @@ if (($tab === 'log') && isset($_GET['detail'])) {
     <input type="hidden" name="action" value="challenge">
     <div class="ac-wrap" style="flex:1;position:relative">
       <input type="text" id="pvpTarget" name="target" placeholder="Ghost's handle"
-             autocomplete="off" maxlength="32" data-no-counter
+             autocomplete="off" maxlength="32" data-no-counter value="<?= e($_GET['target'] ?? '') ?>"
              style="width:100%" <?= ((int)$player['integrity'] < 10 || (int)$player['signal'] < 1) ? 'disabled' : '' ?>>
       <div class="ac-list" id="pvpAcList" style="display:none"></div>
     </div>
@@ -547,6 +666,159 @@ if (!empty($arenaLatest) && !$battleResult): ?>
       <?php endforeach; ?>
     </table>
   </div>
+</div>
+<?php endif; ?>
+
+<!-- ── TARGET SEARCH ── -->
+<?php elseif ($tab === 'search'):
+  $f = ($loadSlot && isset($savedSearches[$loadSlot])) ? $savedSearches[$loadSlot]['filters'] : [];
+  $curLvlMin = $f['lvl_min'] ?? ($_GET['lvl_min'] ?? '');
+  $curLvlMax = $f['lvl_max'] ?? ($_GET['lvl_max'] ?? '');
+  $curHpMax  = $f['hp_max']  ?? ($_GET['hp_max'] ?? 100);
+  $curAlign  = $f['align']   ?? ($_GET['align'] ?? 'any');
+  $curExFriends = $f['exclude_friends'] ?? !empty($_GET['exclude_friends']);
+  $curGuildMode = $f['guild_mode'] ?? ($_GET['guild_mode'] ?? 'any');
+  $curGuildId   = $f['guild_id'] ?? ($_GET['guild_id'] ?? 0);
+?>
+<?php if ($savedSearches): ?>
+<div class="panel">
+  <h3 style="margin-top:0">&#128190; Saved Searches</h3>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <?php for ($s = 1; $s <= 5; $s++): if (!isset($savedSearches[$s])) continue; $sv = $savedSearches[$s]; ?>
+    <div style="display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:5px 6px 5px 14px">
+      <a href="index.php?p=pvp&tab=search&load=<?= $s ?>" style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:700"><?= e($sv['name']) ?></a>
+      <form method="post" style="margin:0" onsubmit="return confirm('Delete this saved search?')">
+        <input type="hidden" name="action" value="delete_search">
+        <input type="hidden" name="slot" value="<?= $s ?>">
+        <button type="submit" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:2px 4px" title="Delete">&times;</button>
+      </form>
+    </div>
+    <?php endfor; ?>
+  </div>
+</div>
+<?php endif; ?>
+
+<div class="panel">
+  <h3 style="margin-top:0">&#128269; Search for a Target</h3>
+  <p class="muted" style="font-size:12px;margin-bottom:12px">Results exclude jailed ghosts, active Commerce Accord merchants, game staff, and banned accounts automatically — those are never attackable.</p>
+  <form method="get" id="pvpSearchForm" style="display:flex;flex-direction:column;gap:12px">
+    <input type="hidden" name="p" value="pvp">
+    <input type="hidden" name="tab" value="search">
+    <input type="hidden" name="run" value="1">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Level min</label>
+        <input type="number" name="lvl_min" min="0" value="<?= e((string)$curLvlMin) ?>" style="width:100%">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Level max</label>
+        <input type="number" name="lvl_max" min="0" value="<?= e((string)$curLvlMax) ?>" style="width:100%">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Max Health remaining (%)</label>
+        <input type="number" name="hp_max" min="0" max="100" value="<?= e((string)$curHpMax) ?>" style="width:100%">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Alignment</label>
+        <select name="align" style="width:100%">
+          <?php foreach (['any'=>'Any','good'=>'Good','evil'=>'Evil','neutral'=>'Neutral'] as $ak=>$al): ?>
+          <option value="<?= $ak ?>" <?= $curAlign===$ak?'selected':'' ?>><?= $al ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Syndicate</label>
+        <select name="guild_mode" id="pvpGuildMode" style="width:100%">
+          <?php foreach (['any'=>'Any','none'=>'No syndicate','has_guild'=>'In a syndicate','mine_exclude'=>'Not in my syndicate','specific'=>'Specific syndicate'] as $gk=>$gl): ?>
+          <option value="<?= $gk ?>" <?= $curGuildMode===$gk?'selected':'' ?>><?= $gl ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div id="pvpGuildSpecificWrap" style="<?= $curGuildMode==='specific' ? '' : 'display:none' ?>">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Which syndicate</label>
+        <select name="guild_id" style="width:100%">
+          <?php foreach ($guildList as $g): ?>
+          <option value="<?= (int)$g['id'] ?>" <?= (int)$curGuildId===(int)$g['id']?'selected':'' ?>>[<?= e($g['tag']) ?>] <?= e($g['name']) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:18px">
+        <input type="checkbox" name="exclude_friends" id="pvpExFriends" value="1" <?= $curExFriends?'checked':'' ?>>
+        <label for="pvpExFriends" style="font-size:12px">Exclude friends</label>
+      </div>
+    </div>
+    <script>
+      document.getElementById('pvpGuildMode').addEventListener('change', function(){
+        document.getElementById('pvpGuildSpecificWrap').style.display = this.value === 'specific' ? '' : 'none';
+      });
+    </script>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button type="submit" style="padding:9px 22px">&#128269; Search</button>
+      <span style="font-size:12px;color:var(--muted)">Save this search:</span>
+      <?php for ($s = 1; $s <= 5; $s++): ?>
+      <button type="button" class="pvp-savebtn" data-slot="<?= $s ?>" style="padding:5px 10px;font-size:11px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--muted);cursor:pointer"><?= isset($savedSearches[$s]) ? '&#9998;' : '&#128190;' ?> <?= $s ?></button>
+      <?php endfor; ?>
+    </div>
+  </form>
+  <form method="post" id="pvpSaveSearchForm" style="display:none">
+    <input type="hidden" name="action" value="save_search">
+    <input type="hidden" name="slot" id="pvpSaveSlot" value="1">
+    <input type="hidden" name="search_name" id="pvpSaveName" value="">
+    <input type="hidden" name="lvl_min" id="pvpSaveLvlMin" value="">
+    <input type="hidden" name="lvl_max" id="pvpSaveLvlMax" value="">
+    <input type="hidden" name="hp_max" id="pvpSaveHpMax" value="">
+    <input type="hidden" name="align" id="pvpSaveAlign" value="">
+    <input type="hidden" name="exclude_friends" id="pvpSaveExFriends" value="">
+    <input type="hidden" name="guild_mode" id="pvpSaveGuildMode" value="">
+    <input type="hidden" name="guild_id" id="pvpSaveGuildId" value="">
+  </form>
+  <script>
+  (function(){
+    document.querySelectorAll('.pvp-savebtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var slot = btn.getAttribute('data-slot');
+        var name = prompt('Name this saved search (slot ' + slot + '):', '');
+        if (name === null) return;
+        var f = document.getElementById('pvpSearchForm');
+        document.getElementById('pvpSaveSlot').value = slot;
+        document.getElementById('pvpSaveName').value = name;
+        document.getElementById('pvpSaveLvlMin').value = f.lvl_min.value;
+        document.getElementById('pvpSaveLvlMax').value = f.lvl_max.value;
+        document.getElementById('pvpSaveHpMax').value = f.hp_max.value;
+        document.getElementById('pvpSaveAlign').value = f.align.value;
+        document.getElementById('pvpSaveExFriends').value = f.exclude_friends.checked ? '1' : '';
+        document.getElementById('pvpSaveGuildMode').value = f.guild_mode.value;
+        document.getElementById('pvpSaveGuildId').value = f.guild_id ? f.guild_id.value : '';
+        document.getElementById('pvpSaveSearchForm').submit();
+      });
+    });
+  })();
+  </script>
+</div>
+
+<?php if ($searchApplied): ?>
+<div class="panel">
+  <h3 style="margin-top:0">Results (<?= count($searchResults) ?>)</h3>
+  <?php if (!$searchResults): ?>
+  <p class="muted" style="text-align:center;padding:20px 0">No attackable ghosts match those filters.</p>
+  <?php else: ?>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <?php foreach ($searchResults as $rr):
+      $rHpPct = (int)$rr['integrity_max'] > 0 ? round((int)$rr['integrity'] / (int)$rr['integrity_max'] * 100) : 0;
+      $rMort = (int)($rr['mortality'] ?? 0);
+      $rCol = chat_color($rr['role'] ?? 'member', '');
+    ?>
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;flex-wrap:wrap">
+      <a href="index.php?p=profile&id=<?= (int)$rr['id'] ?>" style="font-weight:700;font-size:13px;color:<?= e($rCol) ?>;text-decoration:none;min-width:120px"><?= e($rr['username']) ?></a>
+      <span style="font-size:11px;color:var(--muted)">Lv <?= (int)$rr['level'] ?></span>
+      <span style="font-size:11px;color:<?= $rHpPct <= 30 ? 'var(--neon2)' : 'var(--muted)' ?>">HP <?= $rHpPct ?>%</span>
+      <?php if ($rMort !== 0): ?><span style="font-size:11px;color:<?= $rMort>0?'#e8d44d':'#ff2d95' ?>"><?= $rMort>0?'Good':'Evil' ?></span><?php endif; ?>
+      <?php if ($rr['guild_tag']): ?><span style="font-size:11px;color:var(--accent)">[<?= e($rr['guild_tag']) ?>]</span><?php endif; ?>
+      <a href="index.php?p=pvp&tab=arena&target=<?= urlencode($rr['username']) ?>" style="margin-left:auto;padding:5px 14px;font-size:12px;text-decoration:none;border:1px solid var(--neon2);color:var(--neon2);border-radius:6px;background:rgba(255,45,149,.05)">&#9876; Attack</a>
+    </div>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
 </div>
 <?php endif; ?>
 

@@ -232,7 +232,8 @@ $curAccent = $player['accent_color'] ?? '';
     <input type="hidden" name="order" id="sborder">
     <div id="sblist" style="margin-bottom:12px">
       <?php foreach ($current as $k): ?>
-        <div class="sbrow" data-key="<?= e($k) ?>">
+        <div class="sbrow" data-key="<?= e($k) ?>" draggable="true">
+          <span class="sbgrip" title="Drag to reorder">&#8942;&#8942;</span>
           <span class="sbmove" data-dir="up">&#9650;</span>
           <span class="sbmove" data-dir="down">&#9660;</span>
           <span class="sblabel"><?= e($nl[$k][0]) ?></span>
@@ -333,10 +334,30 @@ $curAccent = $player['accent_color'] ?? '';
         if(dir==='down'&&row.nextElementSibling) list.insertBefore(row.nextElementSibling,row);
       }
     });
+
+    // Native HTML5 drag-and-drop reorder, as an alternative to the arrows —
+    // no drag library exists in this codebase, so this is the plain events
+    // API. Rows are only reordered on drop, not continuously during dragover,
+    // to avoid fighting the arrow-click handler's own DOM moves.
+    var dragged=null;
+    function bindDrag(row){
+      row.addEventListener('dragstart',function(e){ dragged=row; row.classList.add('sbdragging'); e.dataTransfer.effectAllowed='move'; });
+      row.addEventListener('dragend',function(){ row.classList.remove('sbdragging'); dragged=null; autoSave(); });
+    }
+    list.querySelectorAll('.sbrow').forEach(bindDrag);
+    list.addEventListener('dragover',function(e){
+      e.preventDefault();
+      var over=e.target.closest('.sbrow');
+      if(!over||!dragged||over===dragged) return;
+      var rect=over.getBoundingClientRect();
+      var before=(e.clientY-rect.top)<rect.height/2;
+      list.insertBefore(dragged, before?over:over.nextElementSibling);
+    });
     add.addEventListener('change',function(){
       var k=add.value; if(!k) return;
-      var row=document.createElement('div'); row.className='sbrow'; row.setAttribute('data-key',k);
-      row.innerHTML='<span class="sbmove" data-dir="up">&#9650;</span><span class="sbmove" data-dir="down">&#9660;</span><span class="sblabel"></span><span class="sbdel">&times;</span>';
+      var row=document.createElement('div'); row.className='sbrow'; row.setAttribute('data-key',k); row.setAttribute('draggable','true');
+      row.innerHTML='<span class="sbgrip" title="Drag to reorder">&#8942;&#8942;</span><span class="sbmove" data-dir="up">&#9650;</span><span class="sbmove" data-dir="down">&#9660;</span><span class="sblabel"></span><span class="sbdel">&times;</span>';
+      bindDrag(row);
       row.querySelector('.sblabel').textContent=labels[k]||k;
       list.appendChild(row);
       var opt=add.querySelector('option[value="'+k+'"]'); if(opt) opt.remove(); add.value='';

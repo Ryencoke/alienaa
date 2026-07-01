@@ -52,6 +52,34 @@ try {
   $pgq->execute([$id]); $profGuild = $pgq->fetch();
 } catch (Throwable $e) {}
 
+// Residence — primary apartment, if any (apartments.php's district/perk catalog)
+$profResidence = null;
+try {
+  $raq = $pdo->prepare('SELECT apt_type_id, region FROM player_apartments WHERE player_id=? AND is_primary=1 LIMIT 1');
+  $raq->execute([$id]); $profResidence = $raq->fetch();
+} catch (Throwable $e) {}
+
+// Equipped gear — checks player_gear first (Blacksmith/Fabrication Lab),
+// falls back to player_items (General Store gear), same lookup pattern
+// stash.php uses so the two id sequences (which can collide numerically)
+// don't get mixed up.
+$profGear = ['weapon' => null, 'armor' => null];
+try {
+  $geq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
+  foreach (['weapon', 'armor'] as $slot) {
+    $geq->execute(["equipped_{$slot}:{$id}"]);
+    $gid = (int)$geq->fetchColumn();
+    if (!$gid) continue;
+    $gq1 = $pdo->prepare('SELECT name FROM player_gear WHERE id=? AND player_id=?');
+    $gq1->execute([$gid, $id]); $gname = $gq1->fetchColumn();
+    if (!$gname) {
+      $gq2 = $pdo->prepare('SELECT i.name FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0');
+      $gq2->execute([$id, $gid]); $gname = $gq2->fetchColumn();
+    }
+    if ($gname) $profGear[$slot] = $gname;
+  }
+} catch (Throwable $e) {}
+
 $isOnline  = !empty($prof['last_seen']) && strtotime($prof['last_seen']) >= time() - 300;
 $isBanned  = $role === 'banned';
 $isSub     = is_subscribed($prof);
@@ -127,6 +155,9 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
   </div>
 </div>
 
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:start" id="pf-2col">
+<div style="display:flex;flex-direction:column;gap:14px">
+
 <div class="panel pf-panel">
   <h3 style="margin-bottom:12px">&#128202; Stats</h3>
   <div class="prof-grid">
@@ -156,26 +187,6 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
   </div>
   <?php endif; ?>
 </div>
-
-<?php if ($profGuild): ?>
-<?php
-  $SYN_RANK_COLORS_PROF = ['leader'=>'#e8d44d','coleader'=>'var(--neon2)','treasurer'=>'#3bcf63','armourer'=>'var(--accent)','librarian'=>'#9b8cff','advisor'=>'#e8a33d','member'=>'var(--muted)'];
-  $SYN_RANK_LABELS_PROF = ['leader'=>'Leader','coleader'=>'Co-Leader','treasurer'=>'Treasurer','armourer'=>'Armourer','librarian'=>'Librarian','advisor'=>'Advisor','member'=>'Member'];
-  $pGRank = $profGuild['rank'] ?? 'member';
-?>
-<div class="panel pf-panel">
-  <h3 style="margin-bottom:10px">&#128101; Syndicate</h3>
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-    <div style="flex:1">
-      <div style="font-weight:700;font-size:14px;color:var(--accent)">[<?= e($profGuild['tag']) ?>] <?= e($profGuild['name']) ?></div>
-      <div style="font-size:12px;color:<?= $SYN_RANK_COLORS_PROF[$pGRank] ?? 'var(--muted)' ?>;margin-top:2px;font-weight:700"><?= $SYN_RANK_LABELS_PROF[$pGRank] ?? ucfirst($pGRank) ?></div>
-    </div>
-  </div>
-  <?php if ($profGuild['joined_at']): ?>
-  <div style="font-size:11px;color:var(--muted)">Member since <?= e(date('M j, Y', strtotime($profGuild['joined_at']))) ?></div>
-  <?php endif; ?>
-</div>
-<?php endif; ?>
 
 <div class="panel pf-panel">
   <h3 style="margin-bottom:10px">&#9876; Combat Record</h3>
@@ -220,6 +231,39 @@ if ($badges):
 </div>
 <?php endif; ?>
 
+</div>
+<div style="display:flex;flex-direction:column;gap:14px">
+
+<?php if ($profGuild):
+  $SYN_RANK_COLORS_PROF = ['leader'=>'#e8d44d','coleader'=>'var(--neon2)','treasurer'=>'#3bcf63','armourer'=>'var(--accent)','librarian'=>'#9b8cff','advisor'=>'#e8a33d','member'=>'var(--muted)'];
+  $SYN_RANK_LABELS_PROF = ['leader'=>'Leader','coleader'=>'Co-Leader','treasurer'=>'Treasurer','armourer'=>'Armourer','librarian'=>'Librarian','advisor'=>'Advisor','member'=>'Member'];
+  $pGRank = $profGuild['rank'] ?? 'member';
+?>
+<div class="panel pf-panel">
+  <h3 style="margin-bottom:10px">&#128101; Syndicate</h3>
+  <div style="font-weight:700;font-size:14px;color:var(--accent)">[<?= e($profGuild['tag']) ?>] <?= e($profGuild['name']) ?></div>
+  <div style="font-size:12px;color:<?= $SYN_RANK_COLORS_PROF[$pGRank] ?? 'var(--muted)' ?>;margin-top:2px;font-weight:700"><?= $SYN_RANK_LABELS_PROF[$pGRank] ?? ucfirst($pGRank) ?></div>
+  <?php if ($profGuild['joined_at']): ?>
+  <div style="font-size:11px;color:var(--muted);margin-top:8px">Member since <?= e(date('M j, Y', strtotime($profGuild['joined_at']))) ?></div>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
+
+<?php if ($profResidence || $profGear['weapon'] || $profGear['armor']): ?>
+<div class="panel pf-panel">
+  <h3 style="margin-bottom:10px">&#127968; Loadout</h3>
+  <?php if ($profResidence): ?>
+  <div style="font-size:12px;margin-bottom:8px"><span class="muted">Residence:</span> <b style="color:var(--accent)"><?= e($profResidence['region']) ?></b></div>
+  <?php endif; ?>
+  <?php if ($profGear['weapon']): ?>
+  <div style="font-size:12px;margin-bottom:4px"><span class="muted">Weapon:</span> <b style="color:var(--neon2)"><?= e($profGear['weapon']) ?></b></div>
+  <?php endif; ?>
+  <?php if ($profGear['armor']): ?>
+  <div style="font-size:12px"><span class="muted">Armor:</span> <b style="color:#4d9be8"><?= e($profGear['armor']) ?></b></div>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
+
 <?php
 $isStaffViewer = in_array($player['role'] ?? '', ['admin','manager','moderator'], true);
 ?>
@@ -232,13 +276,7 @@ $isStaffViewer = in_array($player['role'] ?? '', ['admin','manager','moderator']
     <?php if (!$isBanned): ?>
     <a href="index.php?p=pvp&target=<?= urlencode($prof['username']) ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid var(--neon2);color:var(--neon2);border-radius:6px;background:rgba(255,45,149,.04)">&#9876; Attack</a>
     <?php endif; ?>
-    <?php
-      $hasJournal = false;
-      try { $hjq = $pdo->prepare('SELECT 1 FROM settings WHERE k=? AND v!=?'); $hjq->execute(['journal:'.$prof['id'],  '']); $hasJournal = (bool)$hjq->fetchColumn(); } catch(Throwable $e){}
-    ?>
-    <?php if ($hasJournal): ?>
-    <a href="index.php?p=journal&id=<?= (int)$prof['id'] ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;background:var(--panel2)">&#128214; Journal</a>
-    <?php endif; ?>
+    <a href="index.php?p=journal&id=<?= (int)$prof['id'] ?>" style="padding:7px 16px;font-size:12px;text-decoration:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;background:var(--panel2)">&#128214; View Journal</a>
     <?php if ($isFriend): ?>
     <form method="post" action="index.php?p=friends" style="display:inline;margin:0">
       <input type="hidden" name="action" value="remove">
@@ -255,6 +293,9 @@ $isStaffViewer = in_array($player['role'] ?? '', ['admin','manager','moderator']
   </div>
 </div>
 <?php endif; ?>
+
+</div>
+</div>
 
 <?php if ($isStaffViewer): ?>
 <div class="panel" style="border:1px solid rgba(226,59,59,.25);background:rgba(226,59,59,.03)">
