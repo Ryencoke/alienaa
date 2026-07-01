@@ -29,16 +29,10 @@ if (isset($_GET['lookup'])) {
 
 $q = trim($_GET['q'] ?? '');
 if (strlen($q) < 1) { echo '[]'; exit; }
-$results = [];
-// If query is purely numeric, try searching by player ID first
-if (ctype_digit($q)) {
-  $st = $db->prepare('SELECT username FROM players WHERE id = ? AND id != ? LIMIT 1');
-  $st->execute([(int)$q, $player['id']]);
-  $results = $st->fetchAll(PDO::FETCH_COLUMN);
-}
-if (empty($results)) {
-  $st = $db->prepare('SELECT username FROM players WHERE username LIKE ? AND id != ? ORDER BY username LIMIT 10');
-  $st->execute([$q . '%', $player['id']]);
-  $results = $st->fetchAll(PDO::FETCH_COLUMN);
-}
+// Match either a username prefix or an id prefix (so "1" finds ids 1, 10, 11, 100...
+// as well as usernames starting with "1"), not just an exact id match.
+$like = $q . '%';
+$st = $db->prepare('SELECT username FROM players WHERE id != ? AND (username LIKE ? OR CAST(id AS CHAR) LIKE ?) ORDER BY username LIMIT 10');
+$st->execute([$player['id'], $like, $like]);
+$results = $st->fetchAll(PDO::FETCH_COLUMN);
 echo json_encode(array_values($results));

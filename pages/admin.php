@@ -1275,38 +1275,40 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
 </div>
 <?php endif; ?>
 
-<div class="adm-cat">&#128737; Moderation</div>
+<?php if ($canAdmin): ?>
+<div class="adm-cat">&#9881; System</div>
 <div class="staffgrid">
-  <a class="staffcard" href="index.php?p=admin&sec=moderation" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
-    <span class="ic">&#128737;</span><h4>Moderation</h4>
-    <p>Delete chat messages, board posts and topics.</p>
-    <?php if ($openReports): ?><p style="color:var(--neon2);font-weight:bold">&#9888; <?= $openReports ?> open report(s)</p><?php endif; ?>
-    <span class="req">Mod+</span>
+  <?php if ($isManager): ?>
+  <a class="staffcard" href="index.php?p=admin&sec=broadcast" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
+    <span class="ic">&#128226;</span><h4>Broadcast</h4>
+    <p>Push a notification to all players, online players, subs, or staff.</p>
+    <span class="req">Manager+</span>
   </a>
-  <?php if (in_array($role, ['moderator','admin','manager'], true)): ?>
-  <a class="staffcard" href="index.php?p=admin&sec=iplog" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
-    <span class="ic">&#127758;</span><h4>IP &amp; Access Log</h4>
-    <p>Track logins, IP addresses, and flag suspicious session activity.</p>
-    <span class="req">Mod+</span>
+  <a class="staffcard" href="index.php?p=admin&sec=updates" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
+    <span class="ic">&#128240;</span><h4>Announcements</h4>
+    <p>Post, edit, and delete game update announcements.</p>
+    <span class="req">Manager+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=maintenance" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
+    <span class="ic">&#9881;</span><h4>Maintenance</h4>
+    <p>Daily reset trigger, table row counts, and server health readout.</p>
+    <span class="req">Manager+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=impersonate" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
+    <span class="ic">&#128737;</span><h4>Impersonation</h4>
+    <p>Jack into a player's account, or preview the UI as a specific staff role.</p>
+    <span class="req">Manager+</span>
   </a>
   <?php endif; ?>
-  <?php if ($canAdmin): ?>
-  <a class="staffcard" href="index.php?p=jail" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
-    <span class="ic">&#128274;</span><h4>Confinement Grid</h4>
-    <p>Jail players for violations. Set reason and duration. Release early.</p>
+  <a class="staffcard" href="index.php?p=admin&sec=editlog" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
+    <span class="ic">&#128220;</span><h4>Edit Log</h4>
+    <p>Audit trail of all admin account changes &mdash; who changed what.</p>
     <span class="req">Admin+</span>
   </a>
-  <?php endif; ?>
 </div>
 
-<?php if ($canAdmin): ?>
 <div class="adm-cat">&#128101; Players</div>
 <div class="staffgrid">
-  <a class="staffcard" href="index.php?p=admin&sec=editplayer" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
-    <span class="ic">&#128101;</span><h4>Players</h4>
-    <p>Search and edit player accounts &mdash; stats, role &amp; subscription.</p>
-    <span class="req">Admin+</span>
-  </a>
   <?php if ($isManager): ?>
   <a class="staffcard" href="index.php?p=admin&sec=createuser" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
     <span class="ic">&#128100;</span><h4>Create User</h4>
@@ -1314,6 +1316,11 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
     <span class="req">Manager+</span>
   </a>
   <?php endif; ?>
+  <a class="staffcard" href="index.php?p=admin&sec=editplayer" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
+    <span class="ic">&#128101;</span><h4>Players</h4>
+    <p>Search and edit player accounts &mdash; stats, role &amp; subscription.</p>
+    <span class="req">Admin+</span>
+  </a>
   <a class="staffcard" href="index.php?p=admin&sec=combat" style="--sg-col:#19f0c7;--sg-glow:rgba(25,240,199,.12)">
     <span class="ic">&#9876;</span><h4>Combat Log</h4>
     <p>Site-wide PvP history, filterable by player. Spot harassment patterns.</p>
@@ -1339,40 +1346,33 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
     <span class="req">Admin+</span>
   </a>
 </div>
+<?php endif; ?>
 
-<div class="adm-cat">&#9881; System</div>
+<div class="adm-cat">&#128737; Moderation</div>
 <div class="staffgrid">
-  <?php if ($isManager): ?>
-  <a class="staffcard" href="index.php?p=admin&sec=broadcast" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
-    <span class="ic">&#128226;</span><h4>Broadcast</h4>
-    <p>Push a notification to all players, online players, subs, or staff.</p>
-    <span class="req">Manager+</span>
-  </a>
-  <a class="staffcard" href="index.php?p=admin&sec=updates" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
-    <span class="ic">&#128240;</span><h4>Announcements</h4>
-    <p>Post, edit, and delete game update announcements.</p>
-    <span class="req">Manager+</span>
-  </a>
-  <?php endif; ?>
-  <a class="staffcard" href="index.php?p=admin&sec=editlog" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
-    <span class="ic">&#128220;</span><h4>Edit Log</h4>
-    <p>Audit trail of all admin account changes &mdash; who changed what.</p>
+  <?php if ($canAdmin): ?>
+  <a class="staffcard" href="index.php?p=jail" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
+    <span class="ic">&#128274;</span><h4>Confinement Grid</h4>
+    <p>Jail players for violations. Set reason and duration. Release early.</p>
     <span class="req">Admin+</span>
   </a>
-  <?php if ($isManager): ?>
-  <a class="staffcard" href="index.php?p=admin&sec=maintenance" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
-    <span class="ic">&#9881;</span><h4>Maintenance</h4>
-    <p>Daily reset trigger, table row counts, and server health readout.</p>
-    <span class="req">Manager+</span>
-  </a>
-  <a class="staffcard" href="index.php?p=admin&sec=impersonate" style="--sg-col:#e8a33d;--sg-glow:rgba(232,163,61,.12)">
-    <span class="ic">&#128737;</span><h4>Impersonation</h4>
-    <p>Jack into a player's account, or preview the UI as a specific staff role.</p>
-    <span class="req">Manager+</span>
+  <?php endif; ?>
+  <?php if (in_array($role, ['moderator','admin','manager'], true)): ?>
+  <a class="staffcard" href="index.php?p=admin&sec=iplog" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
+    <span class="ic">&#127758;</span><h4>IP &amp; Access Log</h4>
+    <p>Track logins, IP addresses, and flag suspicious session activity.</p>
+    <span class="req">Mod+</span>
   </a>
   <?php endif; ?>
+  <a class="staffcard" href="index.php?p=admin&sec=moderation" style="--sg-col:#ff2d95;--sg-glow:rgba(255,45,149,.12)">
+    <span class="ic">&#128737;</span><h4>Moderation</h4>
+    <p>Delete chat messages, board posts and topics.</p>
+    <?php if ($openReports): ?><p style="color:var(--neon2);font-weight:bold">&#9888; <?= $openReports ?> open report(s)</p><?php endif; ?>
+    <span class="req">Chat+</span>
+  </a>
 </div>
 
+<?php if ($canAdmin): ?>
 <!-- Activity feed -->
 <div class="panel" style="margin:0">
   <h3 style="margin-top:0;font-size:13px">&#128075; Newest Ghosts</h3>

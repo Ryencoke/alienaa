@@ -408,7 +408,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Mark stockpile item as loaned out
       $pdo->prepare('UPDATE syndicate_stockpile SET available=0 WHERE id=?')->execute([$iid]);
       $bname = $pdo->prepare('SELECT username FROM players WHERE id=?'); $bname->execute([$borrower]); $bn = $bname->fetchColumn() ?: '?';
-      syn_log($pdo,$mySyn['syndicate_id'],$borrower,$pid,'loan_out','"'.$si['item_name'].'" loaned to '.$bn);
+      syn_log($pdo,$mySyn['syndicate_id'],$borrower,$pid,'loan_out','"'.$si['item_name'].'" loaned'); // borrower rendered as a profile link (see tab=log)
       syn_notify($pdo, $borrower, 'guild_loan', '"'.$si['item_name'].'" was loaned to you from the Armoury by '.$player['username'].'.');
       $msg = '"' . $si['item_name'] . '" loaned to ' . $bn . '.';
 
@@ -1183,6 +1183,11 @@ elseif ($tab === 'log' && $mySyn && (syn_can($myRank,'view_log') || $isAdmin)):
     <div style="flex:1;min-width:0;font-size:12px">
       <?php if ($le['actor_name']): $actorCol = chat_color($le['actor_role'] ?? '', ''); ?><a href="index.php?p=profile&id=<?= (int)$le['actor_id'] ?>" style="color:<?= e($actorCol) ?>;font-weight:700"><?= e($le['actor_name']) ?></a> <?php endif; ?>
       <?= e($le['detail'] ?: $le['action']) ?>
+      <?php if ($le['action'] === 'loan_out' && $le['subject_name']): ?>
+        to <a href="index.php?p=profile&id=<?= (int)$le['player_id'] ?>" style="font-weight:700"><?= e($le['subject_name']) ?></a>
+      <?php elseif ($le['action'] === 'returned' && $le['subject_name'] && (int)$le['player_id'] !== (int)$le['actor_id']): ?>
+        &mdash; recalled from <a href="index.php?p=profile&id=<?= (int)$le['player_id'] ?>" style="font-weight:700"><?= e($le['subject_name']) ?></a>
+      <?php endif; ?>
     </div>
     <span style="font-size:10px;color:var(--muted);flex:none;white-space:nowrap"><?= e(date('M j g:ia',strtotime($le['created_at']))) ?></span>
   </div>
