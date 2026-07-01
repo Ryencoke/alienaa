@@ -219,7 +219,7 @@ $feePct = WITHDRAW_FEE_PCT;
         <div class="xfer-to-wrap">
           <input type="text" name="to" id="xferTo" autocomplete="off" data-no-counter>
           <div class="ac-list" id="xferAcList" style="display:none"></div>
-          <div id="xfer-id-hint" style="font-size:11px;color:var(--accent);margin-top:3px;display:none"></div>
+          <div id="xfer-id-hint" style="display:none;margin-top:6px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
         </div>
       </div>
       <div class="field">
@@ -233,25 +233,7 @@ $feePct = WITHDRAW_FEE_PCT;
     </form>
     <script>
     (function(){
-      var inp=document.getElementById('xferTo'),list=document.getElementById('xferAcList'),hint=document.getElementById('xfer-id-hint');
-      if(!inp||!list) return;
-      var cur=-1,items=[];
-      function setHint(name){if(hint){hint.textContent=name?'✓ Sending to: '+name:'';hint.style.display=name?'block':'none';}}
-      function show(names,fromId){items=names;cur=-1;
-        if(!names.length){list.style.display='none';if(fromId)setHint('');return;}
-        if(fromId&&names.length===1){inp.value=names[0];setHint(names[0]);list.style.display='none';return;}
-        list.innerHTML='';names.forEach(function(n,i){var d=document.createElement('div');d.className='ac-item';d.textContent=n;
-          d.addEventListener('mousedown',function(e){e.preventDefault();inp.value=n;setHint(n);list.style.display='none';});list.appendChild(d);});
-        list.style.display='block';}
-      inp.addEventListener('input',function(){var q=inp.value.trim();setHint('');if(q.length<1){list.style.display='none';return;}
-        var isId=/^\d+$/.test(q);
-        fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(r){show(r,isId);}).catch(function(){});});
-      inp.addEventListener('keydown',function(e){if(!items.length) return;var rows=list.querySelectorAll('.ac-item');
-        if(e.key==='ArrowDown'){e.preventDefault();cur=Math.min(cur+1,rows.length-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}
-        else if(e.key==='ArrowUp'){e.preventDefault();cur=Math.max(cur-1,-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}
-        else if(e.key==='Enter'&&cur>=0){e.preventDefault();inp.value=items[cur];setHint(items[cur]);list.style.display='none';}
-        else if(e.key==='Escape'){list.style.display='none';}});
-      document.addEventListener('click',function(e){if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none';});
+      PlayerAC.attach(document.getElementById('xferTo'), document.getElementById('xferAcList'), {confirm: document.getElementById('xfer-id-hint')});
     })();
     </script>
   </div>

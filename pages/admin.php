@@ -1093,6 +1093,7 @@ if ($sec === 'grant' && $canAdmin) {
             <input type="text" name="grant_handle" id="grantHandle" autocomplete="off" data-no-counter style="width:100%" placeholder="Ghost's handle">
             <div class="ac-list" id="grantAcList" style="display:none"></div>
           </div>
+          <div id="grantConfirm" style="display:none;margin-top:6px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
         </div>
         <div class="field"><span>Currency / stat</span>
           <select name="grant_field" style="width:100%">
@@ -1118,24 +1119,7 @@ if ($sec === 'grant' && $canAdmin) {
     </form>
     <script>
     (function(){
-      var inp=document.getElementById('grantHandle'), list=document.getElementById('grantAcList');
-      if(!inp||!list) return;
-      inp.addEventListener('input',function(){
-        var q=inp.value.trim(); if(q.length<1){ list.style.display='none'; return; }
-        fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
-          .then(function(r){return r.json();})
-          .then(function(names){
-            if(!names.length){ list.style.display='none'; return; }
-            list.innerHTML='';
-            names.forEach(function(n){
-              var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
-              d.addEventListener('mousedown',function(e){ e.preventDefault(); inp.value=n; list.style.display='none'; });
-              list.appendChild(d);
-            });
-            list.style.display='block';
-          }).catch(function(){});
-      });
-      document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none'; });
+      PlayerAC.attach(document.getElementById('grantHandle'), document.getElementById('grantAcList'), {confirm: document.getElementById('grantConfirm')});
     })();
     </script>
     <?php if ($recentGrants): ?>
@@ -1484,22 +1468,7 @@ if(sp){
 /* ── Quick player search autocomplete ── */
 var qs=document.getElementById('adm-search'), ql=document.getElementById('admAcList');
 if(qs&&ql){
-  qs.addEventListener('input',function(){
-    var q=qs.value.trim(); if(q.length<1){ ql.style.display='none'; return; }
-    fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
-      .then(function(r){return r.json();})
-      .then(function(names){
-        if(!names.length){ ql.style.display='none'; return; }
-        ql.innerHTML='';
-        names.forEach(function(n){
-          var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
-          d.addEventListener('mousedown',function(e){ e.preventDefault(); qs.value=n; qs.closest('form').submit(); });
-          ql.appendChild(d);
-        });
-        ql.style.display='block';
-      }).catch(function(){});
-  });
-  document.addEventListener('click',function(e){ if(!qs.contains(e.target)&&!ql.contains(e.target)) ql.style.display='none'; });
+  PlayerAC.attach(qs, ql, {onSelect: function(it){ qs.value=it.username; qs.closest('form').submit(); }});
 }
 })();
 </script>

@@ -514,34 +514,10 @@ if (($tab === 'log') && isset($_GET['detail'])) {
     </div>
     <button type="submit" style="padding:10px 20px;flex:none" <?= ((int)$player['integrity'] < 10 || (int)$player['signal'] < 1) ? 'disabled' : '' ?>>&#9876; Fight</button>
   </form>
+  <div id="pvpConfirm" style="display:none;margin-top:6px;max-width:400px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
   <script>
   (function(){
-    var inp=document.getElementById('pvpTarget'), list=document.getElementById('pvpAcList');
-    if(!inp||!list) return;
-    var cur=-1, items=[];
-    function show(names){
-      items=names; cur=-1;
-      if(!names.length){ list.style.display='none'; return; }
-      list.innerHTML=''; names.forEach(function(n,i){
-        var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
-        d.addEventListener('mousedown',function(e){ e.preventDefault(); inp.value=n; list.style.display='none'; });
-        list.appendChild(d);
-      }); list.style.display='block';
-    }
-    inp.addEventListener('input',function(){
-      var q=inp.value.trim(); if(q.length<1){ list.style.display='none'; return; }
-      fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
-        .then(function(r){return r.json();}).then(show).catch(function(){});
-    });
-    inp.addEventListener('keydown',function(e){
-      if(!items.length) return;
-      var rows=list.querySelectorAll('.ac-item');
-      if(e.key==='ArrowDown'){ e.preventDefault(); cur=Math.min(cur+1,rows.length-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
-      else if(e.key==='ArrowUp'){ e.preventDefault(); cur=Math.max(cur-1,-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
-      else if(e.key==='Enter'&&cur>=0){ e.preventDefault(); inp.value=items[cur]; list.style.display='none'; }
-      else if(e.key==='Escape'){ list.style.display='none'; }
-    });
-    document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none'; });
+    PlayerAC.attach(document.getElementById('pvpTarget'), document.getElementById('pvpAcList'), {confirm: document.getElementById('pvpConfirm')});
   })();
   </script>
 </div>

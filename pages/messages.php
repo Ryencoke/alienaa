@@ -205,7 +205,7 @@ if ($convos) {
     <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Friends</div>
     <div style="display:flex;flex-wrap:wrap;gap:5px">
       <?php foreach ($msgFriends as $mf): $mfc = chat_color($mf['role'], ''); ?>
-      <button type="button" onclick="document.getElementById('msgToName').value='<?= e(addslashes($mf['username'])) ?>'" style="font-size:11px;padding:3px 10px;color:<?= e($mfc) ?>;border-color:<?= e($mfc) ?>;background:rgba(0,0,0,.2)"><?= e($mf['username']) ?></button>
+      <button type="button" data-fill-msg="<?= e($mf['username']) ?>" style="font-size:11px;padding:3px 10px;color:<?= e($mfc) ?>;border-color:<?= e($mfc) ?>;background:rgba(0,0,0,.2)"><?= e($mf['username']) ?></button>
       <?php endforeach; ?>
     </div>
   </div>
@@ -218,6 +218,7 @@ if ($convos) {
         <input type="text" name="to_name" id="msgToName" autocomplete="off" data-no-counter>
         <div class="ac-list" id="msgAcList" style="display:none"></div>
       </div>
+      <div id="msgConfirm" style="display:none;margin-top:6px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
     </div>
     <div class="field">
       <span>Message</span>
@@ -229,32 +230,11 @@ if ($convos) {
 
 <script>
 (function(){
-  var inp=document.getElementById('msgToName'), list=document.getElementById('msgAcList');
-  if(!inp||!list) return;
-  var cur=-1, items=[];
-  function show(names){
-    items=names; cur=-1;
-    if(!names.length){ list.style.display='none'; return; }
-    list.innerHTML=''; names.forEach(function(n,i){
-      var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
-      d.addEventListener('mousedown',function(e){ e.preventDefault(); inp.value=n; list.style.display='none'; });
-      list.appendChild(d);
-    }); list.style.display='block';
-  }
-  inp.addEventListener('input',function(){
-    var q=inp.value.trim(); if(q.length<1){ list.style.display='none'; return; }
-    fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
-      .then(function(r){return r.json();}).then(show).catch(function(){});
+  var inp=document.getElementById('msgToName');
+  PlayerAC.attach(inp, document.getElementById('msgAcList'), {confirm: document.getElementById('msgConfirm')});
+  document.querySelectorAll('[data-fill-msg]').forEach(function(btn){
+    btn.addEventListener('click',function(){ inp.value=btn.dataset.fillMsg; inp.dispatchEvent(new Event('blur')); });
   });
-  inp.addEventListener('keydown',function(e){
-    if(!items.length) return;
-    var rows=list.querySelectorAll('.ac-item');
-    if(e.key==='ArrowDown'){ e.preventDefault(); cur=Math.min(cur+1,rows.length-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
-    else if(e.key==='ArrowUp'){ e.preventDefault(); cur=Math.max(cur-1,-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
-    else if(e.key==='Enter'&&cur>=0){ e.preventDefault(); inp.value=items[cur]; list.style.display='none'; }
-    else if(e.key==='Escape'){ list.style.display='none'; }
-  });
-  document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none'; });
 })();
 </script>
 

@@ -74,6 +74,24 @@ function ensure_player_gear_table(PDO $pdo): void {
   } catch (Throwable $e) {}
 }
 
+// Cosmetic ownership for the Chrome Boutique (boutique.php). Equipped state
+// lives directly on the players row (equip_hat/equip_jacket/equip_pants/
+// equip_shoes columns) so the three avatar render sites never need to join
+// against this table — it's consulted only by boutique.php itself.
+function ensure_player_cosmetics_table(PDO $pdo): void {
+  try {
+    $pdo->exec('CREATE TABLE IF NOT EXISTS player_cosmetics (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      player_id  INT NOT NULL,
+      item_code  VARCHAR(32) NOT NULL,
+      slot       VARCHAR(16) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_owned (player_id, item_code),
+      KEY idx_player (player_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+  } catch (Throwable $e) {}
+}
+
 // Shared numbered pager (boards.php + updates.php). $base is the URL prefix
 // (must already end in a query string this can append "&pg=N" to).
 function pager($base, $pg, $pages) {
@@ -135,6 +153,42 @@ function mortality_icon($score) {
   if ($score > 0) return '<span title="Good alignment +'.$score.'" style="font-size:12px;color:#e8d44d;margin:0 2px;vertical-align:middle">&#9728;</span>';
   if ($score < 0) return '<span title="Evil alignment '.$score.'" style="font-size:12px;color:#ff2d95;margin:0 2px;vertical-align:middle">&#9760;</span>';
   return '';
+}
+
+// Renders ONLY the inner content of an existing fixed-size avatar box
+// (.avatar in the sidebar, .hh-av on the Hideout hero, .prof-avatar on
+// profile pages) — callers keep their own wrapper div/class/size untouched.
+// $boxPx must match the wrapper's actual pixel size so the body/hat glyphs
+// scale correctly. Falls back to the classic letter avatar until the player
+// has explicitly set a look at the Chrome Boutique (avatar_active flag) —
+// this is deliberately NOT gender alone, since gender may have been set for
+// pronouns/RP long before this feature existed and shouldn't silently swap
+// a player's avatar out from under them.
+//
+// This is the single choke point for avatar rendering — swapping these
+// emoji/CSS placeholders for real sprite <img> layers later only requires
+// editing this function body, not any of its call sites.
+function render_avatar_inner(array $playerRow, int $boxPx = 52): string {
+  $active = !empty($playerRow['avatar_active']) && in_array($playerRow['gender'] ?? '', ['M', 'F'], true);
+  if (!$active) {
+    $letter = mb_strtoupper(mb_substr((string)($playerRow['username'] ?? '?'), 0, 1));
+    return e($letter);
+  }
+  $bodyEmoji = $playerRow['gender'] === 'F' ? '&#128105;' : '&#128104;'; // 👩 / 👨 placeholder body
+  $hatIcon = '';
+  if (!empty($playerRow['equip_hat'])) {
+    $hatItem = boutique_item_by_code((string)$playerRow['equip_hat']);
+    if ($hatItem) $hatIcon = $hatItem[2];
+  }
+  $bodyPx = (int) round($boxPx * 0.62);
+  $hatPx  = (int) round($boxPx * 0.34);
+  $out  = '<div style="position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden">';
+  $out .= '<span style="font-size:' . $bodyPx . 'px;line-height:1">' . $bodyEmoji . '</span>';
+  if ($hatIcon !== '') {
+    $out .= '<span style="position:absolute;top:-2px;right:-2px;font-size:' . $hatPx . 'px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">' . $hatIcon . '</span>';
+  }
+  $out .= '</div>';
+  return $out;
 }
 
 // Flag <img> tag using flagcdn.com (20×15 px). Returns '' if no valid code.
@@ -321,6 +375,57 @@ function blacksmith_catalog(): array {
     ['aegis_frame',     'Aegis Frame',        '&#128737;','armor', 'Legendary',0, 25,  0, 45000,  'Corporate elite bodyguard issue. Rarely leaves the vault.'],
     ['void_carapace',   'Void Carapace',      '&#128737;','armor', 'Legendary',0, 28, -2, 50000,  'Salvaged from a downed warship. Absorbs almost any impact.'],
   ];
+}
+
+// The Chrome Boutique catalog. Row: [code, name, icon, slot, sex, price, color, desc]
+// slot: 'hat'|'jacket'|'pants'|'shoes' — sex: 'M'|'F'|'U' (unisex).
+// icon/color are the placeholder art stand-in until real sprites exist —
+// see render_avatar_inner() and boutique.php's live preview panel.
+function boutique_catalog(): array {
+  return [
+    // ==================== HATS ====================
+    ['hat_chrome_cap',   'Chrome Cap',      '&#129504;', 'hat', 'U',  400, '#19f0c7', 'Polished plating over a mesh liner. Deflects rain and drones alike.'],
+    ['hat_neon_visor',   'Neon Visor',      '&#129399;', 'hat', 'U',  650, '#ff2d95', 'HUD-linked visor with a permanent neon afterglow.'],
+    ['hat_noir_fedora',  'Noir Fedora',     '&#127913;', 'hat', 'M',  500, '#8fa3c8', 'Pressed synth-felt. Looks better in the rain than it should.'],
+    ['hat_silk_wrap',    'Silk Wrap',       '&#128081;', 'hat', 'F',  500, '#ff75b5', 'Hand-dyed synth-silk headwrap, pinned with a chrome clasp.'],
+    ['hat_combat_helm',  'Combat Helm',     '&#128737;', 'hat', 'U', 1200, '#ff6b35', 'Riot-rated shell. Overkill for a street corner, perfect for the Sprawl.'],
+    // ==================== JACKETS ====================
+    ['jacket_bomber',    'Scorched Bomber', '&#129513;', 'jacket', 'U', 900,  '#ff6b35', 'Burn-scarred flight jacket, patched more than original.'],
+    ['jacket_trench',    'Synth-Leather Trench', '&#129513;', 'jacket', 'M', 1400, '#2a2a3a', 'Floor-length synth-leather. Makes an entrance in any alley.'],
+    ['jacket_kimono',    'Neon Kimono Jacket', '&#129513;', 'jacket', 'F', 1300, '#ff2d95', 'Silk-weave kimono cut, wired with cold-cathode trim.'],
+    ['jacket_hazmat',    'Hazmat Liner',    '&#129513;', 'jacket', 'U', 1600, '#e8d44d', 'Sealed-seam liner rated for the Sump\'s worse days.'],
+    // ==================== PANTS ====================
+    ['pants_cargo',      'Cargo Fatigues',  '&#128096;', 'pants', 'U',  600, '#3bcf63', 'A dozen pockets, every one of them useful eventually.'],
+    ['pants_leathers',   'Reinforced Leathers', '&#128096;', 'pants', 'M', 850, '#4d6be8', 'Impact-plated at the knee and shin. Built for a fall.'],
+    ['pants_mesh',       'Mesh Leggings',   '&#128096;', 'pants', 'F',  800, '#ff75b5', 'Tactical mesh over a compression base layer.'],
+    ['pants_exo_struts', 'Exo-Frame Struts', '&#129462;', 'pants', 'U', 2000, '#8fa3c8', 'Powered leg struts. Adds a spring to every step.'],
+    // ==================== SHOES ====================
+    ['shoes_grid_runners', 'Grid Runners',    '&#129399;', 'shoes', 'U',  500, '#19f0c7', 'Reflective grid soles, built for a long night on the Sprawl.'],
+    ['shoes_combat_boots', 'Combat Boots',    '&#129462;', 'shoes', 'U',  900, '#ff6b35', 'Steel-toed, mud-rated, standard enforcer issue.'],
+    ['shoes_chrome_heels', 'Chrome Heels',    '&#129458;', 'shoes', 'F',  750, '#ff2d95', 'Mirror-finish heels with a shock-absorbing core.'],
+    ['shoes_oxford_synths','Oxford Synths',   '&#129462;', 'shoes', 'M',  700, '#4d6be8', 'Synth-leather oxfords, polished to a mirror shine.'],
+    ['shoes_mag_skates',   'Mag-Skates',      '&#129458;', 'shoes', 'U', 1800, '#e8d44d', 'Magnetic-drive skates. Illegal on three transit lines.'],
+  ];
+}
+
+// code => catalog row, cached per-request (mirrors $BS_BY_CODE in blacksmith.php,
+// but as a function since it's called from lib.php helpers, not just one page).
+function boutique_item_by_code(string $code): ?array {
+  static $byCode = null;
+  if ($byCode === null) {
+    $byCode = [];
+    foreach (boutique_catalog() as $c) $byCode[$c[0]] = $c;
+  }
+  return $byCode[$code] ?? null;
+}
+
+// Rarity tier from price — mirrors bs_tier() in blacksmith.php, thresholds
+// tuned to the Boutique's lower price range.
+function boutique_tier(int $price): array {
+  if ($price >= 1800) return ['EPIC',     '#ff2d95'];
+  if ($price >= 1000) return ['RARE',     '#19f0c7'];
+  if ($price >= 600)  return ['UNCOMMON', '#4d9be8'];
+  return                     ['COMMON',   '#9aa3b8'];
 }
 
 // The General Store catalog. Row: [id, name, icon, desc, price, effect, amount]

@@ -5,6 +5,17 @@ $pdo = db();
 // Ensure room col exists
 try { $pdo->exec("ALTER TABLE chat_messages ADD COLUMN room VARCHAR(40) NOT NULL DEFAULT 'public' AFTER player_id"); } catch (Throwable $e) {}
 
+// Presence — who currently has a room open, not who has recently posted in it.
+// chat_api.php's `active` poll (which only chat.php's own JS calls, never the
+// sitewide quickchat sidebar preview) keeps this fresh every ~4s while viewing.
+try {
+  $pdo->exec('CREATE TABLE IF NOT EXISTS chat_presence (
+    room VARCHAR(40) NOT NULL, player_id INT NOT NULL,
+    last_ping DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (room, player_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+} catch (Throwable $e) {}
+
 // Determine room
 $roomRaw = $_GET['room'] ?? 'public';
 $rooms = ['public'=>'Public Channel','trading'=>'Trading Chat','help'=>'Game Help'];
@@ -49,10 +60,14 @@ try {
   $rq->execute([$room]); $rows = array_reverse($rq->fetchAll());
 } catch (Throwable $e) {}
 
-// Active chatters in this room (last 5 min)
+// Record this page load as presence too, so the very first render (before the
+// JS poll loop ticks) already reflects this player as active in the room.
+try { $pdo->prepare('INSERT INTO chat_presence (room,player_id,last_ping) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE last_ping=NOW()')->execute([$room, $pid]); } catch (Throwable $e) {}
+
+// Active chatters — who currently has this room open (last 20s of presence pings)
 $activeChatters = [];
 try {
-  $aq = $pdo->prepare('SELECT DISTINCT p.id, p.username, p.role, p.chat_color FROM chat_messages c JOIN players p ON p.id=c.player_id WHERE c.room=? AND c.created_at >= NOW() - INTERVAL 5 MINUTE ORDER BY p.username');
+  $aq = $pdo->prepare('SELECT p.id, p.username, p.role, p.chat_color FROM chat_presence cp JOIN players p ON p.id=cp.player_id WHERE cp.room=? AND cp.last_ping >= NOW() - INTERVAL 20 SECOND ORDER BY p.username');
   $aq->execute([$room]); $activeChatters = $aq->fetchAll();
 } catch (Throwable $e) {}
 
@@ -141,10 +156,12 @@ $roomAccent = $roomAccents[$room] ?? '#19f0c7';
     <div style="font-size:11px;color:var(--muted);font-style:italic">No one active yet</div>
     <?php else: foreach ($activeChatters as $acu):
       $acColor = chat_color($acu['role'], '');
+      $acTitle = role_label($acu['role']);
     ?>
     <div style="font-size:12px;white-space:nowrap">
       <span style="display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin-right:4px;vertical-align:middle;box-shadow:0 0 4px rgba(25,240,199,.7)"></span>
-      <a href="index.php?p=profile&id=<?= (int)$acu['id'] ?>" style="color:<?= e($acColor) ?>"><?= e($acu['username']) ?></a>
+      <a href="index.php?p=profile&id=<?= (int)$acu['id'] ?>" style="color:<?= e($acColor) ?><?= $acTitle ? ';font-weight:700' : '' ?>"><?= e($acu['username']) ?></a>
+      <?php if ($acTitle): ?> <?= role_tag($acu['role'], 'font-size:9px') ?><?php endif; ?>
     </div>
     <?php endforeach; endif; ?>
   </div>
@@ -204,8 +221,15 @@ $roomAccent = $roomAccents[$room] ?? '#19f0c7';
       var link=document.createElement('a');
       link.href='index.php?p=profile&id='+encodeURIComponent(a.id);
       link.style.color=a.color||'#c9d1e0';
+      if(a.title) link.style.fontWeight='700';
       link.textContent=a.name||''; // textContent, not innerHTML — usernames are untrusted
       d.appendChild(dot); d.appendChild(link);
+      if(a.title){
+        var tag=document.createElement('em');
+        tag.style.cssText='font-style:italic;color:'+(a.color||'#c9d1e0')+';font-size:9px;margin-left:4px';
+        tag.textContent=a.title; // textContent — server value, but untrusted is cheap to keep safe
+        d.appendChild(tag);
+      }
       box.appendChild(d);
     });
   }

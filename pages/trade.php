@@ -173,26 +173,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $player = current_player();
 
     } elseif ($act === 'transfer') {
+      // Direct Transfer is instant, no-escrow — credits and items only. Shards
+      // are deliberately excluded: a compromised or social-engineered account
+      // could otherwise drain premium currency instantly with no recourse.
+      // Use a Trade Proposal (requires the recipient to accept) for shards.
       $toHandle = trim($_POST['to_name'] ?? '');
       $toId = 0;
       if (ctype_digit($toHandle)) { $r=$pdo->prepare('SELECT id FROM players WHERE id=?'); $r->execute([(int)$toHandle]); $toId=(int)$r->fetchColumn(); }
       if (!$toId) { $r=$pdo->prepare('SELECT id FROM players WHERE username=?'); $r->execute([$toHandle]); $toId=(int)$r->fetchColumn(); }
       if (!$toId || $toId === (int)$pid) throw new RuntimeException('Recipient not found or invalid.');
-      $amt = max(1,(int)($_POST['amount']??0));
-      $type = ($_POST['currency']??'credits') === 'shards' ? 'shards' : 'credits';
+      $mode = ($_POST['xfer_mode'] ?? 'credits') === 'item' ? 'item' : 'credits';
       $pdo->beginTransaction();
-      if ($type === 'credits') {
+      $tgt = $pdo->prepare('SELECT username FROM players WHERE id=?'); $tgt->execute([$toId]); $tname = $tgt->fetchColumn();
+      if ($mode === 'credits') {
+        $amt = max(1,(int)($_POST['amount']??0));
         $u=$pdo->prepare('UPDATE players SET creds_pocket=creds_pocket-? WHERE id=? AND creds_pocket>=?');
         $u->execute([$amt,$pid,$amt]); if ($u->rowCount()!==1) throw new RuntimeException('Not enough credits.');
         $pdo->prepare('UPDATE players SET creds_pocket=creds_pocket+? WHERE id=?')->execute([$amt,$toId]);
+        $pdo->commit();
+        $msg = 'Transferred ' . number_format($amt) . ' credits to ' . $tname . '.';
       } else {
-        $u=$pdo->prepare('UPDATE players SET shards=shards-? WHERE id=? AND shards>=?');
-        $u->execute([$amt,$pid,$amt]); if ($u->rowCount()!==1) throw new RuntimeException('Not enough shards.');
-        $pdo->prepare('UPDATE players SET shards=shards+? WHERE id=?')->execute([$amt,$toId]);
+        $iid  = (int)($_POST['xfer_item_id'] ?? 0);
+        $iqty = max(1,(int)($_POST['xfer_item_qty'] ?? 1));
+        if ($iid <= 0) throw new RuntimeException('Select an item to send.');
+        $iname = $pdo->prepare('SELECT name FROM items WHERE id=?'); $iname->execute([$iid]); $iname = $iname->fetchColumn();
+        if (!$iname) throw new RuntimeException('Item not found.');
+        $u = $pdo->prepare('UPDATE player_items SET qty=qty-? WHERE player_id=? AND item_id=? AND qty>=?');
+        $u->execute([$iqty, $pid, $iid, $iqty]);
+        if ($u->rowCount() !== 1) throw new RuntimeException('Not enough of that item in your inventory.');
+        $pdo->prepare('INSERT INTO player_items (player_id,item_id,qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)')->execute([$toId,$iid,$iqty]);
+        $pdo->commit();
+        $msg = 'Sent ' . $iqty . '× ' . $iname . ' to ' . $tname . '.';
       }
-      $pdo->commit();
-      $tgt=$pdo->prepare('SELECT username FROM players WHERE id=?'); $tgt->execute([$toId]); $tname=$tgt->fetchColumn();
-      $msg = 'Transferred ' . number_format($amt) . ' ' . $type . ' to ' . $tname . '.';
       $player = current_player();
     }
   } catch (Throwable $ex) { if ($pdo->inTransaction()) $pdo->rollBack(); $msg = $ex->getMessage(); $msgErr = true; }
@@ -371,14 +383,14 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab']
     </div>
 
     <div class="field" style="max-width:400px"><span>Note (optional)</span><input type="text" name="note" maxlength="200" placeholder="e.g. for the job last cycle..." data-no-counter></div>
-    <button type="submit">&#128260; Send Trade Proposal</button>
+    <button type="submit">Send Trade Proposal</button>
   </form>
 </div>
 
 <?php /* ── DIRECT TRANSFER ── */ elseif ($tab === 'transfer'): ?>
 <div class="panel">
   <h3 style="margin-top:0">Direct Transfer</h3>
-  <p class="muted" style="font-size:12px;margin-top:0">Instant, no escrow. Credit or shard transfers only — use New Trade for items.</p>
+  <p class="muted" style="font-size:12px;margin-top:0">Instant, no escrow — credits or items. Shards can only be sent via a <a href="index.php?p=trade&tab=new" style="color:var(--accent)">Trade Proposal</a>, which requires the recipient to accept.</p>
 
   <?php if (!empty($tradeFriends)): ?>
   <div style="margin-bottom:12px">
@@ -391,25 +403,47 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab']
   </div>
   <?php endif; ?>
 
-  <form method="post" style="max-width:360px">
+  <form method="post" style="max-width:360px" onsubmit="return confirm('Send this transfer? It cannot be reversed.')">
     <input type="hidden" name="action" value="transfer">
     <div class="field"><span>Recipient (handle or ID)</span>
       <div class="ac-wrap"><input type="text" name="to_name" id="xferToName" value="<?= e($withName) ?>" autocomplete="off" data-no-counter>
       <div class="ac-list" id="xferAcList" style="display:none"></div></div>
       <div id="xferConfirm" style="display:none;margin-top:6px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
     </div>
-    <div class="field"><span>Amount</span><input type="number" name="amount" min="1" value="1"></div>
-    <div class="field"><span>Currency</span>
-      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;margin-bottom:4px"><input type="radio" name="currency" value="credits" checked style="width:auto"> Credits (pocket: <?= number_format((int)$player['creds_pocket']) ?>)</label>
-      <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="currency" value="shards" style="width:auto"> <span style="color:#e8d44d">Shards (&#9670; <?= number_format((int)$player['shards']) ?>)</span></label>
+    <div class="field"><span>Send</span>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;margin-bottom:4px"><input type="radio" name="xfer_mode" value="credits" id="xferModeCredits" checked style="width:auto"> Credits</label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="xfer_mode" value="item" id="xferModeItem" style="width:auto"> An item</label>
     </div>
-    <button type="submit" onclick="return confirm('Send this transfer? It cannot be reversed.')">&#128178; Send Transfer</button>
+    <div id="xferCreditsFields">
+      <div class="field"><span>Amount (pocket: <?= number_format((int)$player['creds_pocket']) ?>)</span><input type="number" name="amount" min="1" value="1"></div>
+    </div>
+    <div id="xferItemFields" style="display:none">
+      <?php if (empty($myInv)): ?>
+      <p class="muted" style="font-size:12px">No items in inventory to send.</p>
+      <?php else: ?>
+      <div class="field"><span>Item</span>
+        <select name="xfer_item_id">
+          <option value="">-- Select from inventory --</option>
+          <?php foreach ($myInv as $it): ?><option value="<?= (int)$it['item_id'] ?>"><?= e($it['name']) ?> (&times;<?= (int)$it['qty'] ?>)</option><?php endforeach; ?>
+        </select>
+      </div>
+      <div class="field"><span>Qty</span><input type="number" name="xfer_item_qty" value="1" min="1"></div>
+      <?php endif; ?>
+    </div>
+    <button type="submit">Send Transfer</button>
   </form>
 </div>
 <?php endif; ?>
 
 <script>
 (function(){
+  var xcr=document.getElementById('xferModeCredits'), xit=document.getElementById('xferModeItem'),
+      xcrF=document.getElementById('xferCreditsFields'), xitF=document.getElementById('xferItemFields');
+  if(xcr&&xit){
+    function syncXferMode(){ xcrF.style.display=xcr.checked?'':'none'; xitF.style.display=xit.checked?'':'none'; }
+    xcr.addEventListener('change',syncXferMode); xit.addEventListener('change',syncXferMode);
+  }
+
   var invOpts = <?= json_encode(array_map(fn($it)=>['id'=>(int)$it['item_id'],'name'=>$it['name'],'qty'=>(int)$it['qty']],$myInv)) ?>;
   window.addItemRow=function(containerId,dir){
     var c=document.getElementById(containerId); if(!c) return;
@@ -420,40 +454,19 @@ $tab = in_array($_GET['tab'] ?? '', ['pending','transfer','new']) ? $_GET['tab']
     var qty=document.createElement('input'); qty.type='number'; qty.name=dir+'_item_qty[]'; qty.value='1'; qty.min='1'; qty.style.cssText='width:55px;font-size:11px';
     row.appendChild(sel); row.appendChild(qty); c.appendChild(row);
   };
-  // Autocomplete helper
-  function ac(inp,listEl,confirmEl){
-    if(!inp||!listEl) return;
-    var cur=-1,items=[];
-    function show(names){ items=names; cur=-1; if(!names.length){listEl.style.display='none';return;} listEl.innerHTML=''; names.forEach(function(n,i){ var d=document.createElement('div'); d.className='ac-item'; d.textContent=n; d.addEventListener('mousedown',function(e){e.preventDefault();inp.value=n;listEl.style.display='none';lookupPlayer(n,confirmEl);}); listEl.appendChild(d); }); listEl.style.display='block'; }
-    inp.addEventListener('input',function(){ var q=inp.value.trim(); if(confirmEl) confirmEl.style.display='none'; if(q.length<1){listEl.style.display='none';return;} fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'}).then(function(r){return r.json();}).then(show).catch(function(){}); });
-    inp.addEventListener('blur',function(){ var q=inp.value.trim(); if(q.length>0 && confirmEl) lookupPlayer(q,confirmEl); });
-    inp.addEventListener('keydown',function(e){ if(!items.length) return; var rows=listEl.querySelectorAll('.ac-item'); if(e.key==='ArrowDown'){e.preventDefault();cur=Math.min(cur+1,rows.length-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}else if(e.key==='ArrowUp'){e.preventDefault();cur=Math.max(cur-1,-1);rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);});}else if(e.key==='Enter'&&cur>=0){e.preventDefault();inp.value=items[cur];listEl.style.display='none';lookupPlayer(items[cur],confirmEl);}else if(e.key==='Escape'){listEl.style.display='none';} });
-    document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!listEl.contains(e.target)) listEl.style.display='none'; });
-  }
-  function lookupPlayer(val,confirmEl){
-    if(!confirmEl||!val) return;
-    fetch('players_search.php?lookup='+encodeURIComponent(val),{credentials:'same-origin'})
-      .then(function(r){return r.json();})
-      .then(function(d){
-        if(!d){confirmEl.innerHTML='<span style="color:var(--neon2)">&#9888; Player not found.</span>';confirmEl.style.display='block';return;}
-        var roles={admin:'<span style="color:#ff4444;font-weight:700">[Admin]</span>',manager:'<span style="color:#ff8800;font-weight:700">[Mgr]</span>',moderator:'<span style="color:#4488ff;font-weight:700">[Mod]</span>'};
-        var rb=roles[d.role]||'';
-        confirmEl.innerHTML='&#10003; <b style="color:var(--accent)">'+d.username+'</b> '+rb+' &middot; ID #'+d.id+' &middot; Level '+d.level;
-        confirmEl.style.display='block';
-      }).catch(function(){confirmEl.style.display='none';});
-  }
-  ac(document.getElementById('tradeToName'),document.getElementById('tradeAcList'),document.getElementById('tradeConfirm'));
-  ac(document.getElementById('xferToName'), document.getElementById('xferAcList'),document.getElementById('xferConfirm'));
+  // Player autocomplete (shared helper — see player_ac.js)
+  PlayerAC.attach(document.getElementById('tradeToName'), document.getElementById('tradeAcList'), {confirm: document.getElementById('tradeConfirm')});
+  PlayerAC.attach(document.getElementById('xferToName'),  document.getElementById('xferAcList'),  {confirm: document.getElementById('xferConfirm')});
   document.querySelectorAll('[data-fill-trade]').forEach(function(btn){
-    btn.addEventListener('click',function(){ var inp=document.getElementById('tradeToName'); inp.value=btn.dataset.fillTrade; lookupPlayer(inp.value,document.getElementById('tradeConfirm')); });
+    btn.addEventListener('click',function(){ var inp=document.getElementById('tradeToName'); inp.value=btn.dataset.fillTrade; inp.dispatchEvent(new Event('blur')); });
   });
   document.querySelectorAll('[data-fill-xfer]').forEach(function(btn){
-    btn.addEventListener('click',function(){ var inp=document.getElementById('xferToName'); inp.value=btn.dataset.fillXfer; lookupPlayer(inp.value,document.getElementById('xferConfirm')); });
+    btn.addEventListener('click',function(){ var inp=document.getElementById('xferToName'); inp.value=btn.dataset.fillXfer; inp.dispatchEvent(new Event('blur')); });
   });
-  // Pre-fill confirm if name already set
+  // Pre-fill confirm if name already set (e.g. arrived via ?with=)
   (function(){
-    var v=document.getElementById('tradeToName'); if(v&&v.value.trim()) lookupPlayer(v.value.trim(),document.getElementById('tradeConfirm'));
-    var x=document.getElementById('xferToName'); if(x&&x.value.trim()) lookupPlayer(x.value.trim(),document.getElementById('xferConfirm'));
+    var v=document.getElementById('tradeToName'); if(v&&v.value.trim()) v.dispatchEvent(new Event('blur'));
+    var x=document.getElementById('xferToName'); if(x&&x.value.trim()) x.dispatchEvent(new Event('blur'));
   })();
 })();
 </script>

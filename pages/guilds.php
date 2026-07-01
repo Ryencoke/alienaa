@@ -91,6 +91,7 @@ function syn_can($rank, $perm) {
     'manage_members'  => ['leader','coleader'],
     'manage_bank'     => ['leader','coleader','treasurer'],
     'manage_stockpile'=> ['leader','coleader','armourer'],
+    'give_stockpile'  => ['leader','coleader','treasurer'],
     'loan_items'      => ['leader','coleader','armourer'],
     'post_board'      => ['leader','coleader','treasurer','armourer','librarian','advisor','member'],
     'post_announce'   => ['leader','coleader'],
@@ -177,11 +178,22 @@ if ($mySyn) {
   } catch (Throwable $e) {}
 }
 $playerIsSubbed = is_subscribed($player);
+// A syndicate is locked once the leader's subscription lapses, unless the
+// acting member has their own individual subscription. Locking gates the
+// whole syndicate area (every "my syndicate" tab + every write action) instead
+// of the old per-tab warnings that still let everything function underneath.
+$MY_SYN_TABS = ['home','board','chat','members','staff','stockpile','armoury','treasury','log'];
+$synLocked = $mySyn && !$leaderIsSubbed && !$playerIsSubbed;
 
 // ── Actions ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $act = $_POST['action'] ?? '';
   try {
+    // Locked syndicate: block every action except leaving, regardless of what
+    // the (hidden) UI would otherwise offer — a locked tab has no forms to
+    // submit, but this stops a direct POST from bypassing that.
+    if ($synLocked && $act !== 'leave') throw new RuntimeException('Syndicate locked — the leader\'s subscription has expired.');
+
     if ($act === 'create') {
       if ($mySyn) throw new RuntimeException('You already belong to a Syndicate. Leave it first.');
       $name = trim($_POST['syn_name'] ?? '');
@@ -299,7 +311,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     } elseif ($act === 'post') {
       if (!$mySyn || !syn_can($myRank,'post_board')) throw new RuntimeException('Members only.');
-      if (!$leaderIsSubbed && !$playerIsSubbed) throw new RuntimeException('Board locked — the leader\'s subscription has expired. Only subscribed members can post.');
       $parentId = (int)($_POST['parent_id'] ?? 0) ?: null;
       $body = trim($_POST['post_body'] ?? '');
       if (mb_strlen($body) < 2) throw new RuntimeException('Write something.');
@@ -362,7 +373,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     } elseif ($act === 'stockpile_add') {
       if (!$mySyn || !syn_can($myRank,'manage_stockpile')) throw new RuntimeException('No permission.');
-      if (!$leaderIsSubbed && !$playerIsSubbed) throw new RuntimeException('Stockpile locked — the leader\'s subscription has expired. Only subscribed members can contribute.');
       $donateItemId = (int)($_POST['donate_item_id'] ?? 0);
       $donateQty    = max(1, min(99, (int)($_POST['donate_qty'] ?? 1)));
       $notes = mb_substr(trim($_POST['notes'] ?? ''),0,200);
@@ -388,18 +398,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       syn_log($pdo,$mySyn['syndicate_id'],null,$pid,'stockpile_add','Donated '.$donateQty.'× "'.$iname.'" to '.$dest);
       $msg = 'Donated ' . $donateQty . '× "' . $iname . '" to the ' . $dest . '.';
 
-    } elseif ($act === 'stockpile_remove') {
-      if (!$mySyn || !syn_can($myRank,'manage_stockpile')) throw new RuntimeException('No permission.');
+    } elseif ($act === 'stockpile_give') {
+      // Giving items outright (as opposed to donating/loaning) is a Vault Keeper+ power —
+      // narrower than manage_stockpile, which also covers Armory Chiefs.
+      if (!$mySyn || !syn_can($myRank,'give_stockpile')) throw new RuntimeException('No permission.');
       $iid = (int)($_POST['item_id'] ?? 0);
+      $recipient = (int)($_POST['recipient_id'] ?? 0);
       $ck = $pdo->prepare('SELECT item_name,available,gear_type FROM syndicate_stockpile WHERE id=? AND syndicate_id=?'); $ck->execute([$iid,$mySyn['syndicate_id']]); $si = $ck->fetch();
       if (!$si) throw new RuntimeException('Item not found.');
       // Weapons/armor are Armoury assets — they can only be loaned out and returned,
-      // never permanently deleted, so a loan can't be undercut by deleting the source.
-      if (in_array($si['gear_type'] ?? '', ['weapon','armor'], true)) throw new RuntimeException('Weapons and armor can only be loaned, not removed from the Armoury.');
-      if (!$si['available']) throw new RuntimeException('Item is currently loaned out. Return it first.');
+      // never handed out permanently, so a loan can't be undercut by giving away the source.
+      if (in_array($si['gear_type'] ?? '', ['weapon','armor'], true)) throw new RuntimeException('Weapons and armor can only be loaned, not given from the Armoury.');
+      if (!$si['available']) throw new RuntimeException('Item is currently loaned out.');
+      $rq = $pdo->prepare('SELECT rank FROM syndicate_members WHERE player_id=? AND syndicate_id=?'); $rq->execute([$recipient,$mySyn['syndicate_id']]);
+      if (!$rq->fetchColumn()) throw new RuntimeException('Recipient is not a member of this Syndicate.');
+      $catQ = $pdo->prepare('SELECT id FROM items WHERE name=? LIMIT 1'); $catQ->execute([$si['item_name']]);
+      $catalogId = (int)$catQ->fetchColumn();
+      if (!$catalogId) throw new RuntimeException('This item can no longer be matched to the item catalog — flag it to staff.');
+      $rn = $pdo->prepare('SELECT username FROM players WHERE id=?'); $rn->execute([$recipient]); $rname = $rn->fetchColumn() ?: '?';
+      $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,1) ON DUPLICATE KEY UPDATE qty=qty+1')->execute([$recipient, $catalogId]);
       $pdo->prepare('DELETE FROM syndicate_stockpile WHERE id=? AND syndicate_id=?')->execute([$iid,$mySyn['syndicate_id']]);
-      syn_log($pdo,$mySyn['syndicate_id'],null,$pid,'stockpile_remove','Removed "'.$si['item_name'].'" from stockpile');
-      $msg = 'Item removed from stockpile.';
+      syn_log($pdo,$mySyn['syndicate_id'],$recipient,$pid,'stockpile_give','"'.$si['item_name'].'" given'); // recipient rendered as a profile link (see tab=log)
+      syn_notify($pdo, $recipient, 'guild_loan', '"'.$si['item_name'].'" was given to you from the Stockpile by '.$player['username'].'.');
+      $msg = 'Gave "' . $si['item_name'] . '" to ' . $rname . '.';
 
     } elseif ($act === 'loan_item') {
       if (!$mySyn || !syn_can($myRank,'loan_items')) throw new RuntimeException('No permission.');
@@ -455,7 +476,7 @@ $tab = $_GET['tab'] ?? '';
 $boardTid = (int)($_GET['tid'] ?? 0); // board: topic detail view
 // 'search' (directory) and 'view' (read-only profile of any syndicate) are reachable
 // regardless of membership — everyone should be able to browse other Syndicates.
-$validTabs = ($mySyn ? ['home','board','members','staff','stockpile','armoury','treasury','log','chat'] : ['create']);
+$validTabs = ($mySyn ? $MY_SYN_TABS : ['create']);
 $validTabs[] = 'search';
 $validTabs[] = 'view';
 if (!in_array($tab, $validTabs, true)) $tab = $mySyn ? 'home' : 'search';
@@ -535,8 +556,31 @@ if ($mySyn) {
   <?php endforeach; ?>
 </div>
 
+<?php // ══ LOCKED ═════════════════════════════════════════
+// The leader's subscription has lapsed and this member has no individual
+// subscription of their own — every "my syndicate" tab shows this instead of
+// its normal content, rather than the old per-tab warnings that still left
+// everything usable underneath.
+if ($synLocked && in_array($tab, $MY_SYN_TABS, true)): ?>
+<div class="panel" style="border:1px solid rgba(226,59,59,.3);background:rgba(226,59,59,.05);text-align:center;padding:36px 20px">
+  <div style="font-size:34px;margin-bottom:10px">&#128274;</div>
+  <h3 style="margin:0 0 8px;color:#e23b3b">Syndicate Locked</h3>
+  <p class="muted" style="font-size:13px;max-width:440px;margin:0 auto;line-height:1.6">
+    <b style="color:var(--text)"><?= e($mySyn['name']) ?></b>'s Overseer subscription has expired.
+    Syndicate features are locked for members without their own individual subscription.
+  </p>
+  <?php if (!in_array($myRank, ['leader','coleader'], true)): ?>
+  <form method="post" style="margin-top:18px" onsubmit="return confirm('Leave your Syndicate? Any loaned items will be returned.')">
+    <input type="hidden" name="action" value="leave">
+    <button type="submit" style="background:rgba(255,45,149,.08);border-color:rgba(255,45,149,.25);color:var(--neon2);font-size:12px">Leave Syndicate</button>
+  </form>
+  <?php else: ?>
+  <p style="font-size:11px;color:#e8a33d;margin-top:16px">As leader/co-leader, subscribe to restore full access for your members.</p>
+  <?php endif; ?>
+</div>
+
 <?php // ══ OVERVIEW ══════════════════════════════════════
-if ($tab === 'home' && $mySyn):
+elseif ($tab === 'home' && $mySyn):
 
   // Load recent log
   $recentLog = [];
@@ -636,10 +680,6 @@ if ($tab === 'home' && $mySyn):
 
 <?php // ══ BOARD ══════════════════════════════════════════
 elseif ($tab === 'board' && $mySyn): ?>
-
-<?php if (!$leaderIsSubbed): ?>
-<div class="flash flash-err">&#9733; Leader subscription expired — board posting is locked for non-subscribers.</div>
-<?php endif; ?>
 
 <?php if ($boardTid) {
   // ── Topic detail view ──────────────────────────────
@@ -944,15 +984,15 @@ elseif ($tab === 'stockpile' && $mySyn):
   $activeLoans = [];
   try { $lq = $pdo->prepare("SELECT sl.*,sp.item_name,pl.username AS borrower_name FROM syndicate_loans sl JOIN syndicate_stockpile sp ON sp.id=sl.stockpile_id JOIN players pl ON pl.id=sl.player_id WHERE sl.syndicate_id=? AND sl.returned_at IS NULL AND sp.gear_type='item' ORDER BY sl.loaned_at DESC"); $lq->execute([$mySyn['syndicate_id']]); $activeLoans = $lq->fetchAll(); } catch (Throwable $e) {}
   $canManageStock = syn_can($myRank,'manage_stockpile');
+  $canGiveStock = syn_can($myRank,'give_stockpile');
   $canLoan = syn_can($myRank,'loan_items'); // still needed below for the legacy Return button
   // Player inventory — exclude weapons/armor (those go to Armoury)
   $playerInvStock = [];
   try { $piq = $pdo->prepare("SELECT pi.item_id,pi.qty,i.name,i.category FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.qty>0 AND (i.slot IS NULL OR i.slot NOT IN ('weapon','armor')) ORDER BY i.category,i.name"); $piq->execute([$pid]); $playerInvStock = $piq->fetchAll(); } catch (Throwable $e) {}
+  $synMembers = [];
+  if ($canGiveStock) { try { $mq = $pdo->prepare('SELECT sm.player_id,p.username FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? ORDER BY p.username'); $mq->execute([$mySyn['syndicate_id']]); $synMembers = $mq->fetchAll(); } catch (Throwable $e) {} }
 ?>
 
-<?php if (!$leaderIsSubbed): ?>
-<div class="flash flash-err">&#9733; Leader subscription expired — stockpile contributions are locked for non-subscribers.</div>
-<?php endif; ?>
 <!-- Add to stockpile -->
 <?php if ($canManageStock): ?>
 <div class="panel">
@@ -992,8 +1032,15 @@ elseif ($tab === 'stockpile' && $mySyn):
       <?php if ($si['notes']): ?><div style="font-size:11px;color:var(--muted)"><?= e($si['notes']) ?></div><?php endif; ?>
     </div>
     <span style="font-size:11px;font-weight:700;color:<?= $si['available']?'#3bcf63':'#e8a33d' ?>"><?= $si['available']?'Available':'On Loan' ?></span>
-    <?php if ($canManageStock && $si['available']): ?>
-    <form method="post" style="margin:0"><input type="hidden" name="action" value="stockpile_remove"><input type="hidden" name="item_id" value="<?= (int)$si['id'] ?>"><button type="submit" style="font-size:10px;padding:3px 8px;background:rgba(226,59,59,.1);border-color:rgba(226,59,59,.3);color:#e23b3b" onclick="return confirm('Remove this item?')">Remove</button></form>
+    <?php if ($canGiveStock && $si['available'] && !empty($synMembers)): ?>
+    <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
+      <input type="hidden" name="action" value="stockpile_give">
+      <input type="hidden" name="item_id" value="<?= (int)$si['id'] ?>">
+      <select name="recipient_id" style="font-size:11px;padding:2px 6px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px">
+        <?php foreach ($synMembers as $sm): ?><option value="<?= (int)$sm['player_id'] ?>"><?= e($sm['username']) ?></option><?php endforeach; ?>
+      </select>
+      <button type="submit" style="font-size:10px;padding:3px 10px;background:rgba(59,207,99,.1);border:1px solid rgba(59,207,99,.3);color:#3bcf63;border-radius:4px;cursor:pointer" onclick="return confirm('Give one &quot;<?= e($si['item_name']) ?>&quot; to the selected member?')">&#127873; Give</button>
+    </form>
     <?php endif; ?>
   </div>
   <?php endforeach; endif; ?>
@@ -1034,9 +1081,6 @@ elseif ($tab === 'armoury' && $mySyn):
   try { $piq = $pdo->prepare("SELECT pi.item_id,pi.qty,i.name,i.slot,i.atk,i.def FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND pi.qty>0 AND i.slot IN ('weapon','armor') ORDER BY i.slot,i.name"); $piq->execute([$pid]); $playerArmouryInv = $piq->fetchAll(); } catch (Throwable $e) {}
 ?>
 
-<?php if (!$leaderIsSubbed): ?>
-<div class="flash flash-err">&#9733; Leader subscription expired — armoury contributions are locked for non-subscribers.</div>
-<?php endif; ?>
 
 <!-- Donate weapon/armor -->
 <?php if ($canManageStock): ?>
@@ -1191,7 +1235,7 @@ elseif ($tab === 'log' && $mySyn && (syn_can($myRank,'view_log') || $isAdmin)):
   <?php if (empty($logs)): ?>
   <div style="padding:20px;text-align:center;color:var(--muted)">No activity logged yet.</div>
   <?php else: foreach ($logs as $le):
-    $logIcons = ['joined'=>'&#128101;','left'=>'&#128463;','kicked'=>'&#128245;','role_change'=>'&#9733;','donated'=>'&#128178;','withdrew'=>'&#128198;','founded'=>'&#9760;','loan_out'=>'&#9874;','returned'=>'&#9100;','announcement'=>'&#128204;','stockpile_add'=>'&#43;','stockpile_remove'=>'&#8722;'];
+    $logIcons = ['joined'=>'&#128101;','left'=>'&#128463;','kicked'=>'&#128245;','role_change'=>'&#9733;','donated'=>'&#128178;','withdrew'=>'&#128198;','founded'=>'&#9760;','loan_out'=>'&#9874;','returned'=>'&#9100;','announcement'=>'&#128204;','stockpile_add'=>'&#43;','stockpile_remove'=>'&#8722;','stockpile_give'=>'&#127873;'];
     $licon = $logIcons[$le['action']] ?? '&#8226;';
   ?>
   <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.04)">
@@ -1199,7 +1243,7 @@ elseif ($tab === 'log' && $mySyn && (syn_can($myRank,'view_log') || $isAdmin)):
     <div style="flex:1;min-width:0;font-size:12px">
       <?php if ($le['actor_name']): $actorCol = chat_color($le['actor_role'] ?? '', ''); ?><a href="index.php?p=profile&id=<?= (int)$le['actor_id'] ?>" style="color:<?= e($actorCol) ?>;font-weight:700"><?= e($le['actor_name']) ?></a> <?php endif; ?>
       <?= e($le['detail'] ?: $le['action']) ?>
-      <?php if ($le['action'] === 'loan_out' && $le['subject_name']): ?>
+      <?php if (in_array($le['action'], ['loan_out','stockpile_give'], true) && $le['subject_name']): ?>
         to <a href="index.php?p=profile&id=<?= (int)$le['player_id'] ?>" style="font-weight:700"><?= e($le['subject_name']) ?></a>
       <?php elseif ($le['action'] === 'returned' && $le['subject_name'] && (int)$le['player_id'] !== (int)$le['actor_id']): ?>
         &mdash; recalled from <a href="index.php?p=profile&id=<?= (int)$le['player_id'] ?>" style="font-weight:700"><?= e($le['subject_name']) ?></a>

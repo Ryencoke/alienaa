@@ -56,10 +56,24 @@ if ($action === 'say' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 if ($action === 'active') {
-  $aq = $pdo->prepare('SELECT DISTINCT p.id, p.username, p.role, p.chat_color FROM chat_messages c JOIN players p ON p.id=c.player_id WHERE c.room=? AND c.created_at >= NOW() - INTERVAL 5 MINUTE ORDER BY p.username');
+  // Presence heartbeat — this action is only ever polled by pages/chat.php's own
+  // JS loop (the sitewide quickchat sidebar preview only ever calls action=list),
+  // so writing presence here reflects who actually has the room open right now,
+  // not who has recently posted a message in it.
+  try {
+    $pdo->exec('CREATE TABLE IF NOT EXISTS chat_presence (
+      room VARCHAR(40) NOT NULL, player_id INT NOT NULL,
+      last_ping DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (room, player_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    $pdo->prepare('INSERT INTO chat_presence (room,player_id,last_ping) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE last_ping=NOW()')->execute([$room, $player['id']]);
+    $pdo->exec('DELETE FROM chat_presence WHERE last_ping < NOW() - INTERVAL 1 HOUR'); // opportunistic cleanup
+  } catch (Throwable $e) {}
+
+  $aq = $pdo->prepare('SELECT p.id, p.username, p.role, p.chat_color FROM chat_presence cp JOIN players p ON p.id=cp.player_id WHERE cp.room=? AND cp.last_ping >= NOW() - INTERVAL 20 SECOND ORDER BY p.username');
   $aq->execute([$room]);
   $active = [];
-  foreach ($aq as $r) $active[] = ['id'=>(int)$r['id'],'name'=>$r['username'],'color'=>chat_color($r['role'],'')];
+  foreach ($aq as $r) $active[] = ['id'=>(int)$r['id'],'name'=>$r['username'],'color'=>chat_color($r['role'],''),'title'=>role_label($r['role'])];
   echo json_encode(['ok'=>true,'active'=>$active]); exit;
 }
 

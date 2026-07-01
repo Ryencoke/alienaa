@@ -53,7 +53,7 @@ $pageTitles = [
   'auction'=>'Black Market','bonds'=>'Credit Bonds','stockex'=>'Stock Exchange',
   'guilds'=>'Syndicates','apartments'=>'Apartments','tickets'=>'Customer Service',
   'pvp'=>'Combat Arena','jail'=>'Confinement Grid','training'=>'Combat Training',
-  'mining'=>'Ore Mining','weaponcraft'=>'Fabrication Lab',
+  'mining'=>'Ore Mining','weaponcraft'=>'Fabrication Lab','boutique'=>'Chrome Boutique',
 ];
 $pageTitle = $pageTitles[$p] ?? ucfirst($p);
 // Stop impersonation
@@ -138,12 +138,8 @@ if ($player && !$isImpersonating) {
       $__driveCap = is_subscribed($player) ? 1500 : 500;
       db()->prepare('UPDATE players SET integrity = integrity_max, `signal` = signal_max,
         cycles = LEAST(?, cycles + 250) WHERE id = ?')->execute([$__driveCap, $player['id']]);
-      // Skillsoft decay: per-skill drain based on current point level
-      db()->prepare('UPDATE player_skills SET points = CASE
-        WHEN points > 0 AND points < 500  THEN GREATEST(0, points - 1)
-        WHEN points >= 500 AND points < 1000 THEN GREATEST(0, points - 2)
-        ELSE points END
-        WHERE player_id = ?')->execute([$player['id']]);
+      // Skillsoft decay: flat -1 per skill per day, floored at 0
+      db()->prepare('UPDATE player_skills SET points = GREATEST(0, points - 1) WHERE player_id = ?')->execute([$player['id']]);
       db()->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute([$__drKey, $__mtDate]);
       $player = current_player();
     }
@@ -181,6 +177,7 @@ function bar($label, $val, $max, $key = '') {
 <title>Sprawl-9 &mdash; <?= e($pageTitle) ?></title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__.'/style.css') ?: '1' ?>">
+<script src="player_ac.js?v=<?= @filemtime(__DIR__.'/player_ac.js') ?: '1' ?>"></script>
 <?php if ($player) echo theme_css($player['theme'] ?? 'neon', $player['accent_color'] ?? ''); ?>
 <?php if ($player):
   // Load per-player font preference
@@ -239,7 +236,7 @@ try {
   <aside class="left">
     <div class="card">
       <div class="pcard-row">
-        <div class="avatar"><?= strtoupper(mb_substr($player['username'], 0, 1)) ?></div>
+        <div class="avatar"><?= render_avatar_inner($player, 52) ?></div>
         <div class="pcard-info">
           <div class="name">
             <a href="index.php?p=profile&id=<?= (int)$player['id'] ?>" style="color:inherit"><?= e($player['username']) ?></a>

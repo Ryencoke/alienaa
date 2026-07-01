@@ -172,6 +172,7 @@ function uvote($uid, $dir, $glyph, $myVote) {
             <input type="text" id="updCredit" name="credit" placeholder="Ghost's handle" autocomplete="off" maxlength="32" data-no-counter style="width:100%">
             <div class="ac-list" id="updCreditAcList" style="display:none"></div>
           </div>
+          <div id="updCreditConfirm" style="display:none;margin-top:6px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
         </div>
         <button type="submit" style="background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent);flex:none">&#128240; Publish</button>
       </div>
@@ -180,32 +181,7 @@ function uvote($uid, $dir, $glyph, $myVote) {
 </div>
 <script>
 (function(){
-  var inp=document.getElementById('updCredit'), list=document.getElementById('updCreditAcList');
-  if(!inp||!list) return;
-  var cur=-1, items=[];
-  function show(names){
-    items=names; cur=-1;
-    if(!names.length){ list.style.display='none'; return; }
-    list.innerHTML=''; names.forEach(function(n,i){
-      var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
-      d.addEventListener('mousedown',function(e){ e.preventDefault(); inp.value=n; list.style.display='none'; });
-      list.appendChild(d);
-    }); list.style.display='block';
-  }
-  inp.addEventListener('input',function(){
-    var q=inp.value.trim(); if(q.length<1){ list.style.display='none'; return; }
-    fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
-      .then(function(r){return r.json();}).then(show).catch(function(){});
-  });
-  inp.addEventListener('keydown',function(e){
-    if(!items.length) return;
-    var rows=list.querySelectorAll('.ac-item');
-    if(e.key==='ArrowDown'){ e.preventDefault(); cur=Math.min(cur+1,rows.length-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
-    else if(e.key==='ArrowUp'){ e.preventDefault(); cur=Math.max(cur-1,-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
-    else if(e.key==='Enter'&&cur>=0){ e.preventDefault(); inp.value=items[cur]; list.style.display='none'; }
-    else if(e.key==='Escape'){ list.style.display='none'; }
-  });
-  document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none'; });
+  PlayerAC.attach(document.getElementById('updCredit'), document.getElementById('updCreditAcList'), {confirm: document.getElementById('updCreditConfirm')});
 })();
 </script>
 <?php endif; ?>

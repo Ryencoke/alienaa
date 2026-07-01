@@ -298,6 +298,7 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
           <input type="number" name="rent_amount" min="1" placeholder="Daily rent (cr)" style="width:130px">
           <button type="submit" style="font-size:12px">Confirm Rental</button>
         </div>
+        <div class="rent-ac-confirm" style="display:none;margin-top:6px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
       </form>
     </div>
     <div class="sell-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
@@ -418,31 +419,8 @@ try { $marketListings = $pdo->query("SELECT pa.*, p.username AS seller_name FROM
 (function(){
   document.querySelectorAll('.rent-ac-inp').forEach(function(inp){
     var list=inp.closest('.xfer-to-wrap').querySelector('.rent-ac-list');
-    if(!inp||!list) return;
-    var cur=-1, items=[];
-    function show(names){
-      items=names; cur=-1;
-      if(!names.length){ list.style.display='none'; return; }
-      list.innerHTML=''; names.forEach(function(n,i){
-        var d=document.createElement('div'); d.className='ac-item'; d.textContent=n;
-        d.addEventListener('mousedown',function(e){ e.preventDefault(); inp.value=n; list.style.display='none'; });
-        list.appendChild(d);
-      }); list.style.display='block';
-    }
-    inp.addEventListener('input',function(){
-      var q=inp.value.trim(); if(q.length<1){ list.style.display='none'; return; }
-      fetch('players_search.php?q='+encodeURIComponent(q),{credentials:'same-origin'})
-        .then(function(r){return r.json();}).then(show).catch(function(){});
-    });
-    inp.addEventListener('keydown',function(e){
-      if(!items.length) return;
-      var rows=list.querySelectorAll('.ac-item');
-      if(e.key==='ArrowDown'){ e.preventDefault(); cur=Math.min(cur+1,rows.length-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
-      else if(e.key==='ArrowUp'){ e.preventDefault(); cur=Math.max(cur-1,-1); rows.forEach(function(r,i){r.classList.toggle('focused',i===cur);}); }
-      else if(e.key==='Enter'&&cur>=0){ e.preventDefault(); inp.value=items[cur]; list.style.display='none'; }
-      else if(e.key==='Escape'){ list.style.display='none'; }
-    });
-    document.addEventListener('click',function(e){ if(!inp.contains(e.target)&&!list.contains(e.target)) list.style.display='none'; });
+    var confirmEl=inp.closest('.rent-form').querySelector('.rent-ac-confirm');
+    PlayerAC.attach(inp, list, {confirm: confirmEl});
   });
 })();
 </script>

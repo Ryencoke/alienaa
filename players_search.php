@@ -32,7 +32,7 @@ if (strlen($q) < 1) { echo '[]'; exit; }
 // Match either a username prefix or an id prefix (so "1" finds ids 1, 10, 11, 100...
 // as well as usernames starting with "1"), not just an exact id match.
 $like = $q . '%';
-$st = $db->prepare('SELECT username FROM players WHERE id != ? AND (username LIKE ? OR CAST(id AS CHAR) LIKE ?) ORDER BY username LIMIT 10');
+$st = $db->prepare('SELECT id, username FROM players WHERE id != ? AND (username LIKE ? OR CAST(id AS CHAR) LIKE ?) ORDER BY username LIMIT 10');
 $st->execute([$player['id'], $like, $like]);
-$results = $st->fetchAll(PDO::FETCH_COLUMN);
+$results = array_map(fn($r) => ['id' => (int)$r['id'], 'username' => $r['username']], $st->fetchAll());
 echo json_encode(array_values($results));

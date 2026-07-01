@@ -3,6 +3,7 @@ $DISTRICTS = [
   ['The Bazaar',        '&#128722;', '#19f0c7', 'Commerce heart of the Sprawl.', [
     ['bazaar', 'Open Market'], ['ledger&act=bank', 'Bank'], ['auction', 'Black Market Auctions'],
     ['accord', 'Commerce Accord'], ['trade', 'Secure Trade Post'], ['generalstore', 'The Supply Node'],
+    ['boutique', 'Chrome Boutique'],
   ]],
   ['The Exchange Block', '&#128200;', '#e8d44d', 'Where credits become more credits.', [
     ['exchange', 'The Exchange'], ['bonds', 'Credit Bonds'], ['stockex', 'Stock Exchange'],

@@ -74,7 +74,7 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
 <div class="panel pf-hero-wrap">
   <canvas id="pf-canvas"></canvas>
   <div class="prof-hero">
-    <div class="prof-avatar <?= ($isOnline && !$isBanned) ? 'pf-online-ring' : '' ?>"><?= mb_strtoupper(mb_substr($prof['username'],0,1)) ?></div>
+    <div class="prof-avatar <?= ($isOnline && !$isBanned) ? 'pf-online-ring' : '' ?>"><?= render_avatar_inner($prof, 72) ?></div>
     <div class="prof-main">
       <?php $profMortality = (int)($prof['mortality'] ?? 0); ?>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">

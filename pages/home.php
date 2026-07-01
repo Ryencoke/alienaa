@@ -146,7 +146,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
     <canvas id="hm-canvas"></canvas>
     <div style="position:absolute;inset:0;padding:16px 20px;display:flex;align-items:center">
     <div class="hh-wrap" style="width:100%">
-      <div class="hh-av"><?= mb_strtoupper(mb_substr($player['username'],0,1)) ?></div>
+      <div class="hh-av"><?= render_avatar_inner($player, 64) ?></div>
       <div class="hh-info">
         <?php $myMortality = (int)($player['mortality'] ?? 0); ?>
         <div class="hh-name" style="color:<?= e($col) ?>">
