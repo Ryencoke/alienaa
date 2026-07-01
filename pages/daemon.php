@@ -1058,8 +1058,13 @@ $vpHandExamples = [
       var finalCls=[boxes[0].className,boxes[1].className];
       if(sum) sum.style.visibility='hidden';
       hideResultUntil('#pane-dice',1150);
-      boxes.forEach(function(b){ b.className='dice-box idle rolling'; });
-      if(diceDisplay) diceDisplay.style.opacity='1'; // now safe — boxes show randomized faces, not the real result
+      // The real final face was still sitting in each box's innerHTML at this
+      // point — only the className was reset, so opacity:1 below was revealing
+      // the true result for a full 100ms (until the first setInterval tick)
+      // before any randomization ever touched it. Randomize the content HERE,
+      // synchronously, before it's ever shown.
+      boxes.forEach(function(b){ b.innerHTML=faces[Math.floor(Math.random()*6)]; b.className='dice-box idle rolling'; });
+      if(diceDisplay) diceDisplay.style.opacity='1'; // now actually safe — content is randomized, not the real result
       var n=0;
       var iv=setInterval(function(){
         n++;
@@ -1082,8 +1087,13 @@ $vpHandExamples = [
     if(reels.length===3){
       var syms=['🍒','🔔','💎','⚡','7️⃣'];
       var rFinals=[],rCls=[];
-      reels.forEach(function(r){ rFinals.push(r.innerHTML); rCls.push(r.className); r.className='reel-box idle rolling'; });
-      if(reelDisplay) reelDisplay.style.opacity='1'; // now safe to show — content is randomized, not the real result
+      // Same gap as the dice: the real final symbol was still in each reel's
+      // innerHTML here — only className was reset — so opacity:1 below was
+      // revealing the true result (readable win/lose just from the symbols)
+      // for a full 90ms until the first setInterval tick randomized it.
+      // Randomize synchronously, in the same pass that captures the finals.
+      reels.forEach(function(r){ rFinals.push(r.innerHTML); rCls.push(r.className); r.innerHTML=syms[Math.floor(Math.random()*5)]; r.className='reel-box idle rolling'; });
+      if(reelDisplay) reelDisplay.style.opacity='1'; // now actually safe to show — content is randomized, not the real result
       hideResultUntil('#pane-slots',1500);
       var stopped=0;
       var spinIv=setInterval(function(){

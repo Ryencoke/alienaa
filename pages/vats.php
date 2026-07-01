@@ -11,9 +11,11 @@ try {
     planted_at DATETIME NOT NULL,
     ready_at DATETIME NOT NULL,
     harvested TINYINT(1) NOT NULL DEFAULT 0,
+    yield_qty INT NOT NULL DEFAULT 0,
     INDEX idx_player (player_id, harvested)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (Throwable $e) {}
+try { $pdo->exec("ALTER TABLE player_vats ADD COLUMN yield_qty INT NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
 
 // Drive (cycles) cost — planting and harvesting both draw on the player's Drive,
 // independent of the per-crop credit cost.
@@ -94,7 +96,7 @@ if (!empty($_POST['vat_ajax'])) {
       $pdo->prepare('INSERT INTO player_vats (player_id, crop_code, planted_at, ready_at) VALUES (?,?,NOW(),?)')->execute([$pid, $cropCode, $readyAt]);
       $pdo->commit();
       echo json_encode(['ok'=>true,'state'=>vats_state($pdo,$pid,$CROPS,$maxPlots,$hydroLevel),
-        'msg'=>$crop['name'].' seeded. Ready in '.$crop['mins'].' min.']); exit;
+        'msg'=>$crop['name'].' seeded. Ready in '.$crop['mins'].' min — &minus;'.number_format($crop['cost']).' credits, &minus;'.VATS_PLANT_DRIVE.' Drive.']); exit;
     }
 
     if ($act === 'harvest') {
@@ -116,11 +118,11 @@ if (!empty($_POST['vat_ajax'])) {
       $herbs = vats_load_herbs($pdo, $pid);
       $herbs[$vat['crop_code']] = ($herbs[$vat['crop_code']] ?? 0) + $yield;
       vats_save_herbs($pdo, $pid, $herbs);
-      $pdo->prepare('UPDATE player_vats SET harvested=1 WHERE id=?')->execute([$vatId]);
+      $pdo->prepare('UPDATE player_vats SET harvested=1, yield_qty=? WHERE id=?')->execute([$yield, $vatId]);
       $pdo->commit();
       echo json_encode(['ok'=>true,'state'=>vats_state($pdo,$pid,$CROPS,$maxPlots,$hydroLevel),
-        'gained'=>['crop'=>$vat['crop_code'],'qty'=>$yield,'bonus'=>$yieldBonus,'name'=>$crop['herb'],'col'=>$crop['col']],
-        'msg'=>'Harvested '.$yield.'× '.$crop['herb'].($yieldBonus>0?' (+'.$yieldBonus.' hydro bonus)':'').'.']); exit;
+        'gained'=>['crop'=>$vat['crop_code'],'qty'=>$yield,'bonus'=>$yieldBonus,'name'=>$crop['herb'],'col'=>$crop['col'],'drive'=>VATS_HARVEST_DRIVE],
+        'msg'=>'Harvested '.$yield.'× '.$crop['herb'].($yieldBonus>0?' (+'.$yieldBonus.' hydro bonus)':'').' — &minus;'.VATS_HARVEST_DRIVE.' Drive.']); exit;
     }
 
     throw new RuntimeException('Unknown action.');
@@ -140,6 +142,14 @@ $history = [];
 try {
   $hq2 = $pdo->prepare('SELECT * FROM player_vats WHERE player_id=? AND harvested=1 ORDER BY ready_at DESC LIMIT 8');
   $hq2->execute([$pid]); $history = $hq2->fetchAll();
+} catch (Throwable $e) {}
+
+// All-time grow stats
+$vatStats = ['planted' => 0, 'harvested' => 0, 'herbs' => 0];
+try {
+  $sq = $pdo->prepare('SELECT COUNT(*) planted, SUM(harvested) harvested, COALESCE(SUM(yield_qty),0) herbs FROM player_vats WHERE player_id=?');
+  $sq->execute([$pid]); $sr = $sq->fetch();
+  if ($sr) $vatStats = ['planted' => (int)$sr['planted'], 'harvested' => (int)$sr['harvested'], 'herbs' => (int)$sr['herbs']];
 } catch (Throwable $e) {}
 ?>
 <style>
@@ -168,8 +178,6 @@ try {
       <p class="muted" style="margin:0;font-size:11px">Seed a vat, let it grow, pick the herbs. Brew them into potions at the <a href="index.php?p=synth" style="color:var(--accent)">Synthesis Den</a>.</p>
     </div>
     <div style="display:flex;gap:14px;font-size:11px;color:var(--muted);align-items:center">
-      <div>CREDITS <b id="vhud-creds" style="font-family:'Orbitron',sans-serif;color:var(--accent)"><?= number_format((int)$player['creds_pocket']) ?></b></div>
-      <div>DRIVE <b id="vhud-drive" style="font-family:'Orbitron',sans-serif;color:#e8a33d"><?= number_format((int)$player['cycles']) ?></b><span style="opacity:.6">/<?= number_format((int)$player['cycles_max']) ?></span></div>
       <div>HYDRO <b style="font-family:'Orbitron',sans-serif;color:#3bcf63">Lv <?= $hydroLevel ?></b></div>
       <div>VATS <b id="vhud-plots" style="font-family:'Orbitron',sans-serif;color:var(--text)">0/<?= $maxPlots ?></b></div>
       <button id="vat-mute" onclick="toggleVatSound()" title="Toggle sound" style="font-size:12px;padding:3px 8px;background:transparent;border:1px solid rgba(255,255,255,.15);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
@@ -224,6 +232,26 @@ try {
   <p style="margin:9px 0 0;font-size:11px"><a href="index.php?p=synth&tab=brew" style="color:var(--accent)">&#9879; Brew potions at the Synthesis Den &rarr;</a></p>
 </div>
 
+<?php if ($vatStats['planted'] > 0): ?>
+<div class="panel" style="padding:12px 14px">
+  <h3 style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.5px">&#128202; All-Time Grow Stats</h3>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px">
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;text-align:center">
+      <div style="font-size:16px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--text)"><?= number_format($vatStats['planted']) ?></div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Vats Planted</div>
+    </div>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;text-align:center">
+      <div style="font-size:16px;font-weight:700;font-family:'Orbitron',sans-serif;color:#3bcf63"><?= number_format($vatStats['harvested']) ?></div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Vats Harvested</div>
+    </div>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;text-align:center">
+      <div style="font-size:16px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent)"><?= number_format($vatStats['herbs']) ?></div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Total Herbs Picked</div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
 <?php if (!empty($history)): ?>
 <div class="panel" style="padding:12px 14px">
   <h3 style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.5px">&#128202; Recent Harvests</h3>
@@ -231,6 +259,7 @@ try {
   <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px">
     <span style="flex:none"><?= $hc['icon'] ?></span>
     <span style="flex:1;color:<?= $hc['col'] ?>"><?= e($hc['name']) ?></span>
+    <span style="font-family:'Orbitron',sans-serif;font-size:11px;color:var(--accent)">&times;<?= (int)$h['yield_qty'] ?></span>
     <span style="color:var(--muted);font-size:11px"><?= e(date('M j g:ia', strtotime($h['ready_at']))) ?></span>
   </div>
   <?php endforeach; ?>
@@ -607,7 +636,7 @@ canvas.addEventListener('click',function(e){
       var crop=CROPS[plot.crop]||{};
       var p=slotXY(i);
       vatPost({vat_action:'harvest',vat_id:plot.id},function(d){
-        if(!d.ok){showMsg(d.err||'Error','var(--neon2)');return;}
+        if(!d.ok){ showMsg(d.err||'Error','var(--neon2)'); if(window.showToast) window.showToast(d.err||'Error','err'); return; }
         applyState(d.state);
         if(d.gained){
           var cx=p.x+SLOT_W/2, cy=p.y+SLOT_H/2;
@@ -623,7 +652,9 @@ canvas.addEventListener('click',function(e){
           chips.forEach(function(c){c.classList.remove('pop');});
           if(chips.length) chips[chips.length-1].classList.add('pop');
         }
-        if(d.msg) showMsg(d.msg,'#3bcf63');
+        // Same toast pattern the rest of the game uses for a confirmed action,
+        // instead of only the small fade-out line under the header.
+        if(d.msg){ showMsg(d.msg,'#3bcf63'); if(window.showToast) window.showToast(d.msg,'ok'); }
         if(window.refreshState) window.refreshState();
       });
     } else {
@@ -640,7 +671,7 @@ canvas.addEventListener('click',function(e){
   }
   var cc=CROPS[selCrop];
   vatPost({vat_action:'plant',crop:selCrop},function(d){
-    if(!d.ok){showMsg(d.err||'Error','var(--neon2)');sfx(90,.07,'square',.03);return;}
+    if(!d.ok){ showMsg(d.err||'Error','var(--neon2)'); if(window.showToast) window.showToast(d.err||'Error','err'); sfx(90,.07,'square',.03); return; }
     applyState(d.state);
     var p2=slotXY(i);
     for(var n=0;n<8;n++){
@@ -648,7 +679,7 @@ canvas.addEventListener('click',function(e){
         vx:(Math.random()-.5)*1.2,vy:-Math.random()*1.4,col:cc.col,s:1.4+Math.random()*1.8,life:.8});
     }
     sfx(330,.1,'sine',.05,500);
-    if(d.msg) showMsg(d.msg,cc.col);
+    if(d.msg){ showMsg(d.msg,cc.col); if(window.showToast) window.showToast(d.msg,'ok'); }
     if(window.refreshState) window.refreshState();
   });
 });

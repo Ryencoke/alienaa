@@ -105,7 +105,7 @@ $pocket  = (int)$player['creds_pocket'];
 .bs-card:hover .sc-ic{transform:scale(1.12);text-shadow:0 0 12px var(--tier-col)}
 .bs-statbar{height:5px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden;flex:1}
 .bs-statbar>div{height:100%;border-radius:3px;transition:width .3s ease}
-#bs-detail{border:1px solid var(--tier-col,var(--line));box-shadow:0 0 18px var(--tier-glow,transparent);transition:border-color .2s,box-shadow .2s}
+#bs-detail{border:1px solid var(--tier-col,var(--line));box-shadow:0 0 18px var(--tier-glow,transparent);transition:border-color .2s,box-shadow .2s;position:sticky;top:10px;z-index:5}
 .bs-head h2{text-shadow:0 0 14px rgba(255,122,24,.35)}
 </style>
 
@@ -361,11 +361,14 @@ if(sortSel&&grid){
     'spd-desc':   function(a,b){ return parseInt(b.dataset.spd,10)-parseInt(a.dataset.spd,10); },
     'name-asc':   function(a,b){ return a.dataset.name.localeCompare(b.dataset.name); }
   };
-  sortSel.addEventListener('change',function(){
-    var v=sortSel.value;
+  function applySort(v){
     var cards=v==='default'?origOrder.slice():Array.prototype.slice.call(grid.children).sort(sorters[v]);
     cards.forEach(function(c){ grid.appendChild(c); });
-  });
+  }
+  sortSel.addEventListener('change',function(){ applySort(sortSel.value); });
+  // Default view should be lowest level first, not catalog-insertion order.
+  sortSel.value='lvl-asc';
+  applySort('lvl-asc');
 }
 })();
 </script>

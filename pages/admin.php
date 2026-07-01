@@ -601,6 +601,69 @@ if ($sec === 'combat' && $canAdmin) {
 }
 
 /* ============================ TRANSACTION LOG ============================ */
+/* ============================ CASINO OVERSIGHT ============================ */
+if ($sec === 'casino' && $canAdmin) {
+  ?>
+  <div class="panel">
+    <h2>&#127920; Casino Oversight</h2>
+    <?= $back ?><?= $flash ?>
+    <?php
+      $cStats = ['games'=>0,'wagered'=>0,'payout'=>0,'net'=>0];
+      try {
+        $cq = $pdo->query("SELECT COUNT(*) games, COALESCE(SUM(bet),0) wagered, COALESCE(SUM(payout),0) payout, COALESCE(SUM(net),0) net FROM casino_log");
+        $cr = $cq->fetch();
+        if ($cr) $cStats = ['games'=>(int)$cr['games'],'wagered'=>(int)$cr['wagered'],'payout'=>(int)$cr['payout'],'net'=>(int)$cr['net']];
+      } catch (Throwable $e) { echo '<p class="muted">casino_log table not found.</p>'; }
+      // House net is the inverse of player net — positive here means the
+      // house is winning overall, which is the expected/healthy state.
+      $houseNet = -$cStats['net'];
+    ?>
+    <?php if ($cStats['games'] > 0): ?>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:20px">
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px;text-align:center">
+        <div style="font-size:16px;font-weight:700;font-family:'Orbitron',sans-serif"><?= number_format($cStats['games']) ?></div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Games Played</div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px;text-align:center">
+        <div style="font-size:16px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent)"><?= number_format($cStats['wagered']) ?></div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Total Wagered</div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px;text-align:center">
+        <div style="font-size:16px;font-weight:700;font-family:'Orbitron',sans-serif;color:#e8a33d"><?= number_format($cStats['payout']) ?></div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Total Paid Out</div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px;text-align:center">
+        <div style="font-size:16px;font-weight:700;font-family:'Orbitron',sans-serif;color:<?= $houseNet>=0?'#3bcf63':'var(--neon2)' ?>"><?= $houseNet>=0?'+':'' ?><?= number_format($houseNet) ?></div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase">House Net</div>
+      </div>
+    </div>
+
+    <h3 style="margin-bottom:8px">Top Net Winners (all-time — worth a look if a number seems too high)</h3>
+    <?php
+      $topWinners = [];
+      try {
+        $topWinners = $pdo->query("SELECT c.player_id, p.username, p.role, COUNT(*) games, SUM(c.net) net
+                                    FROM casino_log c JOIN players p ON p.id=c.player_id
+                                    GROUP BY c.player_id ORDER BY net DESC LIMIT 15")->fetchAll();
+      } catch (Throwable $e) {}
+    ?>
+    <?php if ($topWinners): ?>
+    <table>
+      <tr><th>Player</th><th>Games</th><th>Net</th></tr>
+      <?php foreach ($topWinners as $tw): ?>
+      <tr>
+        <td><a href="index.php?p=profile&id=<?= (int)$tw['player_id'] ?>" style="color:<?= e(chat_color($tw['role'],'')) ?>"><?= e($tw['username']) ?></a></td>
+        <td><?= number_format($tw['games']) ?></td>
+        <td style="color:<?= $tw['net']>=0?'#3bcf63':'var(--neon2)' ?>;font-weight:700"><?= $tw['net']>=0?'+':'' ?><?= number_format($tw['net']) ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </table>
+    <?php else: ?><p class="muted">No plays logged yet.</p><?php endif; ?>
+    <?php endif; ?>
+  </div>
+  <?php return;
+}
+
 if ($sec === 'txlog' && $canAdmin) {
   ?>
   <div class="panel">
@@ -1310,6 +1373,31 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
 
 <?php if ($canAdmin): ?>
 <div class="panel">
+  <h3 style="margin:0 0 10px">&#128202; Server Overview</h3>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">
+    <?php foreach ([
+      ['Total Players', number_format((int)($hubStats['total'] ?? 0)), 'var(--text)'],
+      ['Online Now',    number_format((int)($hubStats['online_now'] ?? 0)), '#3bcf63'],
+      ['Subscribers',   number_format((int)($hubStats['subs'] ?? 0)), '#e8d44d'],
+      ['New (24h)',     number_format((int)($hubStats['new_today'] ?? 0)), 'var(--accent)'],
+      ['New (7d)',      number_format((int)($hubStats['new_week'] ?? 0)), 'var(--accent)'],
+      ['Avg Level',     number_format((float)($hubStats['avg_level'] ?? 0), 1), 'var(--text)'],
+      ['Max Level',     number_format((int)($hubStats['max_level'] ?? 0)), 'var(--text)'],
+      ['Credits (Pocket)', number_format((int)($hubStats['total_pocket'] ?? 0)), 'var(--accent)'],
+      ['Credits (Bank)',   number_format((int)($hubStats['total_bank'] ?? 0)), 'var(--accent)'],
+      ['Outstanding Loans', number_format((int)($hubStats['total_loans'] ?? 0)), 'var(--neon2)'],
+      ['Good Alignment', number_format((int)($hubStats['good_players'] ?? 0)), '#e8d44d'],
+      ['Evil Alignment', number_format((int)($hubStats['evil_players'] ?? 0)), 'var(--neon2)'],
+    ] as [$lbl, $v, $c]): ?>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;text-align:center">
+      <div style="font-size:14px;font-weight:700;font-family:'Orbitron',sans-serif;color:<?= $c ?>"><?= $v ?></div>
+      <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:2px"><?= $lbl ?></div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+</div>
+
+<div class="panel">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
     <h3 style="margin:0">&#128220; Latest Staff Actions</h3>
     <a href="index.php?p=admin&sec=editlog" style="font-size:11px;color:var(--muted)">View full log &rarr;</a>
@@ -1320,7 +1408,12 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
   <a href="index.php?p=admin&sec=logentry&id=<?= (int)$fa['id'] ?>" class="adm-feed-row" style="text-decoration:none;color:inherit">
     <span class="muted" style="font-size:10px;flex:none;width:82px"><?= e(date('M j g:ia', strtotime($fa['created_at'] ?? 'now'))) ?></span>
     <b style="color:<?= e(chat_color($fa['admin_role'] ?? '', '')) ?>;flex:none"><?= e($fa['admin_name'] ?? '?') ?></b>
-    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= e($fa['field']) ?><?= $fa['target_name'] ? ' &rarr; '.e($fa['target_name']) : '' ?></span>
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+      <?= e($fa['field']) ?><?= $fa['target_name'] ? ' &rarr; '.e($fa['target_name']) : '' ?>
+      <?php if ($fa['old_value'] !== '' || $fa['new_value'] !== ''): ?>
+      <span class="muted">(<?= $fa['old_value']==='' ? '&empty;' : e($fa['old_value']) ?> &#8594; </span><b style="color:var(--accent)"><?= $fa['new_value']==='' ? '&empty;' : e($fa['new_value']) ?></b><span class="muted">)</span>
+      <?php endif; ?>
+    </span>
   </a>
   <?php endforeach; endif; ?>
 </div>
@@ -1395,6 +1488,11 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
     <span class="ic">&#129534;</span><h4>Transaction Log</h4>
     <p>Raw cred transfer log — every transfer, grant, and fee.</p>
     <span class="req">Admin+</span>
+  </a>
+  <a class="staffcard" href="index.php?p=admin&sec=casino" style="--sg-col:#3bcf63;--sg-glow:rgba(59,207,99,.12)">
+    <span class="ic">&#127920;</span><h4>Casino Oversight</h4>
+    <p>House net, total wagered/paid, and a top-net leaderboard to spot exploits.</p>
+    <span class="req">Admin+ &middot; NEW</span>
   </a>
 </div>
 <?php endif; ?>

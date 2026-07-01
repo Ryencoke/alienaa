@@ -91,63 +91,12 @@ function perk_apply_partial($pdo, $pid, $typeId, $APT_TYPES, $add = true) {
 // differently priced. max_units: how many of this type exist citywide —
 // once every unit is owned, nobody can buy a new one (existing owners can
 // still resell theirs on the player market).
-$DISTRICT_META = [
-  'poor'     => ['label'=>'Poor District',     'col'=>'#8a8fa8'],
-  'working'  => ['label'=>'Working District',  'col'=>'#4d9be8'],
-  'affluent' => ['label'=>'Affluent District', 'col'=>'#e8a33d'],
-  'elite'    => ['label'=>'Elite District',    'col'=>'#e8d44d'],
-];
-// Perk types are limited to what perk_apply() actually knows how to grant
-// (cycles_max/signal_max/dual_boost applied directly to players; xp_bonus/
-// foundry_bonus/bank_bonus read elsewhere via the apt_{key}:{pid} setting) —
-// every new type below reuses one of those six rather than inventing a new
-// bonus category nothing else in the game would ever check for.
-$APT_TYPES = [
-  // ==================== POOR DISTRICT ====================
-  1  => ['name'=>'Coffin Cube',       'region'=>'The Undervolt',      'district'=>'poor', 'price'=>500,  'rarity'=>'common', 'perks'=>'+5 max Drive',   'perk_key'=>'cycles_max','perk_val'=>5,  'max_units'=>300],
-  2  => ['name'=>'Stack Unit',        'region'=>'The Stacks',         'district'=>'poor', 'price'=>1200, 'rarity'=>'common', 'perks'=>'+10 max Drive',  'perk_key'=>'cycles_max','perk_val'=>10, 'max_units'=>200],
-  8  => ['name'=>'Sump Shanty',       'region'=>'The Sump Fringe',    'district'=>'poor', 'price'=>350,  'rarity'=>'common', 'perks'=>'+3 max Drive',   'perk_key'=>'cycles_max','perk_val'=>3,  'max_units'=>350],
-  9  => ['name'=>'Underpass Nook',    'region'=>'The Underpass',      'district'=>'poor', 'price'=>450,  'rarity'=>'common', 'perks'=>'+4 max Drive',   'perk_key'=>'cycles_max','perk_val'=>4,  'max_units'=>320],
-  10 => ['name'=>'Scrapheap Bunk',    'region'=>'Scrapyard Row',      'district'=>'poor', 'price'=>600,  'rarity'=>'common', 'perks'=>'+6 max Drive',   'perk_key'=>'cycles_max','perk_val'=>6,  'max_units'=>280],
-  11 => ['name'=>'Tunnel Flat',       'region'=>'The Undervolt Tunnels','district'=>'poor','price'=>750, 'rarity'=>'common', 'perks'=>'+2% XP gain',    'perk_key'=>'xp_bonus','perk_val'=>2,   'max_units'=>250],
-  12 => ['name'=>'Rustbelt Room',     'region'=>'Rustbelt Alley',     'district'=>'poor', 'price'=>900,  'rarity'=>'common', 'perks'=>'+7 max Drive',   'perk_key'=>'cycles_max','perk_val'=>7,  'max_units'=>240],
-  13 => ['name'=>'Vent Stack Loft',   'region'=>'The Stacks (Upper)', 'district'=>'poor', 'price'=>1100, 'rarity'=>'common', 'perks'=>'+8 max Signal',  'perk_key'=>'signal_max','perk_val'=>8,  'max_units'=>220],
-  14 => ['name'=>'Catwalk Bunk',      'region'=>'The Catwalks',       'district'=>'poor', 'price'=>1400, 'rarity'=>'common', 'perks'=>'+3% XP gain',    'perk_key'=>'xp_bonus','perk_val'=>3,   'max_units'=>200],
-  15 => ['name'=>'Grid-Edge Hovel',   'region'=>"Grid's Edge",        'district'=>'poor', 'price'=>1800, 'rarity'=>'common', 'perks'=>'+12 max Drive',  'perk_key'=>'cycles_max','perk_val'=>12, 'max_units'=>180],
-  // ==================== WORKING DISTRICT ====================
-  3  => ['name'=>'Grid Node Flat',    'region'=>'The Datacore',       'district'=>'working', 'price'=>3000, 'rarity'=>'uncommon', 'perks'=>'+5% XP gain',       'perk_key'=>'xp_bonus','perk_val'=>5,   'max_units'=>120],
-  4  => ['name'=>'Neon Strip Loft',   'region'=>'Neon Strip',         'district'=>'working', 'price'=>6000, 'rarity'=>'uncommon', 'perks'=>'+10 max Signal',    'perk_key'=>'signal_max','perk_val'=>10,'max_units'=>90],
-  16 => ['name'=>'Circuit Row Flat',  'region'=>'Circuit Row',        'district'=>'working', 'price'=>2500, 'rarity'=>'uncommon', 'perks'=>'+4% XP gain',       'perk_key'=>'xp_bonus','perk_val'=>4,   'max_units'=>140],
-  17 => ['name'=>'Midtier Complex',   'region'=>'Midtown Grid',       'district'=>'working', 'price'=>3200, 'rarity'=>'uncommon', 'perks'=>'+14 max Drive',     'perk_key'=>'cycles_max','perk_val'=>14,'max_units'=>130],
-  18 => ['name'=>'Skyline Walkup',    'region'=>'Skyline Row',        'district'=>'working', 'price'=>3800, 'rarity'=>'uncommon', 'perks'=>'+12 max Signal',    'perk_key'=>'signal_max','perk_val'=>12,'max_units'=>110],
-  19 => ['name'=>'Datacore Annex',    'region'=>'The Datacore Annex', 'district'=>'working', 'price'=>4500, 'rarity'=>'uncommon', 'perks'=>'+6% XP gain',       'perk_key'=>'xp_bonus','perk_val'=>6,   'max_units'=>100],
-  20 => ['name'=>'Streetlevel Suite', 'region'=>'Neon Strip South',   'district'=>'working', 'price'=>5200, 'rarity'=>'uncommon', 'perks'=>'+16 max Drive',     'perk_key'=>'cycles_max','perk_val'=>16,'max_units'=>95],
-  21 => ['name'=>'Transit Hub Flat',  'region'=>'Transit Junction',   'district'=>'working', 'price'=>5800, 'rarity'=>'uncommon', 'perks'=>'+4% Foundry yield', 'perk_key'=>'foundry_bonus','perk_val'=>4,'max_units'=>90],
-  22 => ['name'=>'Junction Loft',     'region'=>'The Junction',       'district'=>'working', 'price'=>6800, 'rarity'=>'uncommon', 'perks'=>'+16 max Signal',    'perk_key'=>'signal_max','perk_val'=>16,'max_units'=>80],
-  23 => ['name'=>'Uptown Grid Suite', 'region'=>'Uptown Grid',        'district'=>'working', 'price'=>8000, 'rarity'=>'uncommon', 'perks'=>'+7% XP gain',       'perk_key'=>'xp_bonus','perk_val'=>7,   'max_units'=>70],
-  // ==================== AFFLUENT DISTRICT ====================
-  5  => ['name'=>'Forge Quarter Den',  'region'=>'The Forge Quarter',   'district'=>'affluent', 'price'=>9000,  'rarity'=>'rare', 'perks'=>'+10% Foundry yield',          'perk_key'=>'foundry_bonus','perk_val'=>10,'max_units'=>50],
-  6  => ['name'=>'Exchange Penthouse', 'region'=>'The Exchange Block',  'district'=>'affluent', 'price'=>25000, 'rarity'=>'rare', 'perks'=>'+0.25% extra bank interest',  'perk_key'=>'bank_bonus','perk_val'=>25,'max_units'=>25],
-  24 => ['name'=>'Foundry Heights',    'region'=>'Forge Quarter Heights','district'=>'affluent','price'=>11000, 'rarity'=>'rare', 'perks'=>'+12% Foundry yield',          'perk_key'=>'foundry_bonus','perk_val'=>12,'max_units'=>45],
-  25 => ['name'=>'Market Row Suite',   'region'=>'The Exchange Row',    'district'=>'affluent', 'price'=>13000, 'rarity'=>'rare', 'perks'=>'+0.15% extra bank interest',  'perk_key'=>'bank_bonus','perk_val'=>15,'max_units'=>42],
-  26 => ['name'=>'Chrome District Flat','region'=>'Chrome District',   'district'=>'affluent', 'price'=>15000, 'rarity'=>'rare', 'perks'=>'+10% XP gain',                'perk_key'=>'xp_bonus','perk_val'=>10,'max_units'=>38],
-  27 => ['name'=>'Ivory Tower Suite',  'region'=>'Ivory Row',           'district'=>'affluent', 'price'=>17000, 'rarity'=>'rare', 'perks'=>'+18 max Signal, +18 max Drive','perk_key'=>'dual_boost','perk_val'=>18,'max_units'=>32],
-  28 => ['name'=>'Vantage Point Loft', 'region'=>'Vantage Heights',     'district'=>'affluent', 'price'=>19000, 'rarity'=>'rare', 'perks'=>'+0.2% extra bank interest',   'perk_key'=>'bank_bonus','perk_val'=>20,'max_units'=>30],
-  29 => ['name'=>'Silverline Residence','region'=>'Silverline District','district'=>'affluent','price'=>22000, 'rarity'=>'rare', 'perks'=>'+15% Foundry yield',          'perk_key'=>'foundry_bonus','perk_val'=>15,'max_units'=>27],
-  30 => ['name'=>'Skyport Suite',      'region'=>'The Skyport',         'district'=>'affluent', 'price'=>24000, 'rarity'=>'rare', 'perks'=>'+28 max Drive',               'perk_key'=>'cycles_max','perk_val'=>28,'max_units'=>26],
-  31 => ['name'=>'Corporate Quarter Flat','region'=>'Corporate Quarter','district'=>'affluent', 'price'=>28000, 'rarity'=>'rare', 'perks'=>'+0.3% extra bank interest',   'perk_key'=>'bank_bonus','perk_val'=>30,'max_units'=>22],
-  // ==================== ELITE DISTRICT ====================
-  7  => ['name'=>'Spire Suite',          'region'=>'The Grid Authority',   'district'=>'elite', 'price'=>75000, 'rarity'=>'legendary', 'perks'=>'+20 max Signal, +20 max Drive','perk_key'=>'dual_boost','perk_val'=>20,'max_units'=>10],
-  32 => ['name'=>'Zenith Tower',         'region'=>'The Zenith',           'district'=>'elite', 'price'=>40000, 'rarity'=>'legendary', 'perks'=>'+15 max Signal, +15 max Drive','perk_key'=>'dual_boost','perk_val'=>15,'max_units'=>18],
-  33 => ['name'=>'Chrome Spire Penthouse','region'=>'Chrome Spire',        'district'=>'elite', 'price'=>50000, 'rarity'=>'legendary', 'perks'=>'+0.4% extra bank interest',    'perk_key'=>'bank_bonus','perk_val'=>40,'max_units'=>15],
-  34 => ['name'=>'Authority Heights',    'region'=>'Grid Authority Heights','district'=>'elite','price'=>60000, 'rarity'=>'legendary', 'perks'=>'+32 max Drive',                'perk_key'=>'cycles_max','perk_val'=>32,'max_units'=>13],
-  35 => ['name'=>'Sky Palace',           'region'=>'The Sky Palace District','district'=>'elite','price'=>70000,'rarity'=>'legendary', 'perks'=>'+32 max Signal',               'perk_key'=>'signal_max','perk_val'=>32,'max_units'=>11],
-  36 => ['name'=>'Obsidian Tower Suite', 'region'=>'Obsidian Tower',       'district'=>'elite', 'price'=>82000, 'rarity'=>'legendary', 'perks'=>'+18% Foundry yield',           'perk_key'=>'foundry_bonus','perk_val'=>18,'max_units'=>9],
-  37 => ['name'=>'Meridian Penthouse',   'region'=>'The Meridian',         'district'=>'elite', 'price'=>90000, 'rarity'=>'legendary', 'perks'=>'+0.45% extra bank interest',   'perk_key'=>'bank_bonus','perk_val'=>45,'max_units'=>8],
-  38 => ['name'=>'Apex Residence',       'region'=>'The Apex',             'district'=>'elite', 'price'=>95000, 'rarity'=>'legendary', 'perks'=>'+25 max Signal, +25 max Drive','perk_key'=>'dual_boost','perk_val'=>25,'max_units'=>7],
-  39 => ['name'=>'Crown Suite',          'region'=>'The Crown District',   'district'=>'elite', 'price'=>98000, 'rarity'=>'legendary', 'perks'=>'+15% XP gain',                 'perk_key'=>'xp_bonus','perk_val'=>15,'max_units'=>6],
-  40 => ['name'=>'The Zenith Estate',    'region'=>'Zenith Summit',        'district'=>'elite', 'price'=>100000,'rarity'=>'legendary', 'perks'=>'+30 max Signal, +30 max Drive','perk_key'=>'dual_boost','perk_val'=>30,'max_units'=>5],
-];
+// $DISTRICT_META/$APT_TYPES moved to lib.php's apartment_catalog() so
+// library.php can list every district/type too (previously this whole
+// catalog only existed inside apartments.php).
+$aptCat = apartment_catalog();
+$DISTRICT_META = $aptCat['districts'];
+$APT_TYPES = $aptCat['types'];
 
 $REGIONS = array_unique(array_column($APT_TYPES, 'region'));
 $RARITY_COLORS = ['common'=>'var(--muted)','uncommon'=>'var(--accent)','rare'=>'var(--neon2)','legendary'=>'#e8d44d'];
@@ -170,38 +119,8 @@ try {
   }
 } catch (Throwable $e) {}
 
-// No real photography exists for this game (flat-PHP, no image pipeline) —
-// this is the placeholder "picture" of each apartment type until real art
-// exists, same approach as render_avatar_inner() for the Chrome Boutique.
-// Deterministic per-type window pattern (seeded off the type id) so a given
-// apartment's "photo" looks the same every time it's rendered, not random
-// noise on every page load. $district tints how "kept up" the building
-// looks — poorer districts have fewer lit windows and a duller base tone,
-// richer ones are brighter and busier, so the wealth gap reads visually,
-// not just via the price tag.
-function apt_building_art(string $rc, int $seed, int $floors, string $district = 'working'): string {
-  $cols = 6; $ww = 15; $wh = 11; $gap = 5;
-  $litChance = ['poor' => 35, 'working' => 50, 'affluent' => 65, 'elite' => 80][$district] ?? 50;
-  $baseFill  = ['poor' => '#0d0c10', 'working' => '#0a0a14', 'affluent' => '#0a0d16', 'elite' => '#0a0c1a'][$district] ?? '#0a0a14';
-  mt_srand($seed);
-  $windows = '';
-  for ($f = 0; $f < $floors; $f++) {
-    for ($c = 0; $c < $cols; $c++) {
-      $lit = mt_rand(0, 100) < $litChance;
-      $x = $c * ($ww + $gap) + $gap;
-      $y = $f * ($wh + $gap) + $gap;
-      $windows .= '<rect x="'.$x.'" y="'.$y.'" width="'.$ww.'" height="'.$wh.'" rx="1.5" fill="'.($lit ? $rc : 'rgba(255,255,255,.05)').'" opacity="'.($lit ? '0.9' : '1').'"/>';
-    }
-  }
-  mt_srand(); // reseed randomly so this deterministic draw doesn't leak into any other RNG use on the page
-  $w = $cols * ($ww + $gap) + $gap; $h = $floors * ($wh + $gap) + $gap;
-  return '<svg viewBox="0 0 '.$w.' '.$h.'" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style="display:block">'
-       . '<defs><linearGradient id="apgrad'.$seed.'" x1="0" y1="0" x2="0" y2="1">'
-       . '<stop offset="0%" stop-color="'.$rc.'" stop-opacity="0.12"/><stop offset="100%" stop-color="#05050c" stop-opacity="0"/></linearGradient></defs>'
-       . '<rect width="'.$w.'" height="'.$h.'" fill="'.$baseFill.'"/>'
-       . '<rect width="'.$w.'" height="'.$h.'" fill="url(#apgrad'.$seed.')"/>'
-       . $windows . '</svg>';
-}
+// apt_building_art() moved to lib.php so library.php can render the same
+// placeholder "photo" for each apartment type.
 
 $DECOR_ITEMS = [
   'neon_light'    => ['name'=>'Neon Wall Light',  'price'=>500,   'icon'=>'&#128268;'],
@@ -533,11 +452,11 @@ try {
 // here" list — one query grouped by type rather than 40 separate ones.
 $neighborsByType = [];
 try {
-  $nb = $pdo->query('SELECT pa.apt_type_id, p.username FROM player_apartments pa JOIN players p ON p.id = pa.player_id ORDER BY pa.apt_type_id, pa.purchased_at DESC');
+  $nb = $pdo->query('SELECT pa.apt_type_id, p.id, p.username, p.role FROM player_apartments pa JOIN players p ON p.id = pa.player_id ORDER BY pa.apt_type_id, pa.purchased_at DESC');
   foreach ($nb as $r) {
     $tid2 = (int)$r['apt_type_id'];
     if (!isset($neighborsByType[$tid2])) $neighborsByType[$tid2] = [];
-    if (count($neighborsByType[$tid2]) < 6) $neighborsByType[$tid2][] = $r['username'];
+    if (count($neighborsByType[$tid2]) < 6) $neighborsByType[$tid2][] = ['id' => (int)$r['id'], 'username' => $r['username'], 'color' => chat_color($r['role'] ?? 'member', '')];
   }
 } catch (Throwable $e) {}
 ?>
@@ -549,6 +468,7 @@ try {
 .apt-card:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.35)}
 .apt-card.primary{border-color:rgba(232,163,61,.45);box-shadow:0 0 16px rgba(232,163,61,.1)}
 .apt-body{padding:14px 16px}
+#aptDetailModal{align-items:center}
 </style>
 
 <!-- Header -->
@@ -750,14 +670,73 @@ try {
 <!-- Quick-jump nav — 40 types across 4 districts is a lot to scroll through,
      so each section is collapsible (open by default only for the first) and
      this strip jumps straight to one. -->
-<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
-  <?php foreach (['poor','working','affluent','elite'] as $dk):
-    if (empty($typesByDistrict[$dk])) continue;
-    $dm = $DISTRICT_META[$dk];
-  ?>
-  <a href="#district-<?= $dk ?>" style="font-size:11px;padding:5px 12px;border-radius:20px;text-decoration:none;border:1px solid <?= $dm['col'] ?>55;color:<?= $dm['col'] ?>;background:<?= $dm['col'] ?>11"><?= e($dm['label']) ?> (<?= count($typesByDistrict[$dk]) ?>)</a>
-  <?php endforeach; ?>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center;justify-content:space-between">
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <?php foreach (['poor','working','affluent','elite'] as $dk):
+      if (empty($typesByDistrict[$dk])) continue;
+      $dm = $DISTRICT_META[$dk];
+    ?>
+    <a href="#district-<?= $dk ?>" class="apt-district-jump" data-district="<?= $dk ?>" style="font-size:11px;padding:5px 12px;border-radius:20px;text-decoration:none;border:1px solid <?= $dm['col'] ?>55;color:<?= $dm['col'] ?>;background:<?= $dm['col'] ?>11"><?= e($dm['label']) ?> (<?= count($typesByDistrict[$dk]) ?>)</a>
+    <?php endforeach; ?>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <input type="text" id="aptSearch" placeholder="&#128269; Search by name..." style="font-size:11px;padding:5px 10px;width:150px">
+    <select id="aptSort" style="font-size:11px;padding:5px 8px;width:auto">
+      <option value="default">Sort: Default</option>
+      <option value="price-asc">Price: Low to High</option>
+      <option value="price-desc">Price: High to Low</option>
+      <option value="rarity-asc">Rarity: Common first</option>
+      <option value="rarity-desc">Rarity: Legendary first</option>
+    </select>
+  </div>
 </div>
+<script>
+(function(){
+  // Native #anchor jump-to-<details> doesn't reliably auto-expand a closed
+  // <details> across browsers — clicking the button would just scroll to the
+  // collapsed summary bar with nothing visible, looking like it did nothing.
+  // Force it open first, then scroll.
+  document.querySelectorAll('.apt-district-jump').forEach(function(a){
+    a.addEventListener('click', function(ev){
+      var el = document.getElementById('district-' + a.dataset.district);
+      if (!el) return;
+      ev.preventDefault();
+      el.open = true;
+      el.scrollIntoView({behavior:'smooth', block:'start'});
+    });
+  });
+
+  var rarityOrder = {common:0, uncommon:1, rare:2, elite:3, legendary:4};
+  var sorters = {
+    'price-asc':   function(a,b){ return parseInt(a.dataset.price,10)-parseInt(b.dataset.price,10); },
+    'price-desc':  function(a,b){ return parseInt(b.dataset.price,10)-parseInt(a.dataset.price,10); },
+    'rarity-asc':  function(a,b){ return (rarityOrder[a.dataset.rarity]||0)-(rarityOrder[b.dataset.rarity]||0); },
+    'rarity-desc': function(a,b){ return (rarityOrder[b.dataset.rarity]||0)-(rarityOrder[a.dataset.rarity]||0); }
+  };
+  var grids = document.querySelectorAll('details[id^="district-"] > div');
+  var origOrders = new Map();
+  grids.forEach(function(g){ origOrders.set(g, Array.prototype.slice.call(g.children)); });
+
+  var sortSel = document.getElementById('aptSort');
+  if (sortSel) sortSel.addEventListener('change', function(){
+    var v = sortSel.value;
+    grids.forEach(function(g){
+      var cards = v==='default' ? origOrders.get(g).slice() : Array.prototype.slice.call(g.children).sort(sorters[v]);
+      cards.forEach(function(c){ g.appendChild(c); });
+    });
+  });
+
+  var searchEl = document.getElementById('aptSearch');
+  if (searchEl) searchEl.addEventListener('input', function(){
+    var q = searchEl.value.toLowerCase().trim();
+    document.querySelectorAll('.apt-card').forEach(function(c){
+      var match = !q || (c.dataset.name||'').indexOf(q) !== -1;
+      c.style.display = match ? '' : 'none';
+      if (match && q) { var det = c.closest('details'); if (det) det.open = true; }
+    });
+  });
+})();
+</script>
 <?php foreach (['poor','working','affluent','elite'] as $di => $dk):
   if (empty($typesByDistrict[$dk])) continue;
   $dm = $DISTRICT_META[$dk];
@@ -788,7 +767,7 @@ try {
         'neighbors' => $neighborsByType[$tid] ?? [],
       ];
     ?>
-    <div class="apt-card" style="border-color:<?= $atype['rarity']==='legendary'?'rgba(232,212,77,.4)':($atype['rarity']==='rare'?'rgba(255,45,149,.25)':'var(--line)') ?>;cursor:pointer" data-apt-detail="<?= $tid ?>">
+    <div class="apt-card" style="border-color:<?= $atype['rarity']==='legendary'?'rgba(232,212,77,.4)':($atype['rarity']==='rare'?'rgba(255,45,149,.25)':'var(--line)') ?>;cursor:pointer" data-apt-detail="<?= $tid ?>" data-price="<?= (int)$atype['price'] ?>" data-rarity="<?= e($atype['rarity']) ?>" data-name="<?= strtolower(e($atype['name'])) ?>">
       <div class="apt-art" style="height:80px"><?= apt_building_art($rc, $tid, $floors, $dk) ?>
         <?php if ($atype['rarity'] !== 'common'): ?><span class="apt-badge" style="color:<?= $rc ?>;background:rgba(0,0,0,.5);border:1px solid <?= $rc ?>;font-size:9px;padding:2px 7px"><?= $atype['rarity'] ?></span><?php endif; ?>
       </div>
@@ -858,10 +837,11 @@ try {
       nEl.innerHTML = '';
       if (d.neighbors && d.neighbors.length) {
         d.neighbors.forEach(function(n){
-          var span = document.createElement('span');
-          span.style.cssText = 'display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:3px 10px;margin:0 4px 4px 0';
-          span.textContent = n;
-          nEl.appendChild(span);
+          var a = document.createElement('a');
+          a.href = 'index.php?p=profile&id=' + n.id;
+          a.style.cssText = 'display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:3px 10px;margin:0 4px 4px 0;text-decoration:none;color:' + n.color + ';font-weight:600';
+          a.textContent = n.username;
+          nEl.appendChild(a);
         });
       } else {
         var muted = document.createElement('span'); muted.className = 'muted'; muted.textContent = 'Nobody lives here yet.';

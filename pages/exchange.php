@@ -119,22 +119,8 @@ $pulled = (($player['shard_pull_at'] ?? null) === $today);
       <h2 style="margin:0">&#9670; The Exchange</h2>
       <p class="muted" style="margin:2px 0 0;font-size:11px;text-shadow:0 1px 4px #000">Shards are hard currency. Scarce, shiny, and the only thing the Grid truly respects.</p>
     </div>
-    <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:8px;display:inline-flex;gap:20px;padding:8px 22px;background:rgba(6,6,14,.78);border:1px solid var(--line);border-radius:8px;backdrop-filter:blur(3px)">
-      <div style="text-align:center">
-        <div id="ex-shards" style="font-family:'Orbitron',sans-serif;font-size:20px;font-weight:700;color:var(--accent)"><?= number_format($player['shards']) ?></div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Shards</div>
-      </div>
-      <div style="width:1px;background:var(--line)"></div>
-      <div style="text-align:center">
-        <div style="font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:<?= $sub ? '#e8d44d' : 'var(--muted)' ?>;padding-top:2px"><?= $sub ? '&#9733; Active' : 'None' ?></div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Subscription</div>
-      </div>
-    </div>
     <button id="ex-mute" onclick="toggleExSound()" title="Toggle sound" style="position:absolute;top:8px;right:10px;font-size:11px;padding:3px 8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);color:var(--muted);border-radius:4px;cursor:pointer">&#128266;</button>
   </div>
-  <?php if ($sub): ?>
-    <p style="font-size:12px;color:#e8d44d;margin:10px 14px 0;text-align:center">Active until <?= e($player['sub_until']) ?></p>
-  <?php endif; ?>
   <?php if ($msg): ?><div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>" style="margin:10px 14px 0"><?= e($msg) ?></div><?php endif; ?>
   <div style="height:10px"></div>
 </div>

@@ -2,7 +2,7 @@
 $pdo = db();
 
 $tab = $_GET['tab'] ?? 'weapons';
-$validTabs = ['weapons','armor','consumables','materials','skills'];
+$validTabs = ['weapons','armor','consumables','materials','skills','housing'];
 if (!in_array($tab, $validTabs, true)) $tab = 'weapons';
 
 /* ----- Load DB items ----- */
@@ -86,6 +86,7 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
     <a class="tab <?= $tab==='consumables'?'is-active':'' ?>" href="index.php?p=library&tab=consumables">&#128138; Consumables</a>
     <a class="tab <?= $tab==='materials'?'is-active':'' ?>"   href="index.php?p=library&tab=materials">&#128230; Materials</a>
     <a class="tab <?= $tab==='skills'?'is-active':'' ?>"      href="index.php?p=library&tab=skills">&#127891; Skills</a>
+    <a class="tab <?= $tab==='housing'?'is-active':'' ?>"     href="index.php?p=library&tab=housing">&#127968; Housing</a>
   </div>
 </div>
 
@@ -317,6 +318,59 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
     </div>
     <?php endforeach; ?>
   </div>
+</div>
+<?php elseif ($tab === 'housing'):
+  $aptCat = apartment_catalog();
+  $housingRarityFloors = ['common'=>4,'uncommon'=>5,'rare'=>7,'legendary'=>9];
+  $housingRarityColors = ['common'=>'var(--muted)','uncommon'=>'var(--accent)','rare'=>'var(--neon2)','legendary'=>'#e8d44d'];
+?>
+<div class="panel">
+  <h3 style="margin-bottom:4px">Residences</h3>
+  <p class="muted" style="margin-bottom:14px">Buy or rent at the <a href="index.php?p=apartments">Apartment Market</a>. Owning your PRIMARY residence grants its full perk; renting grants half.</p>
+  <div class="lib-toolbar">
+    <div class="lib-toolbar-row">
+      <div class="lib-search-wrap">
+        <input type="text" id="libSearch" placeholder="&#128269; Search by name..." class="lib-search-input">
+      </div>
+      <div class="lib-sort-wrap">
+        <select id="libSort" class="lib-sort-select">
+          <option value="default">Sort: Default</option>
+          <option value="price_asc">Price: Low &rarr; High</option>
+          <option value="price_desc">Price: High &rarr; Low</option>
+          <option value="name_asc">Name: A &rarr; Z</option>
+        </select>
+      </div>
+    </div>
+    <div class="lib-rarity-filters">
+      <button class="lib-rbtn active" data-rarity="all">All</button>
+      <?php foreach ($aptCat['districts'] as $dk => $dm): ?>
+        <button class="lib-rbtn" data-rarity="<?= $dk ?>" style="--rc:<?= $dm['col'] ?>"><?= e($dm['label']) ?></button>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <div class="lib-result-count" id="libCount"></div>
+  <div class="lib-grid" id="libGrid">
+    <?php foreach ($aptCat['types'] as $tid => $atype):
+      $dm = $aptCat['districts'][$atype['district']] ?? ['label'=>ucfirst($atype['district']),'col'=>'var(--muted)'];
+      $rc = $housingRarityColors[$atype['rarity']] ?? 'var(--muted)';
+      $floors = $housingRarityFloors[$atype['rarity']] ?? 4;
+    ?>
+    <div class="lib-card" data-rarity="<?= e($atype['district']) ?>" data-price="<?= (int)$atype['price'] ?>" data-stat="0" data-name="<?= strtolower(e($atype['name'])) ?>">
+      <div class="apt-art" style="height:70px;margin:-2px -2px 8px;border-radius:6px 6px 0 0;overflow:hidden"><?= apt_building_art($rc, $tid, $floors, $atype['district']) ?></div>
+      <div class="lib-card-head" style="margin-top:0">
+        <div style="flex:1;min-width:0">
+          <div class="lib-name"><?= e($atype['name']) ?></div>
+          <div class="lib-cat" style="color:<?= $dm['col'] ?>"><?= e($dm['label']) ?> &middot; <?= e($atype['region']) ?></div>
+        </div>
+      </div>
+      <div class="lib-desc" style="color:#3bcf63"><?= e($atype['perks']) ?></div>
+      <div class="lib-stats">
+        <span class="lib-stat price">&#9733; <?= number_format($atype['price']) ?> credits</span>
+      </div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+  <p class="muted" id="libEmpty" style="text-align:center;padding:32px 0;display:none">No residences match your filters.</p>
 </div>
 <?php endif; ?>
 
