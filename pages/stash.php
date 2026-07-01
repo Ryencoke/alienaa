@@ -7,11 +7,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $a = $_POST['action'] ?? '';
   try {
     if ($a === 'equip') {
+      // Gear can come from two places: the catalog (player_items, bought at
+      // General Store/Bazaar) or forged/crafted gear (player_gear, one row
+      // per unit — Blacksmith and the Fabrication Lab both write here). The
+      // form tells us which table this id belongs to.
+      $src = ($_POST['source'] ?? 'items') === 'gear' ? 'gear' : 'items';
       $iid = (int)($_POST['item_id'] ?? 0);
-      $q = $pdo->prepare('SELECT i.slot FROM items i JOIN player_items pi ON pi.item_id = i.id AND pi.player_id = ?
-                          WHERE i.id = ? AND pi.qty > 0');
-      $q->execute([$pid, $iid]);
-      $slot = $q->fetchColumn();
+      if ($src === 'gear') {
+        $q = $pdo->prepare('SELECT gear_type FROM player_gear WHERE id=? AND player_id=?');
+        $q->execute([$iid, $pid]);
+        $slot = $q->fetchColumn();
+      } else {
+        $q = $pdo->prepare('SELECT i.slot FROM items i JOIN player_items pi ON pi.item_id = i.id AND pi.player_id = ?
+                            WHERE i.id = ? AND pi.qty > 0');
+        $q->execute([$pid, $iid]);
+        $slot = $q->fetchColumn();
+      }
       if ($slot !== 'weapon' && $slot !== 'armor') throw new RuntimeException("You can't equip that.");
       $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')
           ->execute(["equipped_{$slot}:{$pid}", $iid]);
@@ -40,22 +51,27 @@ function equipped_item($pdo, $id) {
   $q = $pdo->prepare('SELECT id, name, atk, def FROM items WHERE id = ?');
   $q->execute([$id]); return $q->fetch() ?: null;
 }
-// Equipped gear — check player_gear first, fall back to player_items
-$ew = $ea = null; $gearAtk = $gearDef = 0;
+// Equipped gear — check player_gear first, fall back to player_items. $ewSrc/
+// $eaSrc record which table it actually resolved from, since a player_gear
+// row and a catalog item can share the same numeric id — needed below to
+// tell the two apart when marking a Backpack card "Equipped".
+$ew = $ea = null; $ewSrc = $eaSrc = null; $gearAtk = $gearDef = 0;
 try {
   $gq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
   $gq->execute(["equipped_weapon:{$pid}"]); $wid = (int)$gq->fetchColumn();
   if ($wid > 0) {
     $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def,loan_id FROM player_gear WHERE id=? AND player_id=?');
     $gq2->execute([$wid,$pid]); $ew = $gq2->fetch() ?: null;
-    if (!$ew) { $gq3 = $pdo->prepare('SELECT i.id,i.name,i.atk,0 AS def,0 AS loan_id FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq3->execute([$pid,$wid]); $ew = $gq3->fetch() ?: null; }
+    if ($ew) $ewSrc = 'gear';
+    if (!$ew) { $gq3 = $pdo->prepare('SELECT i.id,i.name,i.atk,0 AS def,0 AS loan_id FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq3->execute([$pid,$wid]); $ew = $gq3->fetch() ?: null; if ($ew) $ewSrc = 'items'; }
     $gearAtk = $ew ? (int)$ew['atk'] : 0;
   }
   $gq->execute(["equipped_armor:{$pid}"]); $aid = (int)$gq->fetchColumn();
   if ($aid > 0) {
     $gq2 = $pdo->prepare('SELECT id,name,atk_bonus AS atk,def_bonus AS def,loan_id FROM player_gear WHERE id=? AND player_id=?');
     $gq2->execute([$aid,$pid]); $ea = $gq2->fetch() ?: null;
-    if (!$ea) { $gq3 = $pdo->prepare('SELECT i.id,i.name,0 AS atk,i.def,0 AS loan_id FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq3->execute([$pid,$aid]); $ea = $gq3->fetch() ?: null; }
+    if ($ea) $eaSrc = 'gear';
+    if (!$ea) { $gq3 = $pdo->prepare('SELECT i.id,i.name,0 AS atk,i.def,0 AS loan_id FROM items i JOIN player_items pi ON pi.item_id=i.id AND pi.player_id=? WHERE i.id=? AND pi.qty>0'); $gq3->execute([$pid,$aid]); $ea = $gq3->fetch() ?: null; if ($ea) $eaSrc = 'items'; }
     $gearDef = $ea ? (int)$ea['def'] : 0;
   }
 } catch (Throwable $e) {}
@@ -67,6 +83,26 @@ $inv = $pdo->prepare(
    ORDER BY i.category, i.name');
 $inv->execute([$pid]);
 $inv = $inv->fetchAll();
+foreach ($inv as &$r) { $r['source'] = 'items'; $r['loan_id'] = 0; }
+unset($r);
+
+// Forged/crafted gear (Blacksmith + Fabrication Lab) — lives in its own
+// table (one row per unit, so it can carry per-item bonuses and guild loan
+// tracking that the catalog-based player_items can't represent) but belongs
+// in the same Backpack list so it's equippable from here too, not just from
+// whichever page happened to craft it.
+try {
+  $gq = $pdo->prepare('SELECT id, name, gear_type, atk_bonus, def_bonus, loan_id FROM player_gear WHERE player_id=? ORDER BY created_at DESC');
+  $gq->execute([$pid]);
+  foreach ($gq as $g) {
+    $inv[] = [
+      'id' => (int)$g['id'], 'name' => $g['name'], 'category' => 'gear', 'tier' => null,
+      'slot' => $g['gear_type'], 'atk' => (int)$g['atk_bonus'], 'def' => (int)$g['def_bonus'],
+      'descr' => '', 'qty' => 1, 'source' => 'gear', 'loan_id' => (int)$g['loan_id'],
+    ];
+  }
+} catch (Throwable $e) {}
+
 $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_keys($cats);
 ?>
 <?= scene_header('st-canvas', '&#9876;', 'Inventory',
@@ -111,11 +147,12 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
   </div>
   <div id="invlist">
     <?php foreach ($inv as $r):
-      $isEq = (($r['slot'] === 'weapon' && $ew && $ew['id'] == $r['id']) || ($r['slot'] === 'armor' && $ea && $ea['id'] == $r['id'])); ?>
+      $isEq = (($r['slot'] === 'weapon' && $ew && $ew['id'] == $r['id'] && $ewSrc === $r['source'])
+            || ($r['slot'] === 'armor' && $ea && $ea['id'] == $r['id'] && $eaSrc === $r['source'])); ?>
     <div class="itemcard" data-cat="<?= e($r['category']) ?>">
       <div class="ic"><?= item_icon($r['category'], $r['slot']) ?></div>
       <div class="body">
-        <div class="nm"><?= e($r['name']) ?><?php if ($r['slot']): ?> <span class="muted">(<?= ucfirst($r['slot']) ?>)</span><?php endif; ?> <span class="muted">&times;<?= (int)$r['qty'] ?></span></div>
+        <div class="nm"><?= e($r['name']) ?><?php if ($r['slot']): ?> <span class="muted">(<?= ucfirst($r['slot']) ?>)</span><?php endif; ?> <span class="muted">&times;<?= (int)$r['qty'] ?></span><?php if ((int)($r['loan_id'] ?? 0) > 0): ?> <span style="font-size:9px;font-weight:700;color:#e8a33d;text-transform:uppercase;letter-spacing:.4px;border:1px solid rgba(232,163,61,.4);border-radius:4px;padding:1px 5px;vertical-align:middle">&#9874; Guild Loan</span><?php endif; ?></div>
         <?php if ($r['descr']): ?><div class="muted" style="font-size:11px"><?= e($r['descr']) ?></div><?php endif; ?>
         <?php if ($r['slot'] === 'weapon'): ?><div class="st">+<?= (int)$r['atk'] ?> ATK</div>
         <?php elseif ($r['slot'] === 'armor'): ?><div class="st">+<?= (int)$r['def'] ?> DEF</div><?php endif; ?>
@@ -125,6 +162,7 @@ $cats = []; foreach ($inv as $r) $cats[$r['category']] = true; $cats = array_key
           <form method="post" style="margin:0">
             <input type="hidden" name="action" value="equip">
             <input type="hidden" name="item_id" value="<?= (int)$r['id'] ?>">
+            <input type="hidden" name="source" value="<?= e($r['source']) ?>">
             <button class="btn btn-sm btn-primary" type="submit">Equip</button>
           </form>
         <?php elseif ($isEq): ?>

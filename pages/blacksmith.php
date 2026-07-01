@@ -74,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'buy')
         ->execute([$pid, $code, $item[1], $item[3], (int)$item[5], (int)$item[6]]);
     $pdo->commit();
     $player = current_player();
-    $msg = 'Forged: ' . e($item[1]) . '. Equip it at the Fabrication Lab.';
+    $msg = 'Forged: ' . e($item[1]) . '. Equip it from your Inventory.';
   } catch (Throwable $ex) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $msg = $ex->getMessage(); $msgErr = true;
@@ -147,7 +147,7 @@ $pocket  = (int)$player['creds_pocket'];
     <form method="post" id="bs-buy-form" style="margin:0">
       <input type="hidden" name="action" value="buy">
       <input type="hidden" name="item_code" id="bs-buy-code">
-      <button type="submit" id="bs-buy-btn" style="background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">&#9874; Forge It</button>
+      <button type="submit" id="bs-buy-btn" style="background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">Forge It</button>
     </form>
   </div>
 </div>
@@ -326,7 +326,7 @@ if(grid&&detail){
       btn.innerHTML='&#10003; Owned'; btn.disabled=true; btn.style.opacity='0.5';
       form.removeAttribute('data-forgefx');
     } else {
-      btn.innerHTML='&#9874; Forge It'; btn.disabled=false; btn.style.opacity='1';
+      btn.innerHTML='Forge It'; btn.disabled=false; btn.style.opacity='1';
       btn.style.background='rgba(25,240,199,.08)';
       btn.style.borderColor='rgba(25,240,199,.35)';
       btn.style.color='var(--accent)';

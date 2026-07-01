@@ -282,7 +282,7 @@ $rarityStyle = [
       <?php endfor; ?>
     </div>
     <div style="display:flex;align-items:center;gap:12px">
-      <button type="submit" id="run-btn" disabled style="opacity:.4">&#128738; Open Crates</button>
+      <button type="submit" id="run-btn" disabled style="opacity:.4">Open Crates</button>
       <span class="muted" style="font-size:12px" id="pick-count">0 / 3 selected</span>
     </div>
   </form>
@@ -369,7 +369,7 @@ $rarityStyle = [
         <form method="post" style="margin:0" data-fdfx="craft" data-fd-item="<?= e($rc['out_name']) ?>" data-fd-qty="<?= (int)$rc['out_qty'] ?>">
           <input type="hidden" name="action" value="craft">
           <input type="hidden" name="recipe" value="<?= e($rc['code']) ?>">
-          <button type="submit" style="background:rgba(25,240,199,.1);border-color:rgba(25,240,199,.3);color:var(--accent)">&#9881; Craft</button>
+          <button type="submit" style="background:rgba(25,240,199,.1);border-color:rgba(25,240,199,.3);color:var(--accent)">Craft</button>
         </form>
       <?php endif; ?>
     </div>

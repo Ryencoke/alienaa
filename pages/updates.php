@@ -174,7 +174,7 @@ function uvote($uid, $dir, $glyph, $myVote) {
           </div>
           <div id="updCreditConfirm" style="display:none;margin-top:6px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
         </div>
-        <button type="submit" style="background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent);flex:none">&#128240; Publish</button>
+        <button type="submit" style="background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent);flex:none">Publish</button>
       </div>
     </form>
   </div>

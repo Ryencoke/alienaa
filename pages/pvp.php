@@ -512,7 +512,7 @@ if (($tab === 'log') && isset($_GET['detail'])) {
              style="width:100%" <?= ((int)$player['integrity'] < 10 || (int)$player['signal'] < 1) ? 'disabled' : '' ?>>
       <div class="ac-list" id="pvpAcList" style="display:none"></div>
     </div>
-    <button type="submit" style="padding:10px 20px;flex:none" <?= ((int)$player['integrity'] < 10 || (int)$player['signal'] < 1) ? 'disabled' : '' ?>>&#9876; Fight</button>
+    <button type="submit" style="padding:10px 20px;flex:none" <?= ((int)$player['integrity'] < 10 || (int)$player['signal'] < 1) ? 'disabled' : '' ?>>Fight</button>
   </form>
   <div id="pvpConfirm" style="display:none;margin-top:6px;max-width:400px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
   <script>

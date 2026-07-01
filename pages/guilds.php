@@ -404,6 +404,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$mySyn || !syn_can($myRank,'give_stockpile')) throw new RuntimeException('No permission.');
       $iid = (int)($_POST['item_id'] ?? 0);
       $recipient = (int)($_POST['recipient_id'] ?? 0);
+      $giveQty = max(1, min(99, (int)($_POST['qty'] ?? 1)));
       $ck = $pdo->prepare('SELECT item_name,available,gear_type FROM syndicate_stockpile WHERE id=? AND syndicate_id=?'); $ck->execute([$iid,$mySyn['syndicate_id']]); $si = $ck->fetch();
       if (!$si) throw new RuntimeException('Item not found.');
       // Weapons/armor are Armoury assets — they can only be loaned out and returned,
@@ -415,12 +416,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $catQ = $pdo->prepare('SELECT id FROM items WHERE name=? LIMIT 1'); $catQ->execute([$si['item_name']]);
       $catalogId = (int)$catQ->fetchColumn();
       if (!$catalogId) throw new RuntimeException('This item can no longer be matched to the item catalog — flag it to staff.');
+      // Every donated unit is its own row (no qty column) — grab up to
+      // $giveQty identical, available rows for this item to hand over as a batch.
+      $rowsQ = $pdo->prepare('SELECT id FROM syndicate_stockpile WHERE syndicate_id=? AND item_name=? AND gear_type="item" AND available=1 LIMIT ' . (int)$giveQty);
+      $rowsQ->execute([$mySyn['syndicate_id'], $si['item_name']]);
+      $rowIds = $rowsQ->fetchAll(PDO::FETCH_COLUMN);
+      if (count($rowIds) < $giveQty) throw new RuntimeException('Not enough of that item in the Stockpile — only ' . count($rowIds) . ' available.');
       $rn = $pdo->prepare('SELECT username FROM players WHERE id=?'); $rn->execute([$recipient]); $rname = $rn->fetchColumn() ?: '?';
-      $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,1) ON DUPLICATE KEY UPDATE qty=qty+1')->execute([$recipient, $catalogId]);
-      $pdo->prepare('DELETE FROM syndicate_stockpile WHERE id=? AND syndicate_id=?')->execute([$iid,$mySyn['syndicate_id']]);
-      syn_log($pdo,$mySyn['syndicate_id'],$recipient,$pid,'stockpile_give','"'.$si['item_name'].'" given'); // recipient rendered as a profile link (see tab=log)
-      syn_notify($pdo, $recipient, 'guild_loan', '"'.$si['item_name'].'" was given to you from the Stockpile by '.$player['username'].'.');
-      $msg = 'Gave "' . $si['item_name'] . '" to ' . $rname . '.';
+      $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)')->execute([$recipient, $catalogId, $giveQty]);
+      $delQ = $pdo->prepare('DELETE FROM syndicate_stockpile WHERE id IN (' . implode(',', array_fill(0, count($rowIds), '?')) . ') AND syndicate_id=?');
+      $delQ->execute(array_merge($rowIds, [$mySyn['syndicate_id']]));
+      $qtyTag = $giveQty > 1 ? ' &times;' . $giveQty : '';
+      syn_log($pdo,$mySyn['syndicate_id'],$recipient,$pid,'stockpile_give','"'.$si['item_name'].'"'.$qtyTag.' given'); // recipient rendered as a profile link (see tab=log)
+      syn_notify($pdo, $recipient, 'guild_loan', ($giveQty > 1 ? $giveQty.'&times; ' : '').'"'.$si['item_name'].'" '.($giveQty > 1 ? 'were' : 'was').' given to you from the Stockpile by '.$player['username'].'.');
+      $msg = 'Gave ' . ($giveQty > 1 ? $giveQty.'× ' : '') . '"' . $si['item_name'] . '" to ' . $rname . '.';
 
     } elseif ($act === 'loan_item') {
       if (!$mySyn || !syn_can($myRank,'loan_items')) throw new RuntimeException('No permission.');
@@ -1011,7 +1020,7 @@ elseif ($tab === 'stockpile' && $mySyn):
     </div>
     <div class="field" style="width:80px"><span>Qty</span><input type="number" name="donate_qty" value="1" min="1" max="99"></div>
     <div class="field" style="flex:1;min-width:160px"><span>Notes</span><input type="text" name="notes" maxlength="200" placeholder="Optional notes" data-no-counter></div>
-    <div><button type="submit" style="font-size:12px">Donate</button></div>
+    <div class="field" style="width:auto"><span style="visibility:hidden">&nbsp;</span><button type="submit" style="font-size:12px">Donate</button></div>
   </form>
   <?php endif; ?>
 </div>
@@ -1033,13 +1042,18 @@ elseif ($tab === 'stockpile' && $mySyn):
     </div>
     <span style="font-size:11px;font-weight:700;color:<?= $si['available']?'#3bcf63':'#e8a33d' ?>"><?= $si['available']?'Available':'On Loan' ?></span>
     <?php if ($canGiveStock && $si['available'] && !empty($synMembers)): ?>
-    <form method="post" style="margin:0;display:flex;gap:4px;align-items:center">
+    <form method="post" style="margin:0;display:flex;gap:4px;align-items:center" onsubmit="return confirm('Give &quot;'+this.qty.value+'&times; <?= e($si['item_name']) ?>&quot; to the selected member?')">
       <input type="hidden" name="action" value="stockpile_give">
       <input type="hidden" name="item_id" value="<?= (int)$si['id'] ?>">
+      <?php if ($si['_count'] > 1): ?>
+      <input type="number" name="qty" value="1" min="1" max="<?= (int)$si['_count'] ?>" style="width:44px;font-size:11px;padding:2px 4px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px">
+      <?php else: ?>
+      <input type="hidden" name="qty" value="1">
+      <?php endif; ?>
       <select name="recipient_id" style="font-size:11px;padding:2px 6px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px">
         <?php foreach ($synMembers as $sm): ?><option value="<?= (int)$sm['player_id'] ?>"><?= e($sm['username']) ?></option><?php endforeach; ?>
       </select>
-      <button type="submit" style="font-size:10px;padding:3px 10px;background:rgba(59,207,99,.1);border:1px solid rgba(59,207,99,.3);color:#3bcf63;border-radius:4px;cursor:pointer" onclick="return confirm('Give one &quot;<?= e($si['item_name']) ?>&quot; to the selected member?')">&#127873; Give</button>
+      <button type="submit" style="font-size:10px;padding:3px 10px;background:rgba(59,207,99,.1);border:1px solid rgba(59,207,99,.3);color:#3bcf63;border-radius:4px;cursor:pointer">Give</button>
     </form>
     <?php endif; ?>
   </div>
@@ -1057,7 +1071,7 @@ elseif ($tab === 'stockpile' && $mySyn):
       <div style="font-size:11px;color:var(--muted)">Loaned to <b style="color:var(--accent)"><?= e($ln['borrower_name']) ?></b> &middot; <?= e(date('M j',strtotime($ln['loaned_at']))) ?></div>
     </div>
     <?php if ($canLoan || (int)$ln['player_id']===$pid): ?>
-    <form method="post" style="margin:0"><input type="hidden" name="action" value="return_item"><input type="hidden" name="loan_id" value="<?= (int)$ln['id'] ?>"><button type="submit" style="font-size:11px;padding:4px 12px" onclick="return confirm('Return this item to stockpile?')">&#9100; Return</button></form>
+    <form method="post" style="margin:0"><input type="hidden" name="action" value="return_item"><input type="hidden" name="loan_id" value="<?= (int)$ln['id'] ?>"><button type="submit" style="font-size:11px;padding:4px 12px" onclick="return confirm('Return this item to stockpile?')">Return</button></form>
     <?php endif; ?>
   </div>
   <?php endforeach; ?>
@@ -1102,7 +1116,7 @@ elseif ($tab === 'armoury' && $mySyn):
     </div>
     <div class="field" style="width:80px"><span>Qty</span><input type="number" name="donate_qty" value="1" min="1" max="99"></div>
     <div class="field" style="flex:1;min-width:160px"><span>Notes</span><input type="text" name="notes" maxlength="200" placeholder="Optional notes" data-no-counter></div>
-    <div><button type="submit" style="font-size:12px">Donate</button></div>
+    <div class="field" style="width:auto"><span style="visibility:hidden">&nbsp;</span><button type="submit" style="font-size:12px">Donate</button></div>
   </form>
   <?php endif; ?>
 </div>
@@ -1165,7 +1179,7 @@ elseif ($tab === 'armoury' && $mySyn):
     <?php if ($canLoan || (int)$ln['player_id']===$pid):
       $isSelfReturn = (int)$ln['player_id'] === $pid;
     ?>
-    <form method="post" style="margin:0"><input type="hidden" name="action" value="return_item"><input type="hidden" name="loan_id" value="<?= (int)$ln['id'] ?>"><button type="submit" style="font-size:11px;padding:4px 12px" onclick="return confirm('<?= $isSelfReturn ? 'Return this item to the Armoury?' : 'Recall this item from '.e($ln['borrower_name']).'?' ?>')"><?= $isSelfReturn ? '&#9100; Return' : '&#8634; Recall' ?></button></form>
+    <form method="post" style="margin:0"><input type="hidden" name="action" value="return_item"><input type="hidden" name="loan_id" value="<?= (int)$ln['id'] ?>"><button type="submit" style="font-size:11px;padding:4px 12px" onclick="return confirm('<?= $isSelfReturn ? 'Return this item to the Armoury?' : 'Recall this item from '.e($ln['borrower_name']).'?' ?>')"><?= $isSelfReturn ? 'Return' : 'Recall' ?></button></form>
     <?php endif; ?>
   </div>
   <?php endforeach; ?>
@@ -1326,7 +1340,7 @@ elseif ($tab === 'create'): ?>
     <div class="field"><span>Syndicate Name <span class="muted">(3–60 chars)</span></span><input type="text" name="syn_name" maxlength="60" placeholder="e.g. Iron Veil"></div>
     <div class="field" style="margin-top:8px"><span>Tag <span class="muted">(2–8 uppercase)</span></span><input type="text" name="syn_tag" maxlength="8" placeholder="e.g. IRON" style="text-transform:uppercase"></div>
     <div class="field" style="margin-top:8px"><span>Description <span class="muted">(optional)</span></span><textarea name="syn_desc" style="min-height:70px" maxlength="500"></textarea></div>
-    <button type="submit" style="margin-top:10px" <?= ($player['shards']??0)<SYNDICATE_CREATE_COST?'disabled':'' ?>>&#9760; Form Syndicate &mdash; <?= SYNDICATE_CREATE_COST ?> &#9670;</button>
+    <button type="submit" style="margin-top:10px" <?= ($player['shards']??0)<SYNDICATE_CREATE_COST?'disabled':'' ?>>Form Syndicate &mdash; <?= SYNDICATE_CREATE_COST ?> &#9670;</button>
   </form>
   <?php endif; ?>
 </div>

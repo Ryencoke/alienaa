@@ -106,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <div style="font-size:12px;color:var(--neon2);font-weight:700;margin-bottom:8px">&#9888; This is permanent. You cannot exit the Accord early.</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Confirm to proceed — this action cannot be undone.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button type="submit" style="background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.4);color:#e8a33d">&#9878; Confirm — Sign Permanently</button>
+        <button type="submit" style="background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.4);color:#e8a33d">Confirm — Sign Permanently</button>
         <button type="button" id="accord-cancel-btn" style="background:var(--panel2);border-color:var(--line);color:var(--muted)">Cancel</button>
       </div>
     </div>

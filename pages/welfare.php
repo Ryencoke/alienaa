@@ -92,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'claim
       <form method="post" style="margin:0">
         <input type="hidden" name="action" value="claim">
         <button type="submit" style="padding:12px 32px;font-size:14px;background:rgba(59,207,99,.12);border:1px solid rgba(59,207,99,.4);color:#3bcf63">
-          &#128197; Claim Daily Stipend &mdash; <?= number_format(WELFARE_AMOUNT) ?> creds
+          Claim Daily Stipend &mdash; <?= number_format(WELFARE_AMOUNT) ?> creds
         </button>
       </form>
     </div>

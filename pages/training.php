@@ -201,7 +201,7 @@ $player = current_player();
     <input type="hidden" name="action" value="train">
     <input type="hidden" name="regimen" value="<?= $regKey ?>">
     <button type="submit" style="width:100%;padding:9px;font-size:12px;<?= $active ? '' : 'opacity:.5;cursor:not-allowed' ?>" <?= $active ? '' : 'disabled' ?>>
-      <?= $reg['icon'] ?> Train <?= $reg['label'] ?> &mdash; -<?= TRAIN_DRIVE_COST ?> Drive
+      Train <?= $reg['label'] ?> &mdash; -<?= TRAIN_DRIVE_COST ?> Drive
     </button>
   </form>
 </div>

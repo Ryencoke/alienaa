@@ -7,11 +7,33 @@ $fightOutcome = ''; // 'win' | 'loss' | ''
 const HEAL_PER_KIT = 10;
 const ATK_BASE     = 4;
 const ATK_PER_LVL  = 2;
-const ATK_PER_SKILL= 15;
-const DEF_PER_SKILL= 30;
+const DRIVE_COST   = 15; // Drive (cycles) burned per engage
+
+// Combat skill no longer boosts ATK/DEF directly — it gates which enemy
+// tier you're allowed to engage instead (see $TIER_COMBAT_REQ below). This
+// mirrors the skill's description in lib.php's skill_defs(): "Unlocks
+// higher-tier Combat Sim opponents per level."
+$TIER_COMBAT_REQ = [1 => 0, 2 => 50, 3 => 150, 4 => 300, 5 => 450, 6 => 650, 7 => 850];
 
 $pdo->prepare('INSERT IGNORE INTO player_skills (player_id, skill_id, points)
                SELECT ?, id, 0 FROM skills')->execute([$pid]);
+
+// Self-healing seed: three additional enemy tiers beyond the original four,
+// so training Combat has somewhere new to unlock. INSERT IGNORE is safe to
+// re-run every load since `code` is UNIQUE.
+try {
+  $newTiers = [
+    ['drone_infiltrator', 'Ghost Protocol Infiltrator', 5, 15, 160, 30, 9,  400,  800, 180, 'Stealth-cloaked breach unit. Hits before you see it coming.'],
+    ['drone_warden',      'Blacksite Warden',           5, 16, 190, 34, 11, 480,  950, 210, 'Guards a site that officially does not exist.'],
+    ['drone_aegis',       'Rogue AEGIS Construct',      6, 22, 320, 55, 18, 900, 1800, 380, 'A defense AI that stopped taking orders from anyone.'],
+    ['drone_hex',         'Hex-Compiled Wraith',        6, 23, 360, 60, 20, 1000,2000, 420, 'Code that shouldn\'t run, running anyway.'],
+    ['drone_kingpin',     'Sprawl Kingpin\'s Enforcer',  7, 32, 620, 95, 32, 2200,4200, 750, 'The last thing between you and the throne room.'],
+    ['drone_apex',        'Apex Threat: BLACKOUT',      7, 34, 700,105, 36, 2600,5000, 820, 'Citywide kill order. You are the only one dumb enough to answer it.'],
+  ];
+  $ins = $pdo->prepare('INSERT IGNORE INTO enemies (code,name,tier,level_req,hp,attack,defense,creds_min,creds_max,xp_reward,descr)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+  foreach ($newTiers as $nt) $ins->execute($nt);
+} catch (Throwable $e) {}
 
 // grant_xp() lives in lib.php (shared, concurrency-safe)
 
@@ -71,6 +93,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$e) throw new RuntimeException('No such target on the deck.');
       if ((int)$player['level'] < (int)$e['level_req'])
         throw new RuntimeException("You're not jacked up enough for that — needs level {$e['level_req']}.");
+      $tierReq = $TIER_COMBAT_REQ[(int)$e['tier']] ?? 0;
+      if ($combat < $tierReq)
+        throw new RuntimeException("Combat skill too low for that tier — needs {$tierReq} Combat skill points (you have {$combat}). Train at the Skillsoft Lab.");
+      if ((int)$player['cycles'] < DRIVE_COST)
+        throw new RuntimeException('Not enough Drive to engage — costs ' . DRIVE_COST . ' Drive.');
 
       $tactic = $_POST['tactic'] ?? 'balanced';
       $tacticMods = [
@@ -80,8 +107,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       ];
       [$tAtkM, $tDefM] = $tacticMods[$tactic] ?? [1.0, 1.0];
 
-      $pAtk = ATK_BASE + (int)$player['level'] * ATK_PER_LVL + intdiv($combat, ATK_PER_SKILL) + $gearAtk + $buffAtk;
-      $pDef = intdiv($combat, DEF_PER_SKILL) + $gearDef + $buffDef;
+      $pAtk = ATK_BASE + (int)$player['level'] * ATK_PER_LVL + $gearAtk + $buffAtk;
+      $pDef = $gearDef + $buffDef;
       [$outcome, $dealt, $taken, $endHp, $roundLog] = sim_fight((int)$player['integrity'], $pAtk, $pDef, $e, $tAtkM, $tDefM);
       $_SESSION['sim_log'] = array_slice($roundLog, 0, 15); // store up to 15 rounds
       $_SESSION['sim_tactic'] = $tactic;
@@ -89,6 +116,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       $credsWon = 0; $xpWon = 0; $lootMsg = '';
       $pdo->beginTransaction();
+      $dc = $pdo->prepare('UPDATE players SET cycles = cycles - ? WHERE id = ? AND cycles >= ?');
+      $dc->execute([DRIVE_COST, $pid, DRIVE_COST]);
+      if ($dc->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough Drive to engage — costs ' . DRIVE_COST . ' Drive.'); }
       // Apply damage RELATIVELY with a liveness guard — the old absolute write
       // ($endHp from a stale read) let parallel engages each fight from full HP
       // and stack rewards while only the last HP write stuck.
@@ -155,8 +185,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 /* ---------- display data ---------- */
-$pAtk = ATK_BASE + (int)$player['level'] * ATK_PER_LVL + intdiv($combat, ATK_PER_SKILL) + $gearAtk + $buffAtk;
-$pDef = intdiv($combat, DEF_PER_SKILL) + $gearDef + $buffDef;
+$pAtk = ATK_BASE + (int)$player['level'] * ATK_PER_LVL + $gearAtk + $buffAtk;
+$pDef = $gearDef + $buffDef;
 
 $enemies = $pdo->query('SELECT e.*, i.name AS loot_name
                         FROM enemies e LEFT JOIN items i ON i.id = e.loot_item_id
@@ -181,6 +211,9 @@ $tierMeta = [
   2 => ['name' => 'Tier II — Security Units',       'color' => 'var(--accent)', 'bg' => 'rgba(25,240,199,.08)',   'border' => 'rgba(25,240,199,.25)'],
   3 => ['name' => 'Tier III — Corporate Enforcers', 'color' => '#e8a33d',       'bg' => 'rgba(232,163,61,.08)',   'border' => 'rgba(232,163,61,.25)'],
   4 => ['name' => 'Tier IV — Elite Threats',        'color' => 'var(--neon2)',  'bg' => 'rgba(255,45,149,.1)',    'border' => 'rgba(255,45,149,.3)'],
+  5 => ['name' => 'Tier V — Blacksite Ops',         'color' => '#9d6bff',       'bg' => 'rgba(157,107,255,.08)',  'border' => 'rgba(157,107,255,.28)'],
+  6 => ['name' => 'Tier VI — Rogue Constructs',     'color' => '#4de8b8',       'bg' => 'rgba(77,232,184,.08)',   'border' => 'rgba(77,232,184,.28)'],
+  7 => ['name' => 'Tier VII — Apex Threats',        'color' => '#ffffff',       'bg' => 'rgba(255,255,255,.06)',  'border' => 'rgba(255,255,255,.25)'],
 ];
 
 $ip = (int)$player['integrity_max'] > 0 ? min(100, round((int)$player['integrity'] / (int)$player['integrity_max'] * 100)) : 0;
@@ -280,7 +313,7 @@ $flatlined = (int)$player['integrity'] <= 0;
     <?php endif; ?>
     <form method="post" style="margin:0">
       <input type="hidden" name="action" value="heal">
-      <button type="submit" style="width:100%" <?= $patchCount < 1 ? 'disabled' : '' ?>>&#129657; Use Patch Kit <span class="muted">(+<?= HEAL_PER_KIT ?> Health)</span></button>
+      <button type="submit" style="width:100%" <?= $patchCount < 1 ? 'disabled' : '' ?>>Use Patch Kit <span class="muted">(+<?= HEAL_PER_KIT ?> Health)</span></button>
     </form>
     <p class="muted" style="font-size:11px;text-align:center;margin:7px 0 0">
       <?= $patchCount ?> kit<?= $patchCount !== 1 ? 's' : '' ?> in stash &mdash;
@@ -302,7 +335,10 @@ $flatlined = (int)$player['integrity'] <= 0;
     </div>
     <div style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:5px">
       <div style="display:flex;justify-content:space-between">
-        <span>Combat Skill</span><span style="color:var(--text)"><?= number_format($combat) ?> pts</span>
+        <span>Combat Skill</span><span style="color:var(--text)"><?= number_format($combat) ?> pts <span class="muted">(unlocks higher sim tiers)</span></span>
+      </div>
+      <div style="display:flex;justify-content:space-between">
+        <span>Drive</span><span style="color:<?= (int)$player['cycles'] < DRIVE_COST ? 'var(--neon2)' : 'var(--text)' ?>"><?= number_format($player['cycles']) ?> <span class="muted">(&minus;<?= DRIVE_COST ?>/engage)</span></span>
       </div>
       <?php if ($gearAtk || $gearDef): ?>
       <div style="display:flex;justify-content:space-between">
@@ -344,8 +380,12 @@ $flatlined = (int)$player['integrity'] <= 0;
     <span style="color:<?= $tm['color'] ?>;font-size:13px;font-weight:bold"><?= e($tm['name']) ?></span>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:10px">
-  <?php foreach ($tierEnemies as $e):
-    $locked   = (int)$player['level'] < (int)$e['level_req'];
+  <?php
+  $tierReq = $TIER_COMBAT_REQ[$tier] ?? 0;
+  foreach ($tierEnemies as $e):
+    $lvlLocked = (int)$player['level'] < (int)$e['level_req'];
+    $skillLocked = $combat < $tierReq;
+    $locked   = $lvlLocked || $skillLocked;
     $canFight = !$locked && !$flatlined;
   ?>
   <div style="background:var(--panel2);border:1px solid <?= $canFight ? $tm['border'] : 'var(--line)' ?>;border-radius:7px;padding:12px;opacity:<?= $locked ? '.5' : '1' ?>;display:flex;flex-direction:column;gap:0">
@@ -356,7 +396,7 @@ $flatlined = (int)$player['integrity'] <= 0;
         <div style="font-size:11px;color:var(--muted);margin-top:2px"><?= e($e['descr']) ?></div>
       </div>
       <?php if ($locked): ?>
-        <span style="background:rgba(93,102,128,.15);border:1px solid rgba(93,102,128,.3);color:var(--muted);border-radius:4px;padding:2px 7px;font-size:10px;white-space:nowrap;flex:none;margin-left:8px">Lv <?= (int)$e['level_req'] ?>+</span>
+        <span style="background:rgba(93,102,128,.15);border:1px solid rgba(93,102,128,.3);color:var(--muted);border-radius:4px;padding:2px 7px;font-size:10px;white-space:nowrap;flex:none;margin-left:8px"><?= $lvlLocked ? 'Lv '.(int)$e['level_req'].'+' : 'Combat '.$tierReq.'+' ?></span>
       <?php endif; ?>
     </div>
 
@@ -376,8 +416,10 @@ $flatlined = (int)$player['integrity'] <= 0;
       <?php endif; ?>
     </div>
 
-    <?php if ($locked): ?>
+    <?php if ($lvlLocked): ?>
       <div style="text-align:center;padding:7px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font-size:12px;margin-top:auto">Requires Level <?= (int)$e['level_req'] ?></div>
+    <?php elseif ($skillLocked): ?>
+      <div style="text-align:center;padding:7px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font-size:12px;margin-top:auto">Requires <?= $tierReq ?> Combat skill (<a href="index.php?p=datacore&act=lab">train</a>)</div>
     <?php elseif ($flatlined): ?>
       <div style="text-align:center;padding:7px;background:rgba(255,45,149,.06);border:1px solid rgba(255,45,149,.2);border-radius:5px;color:var(--neon2);font-size:12px;margin-top:auto">Flatlined — patch up first</div>
     <?php else: ?>
@@ -392,7 +434,7 @@ $flatlined = (int)$player['integrity'] <= 0;
           </label>
           <?php endforeach; ?>
         </div>
-        <button type="submit" style="width:100%;background:<?= $tm['bg'] ?>;border-color:<?= $tm['border'] ?>;color:<?= $tm['color'] ?>">&#9889; Engage</button>
+        <button type="submit" style="width:100%;background:<?= $tm['bg'] ?>;border-color:<?= $tm['border'] ?>;color:<?= $tm['color'] ?>" <?= (int)$player['cycles'] < DRIVE_COST ? 'disabled' : '' ?>>Engage <span style="opacity:.75">(&minus;<?= DRIVE_COST ?> Drive)</span></button>
       </form>
     <?php endif; ?>
   </div>

@@ -235,7 +235,7 @@ $pulled = (($player['shard_pull_at'] ?? null) === $today);
       <form method="post" style="margin:0" <?= $canBuy ? 'data-exfx="sub" data-ex-days="'.$plan['days'].'"' : '' ?>>
         <input type="hidden" name="action" value="<?= $plan['action'] ?>">
         <button type="submit" <?= $canBuy ? '' : 'disabled' ?> style="width:100%;<?= !$canBuy ? 'opacity:.4' : 'border-color:rgba(232,212,77,.5);color:#e8d44d' ?>">
-          <?= $sub ? '&#9733; Extend' : '&#9733; Subscribe' ?> &mdash; <?= $plan['cost'] ?> &#9670;
+          <?= $sub ? 'Extend' : 'Subscribe' ?> &mdash; <?= $plan['cost'] ?> &#9670;
         </button>
       </form>
       <?php if (!$canBuy): ?><p class="muted" style="font-size:11px;margin:6px 0 0">You have <?= number_format($player['shards']) ?> &#9670; — need <?= $plan['cost'] - (int)$player['shards'] ?> more.</p><?php endif; ?>

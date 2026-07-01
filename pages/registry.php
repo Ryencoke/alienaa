@@ -172,7 +172,7 @@ try { $rq=$pdo->prepare('SELECT created_at FROM players WHERE id=?'); $rq->execu
                value="<?= e($player['username']) ?>">
         <small class="muted">Current: <b><?= e($player['username']) ?></b> &middot; Shards: <b style="color:#e8d44d">&#9670; <?= number_format($player['shards']) ?></b></small>
       </div>
-      <button type="submit" onclick="return confirm('Change handle to the new value? This costs 50 shards.')" style="margin-top:8px">&#128279; Confirm Change — 50 &#9670;</button>
+      <button type="submit" onclick="return confirm('Change handle to the new value? This costs 50 shards.')" style="margin-top:8px">Confirm Change — 50 &#9670;</button>
     </form>
   </div>
 

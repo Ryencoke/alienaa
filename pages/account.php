@@ -623,7 +623,7 @@ $curAccent = $player['accent_color'] ?? '';
         <form method="post" style="margin:0">
           <input type="hidden" name="action" value="complete_goal">
           <input type="hidden" name="goal_id" value="<?= e($g['id']) ?>">
-          <button type="submit" style="font-size:11px;padding:3px 10px;background:rgba(25,240,199,.07);border-color:rgba(25,240,199,.25);color:var(--accent)">&#10003; Done</button>
+          <button type="submit" style="font-size:11px;padding:3px 10px;background:rgba(25,240,199,.07);border-color:rgba(25,240,199,.25);color:var(--accent)">Done</button>
         </form>
         <?php endif; ?>
         <form method="post" style="margin:0">

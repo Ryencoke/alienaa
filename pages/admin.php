@@ -383,7 +383,7 @@ if ($sec === 'editplayer' && $canAdmin) {
         </div>
       </div>
 
-      <button type="submit">&#128190; Save Player</button>
+      <button type="submit">Save Player</button>
     </form>
 
     <?php
@@ -1061,7 +1061,7 @@ if ($sec === 'broadcast' && $isManager) {
           <option value="subs">Subscribers (<?= number_format($bcCounts['subs']) ?>)</option>
           <option value="staff">Staff only (<?= number_format($bcCounts['staff']) ?>)</option>
         </select>
-        <button type="submit" onclick="return confirm('Send this broadcast?')" style="background:rgba(25,240,199,.1);border-color:rgba(25,240,199,.35);color:var(--accent)">&#128226; Send Broadcast</button>
+        <button type="submit" onclick="return confirm('Send this broadcast?')" style="background:rgba(25,240,199,.1);border-color:rgba(25,240,199,.35);color:var(--accent)">Send Broadcast</button>
       </div>
     </form>
     <?php if ($recentBc): ?>
@@ -1115,7 +1115,7 @@ if ($sec === 'grant' && $canAdmin) {
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:10px 0;color:var(--muted)">
         <input type="checkbox" name="grant_notify" value="1" checked> Notify the player (with the reason)
       </label>
-      <button type="submit" style="background:rgba(59,207,99,.1);border-color:rgba(59,207,99,.35);color:#3bcf63">&#127873; Apply Grant</button>
+      <button type="submit" style="background:rgba(59,207,99,.1);border-color:rgba(59,207,99,.35);color:#3bcf63">Apply Grant</button>
     </form>
     <script>
     (function(){

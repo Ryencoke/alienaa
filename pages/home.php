@@ -75,39 +75,11 @@ try { $pfc = $pdo->prepare('SELECT COUNT(*) FROM friends WHERE player_id = ?'); 
 $homeMsgCount = 0;
 try { $pmc = $pdo->prepare('SELECT COUNT(*) FROM messages WHERE from_id = ?'); $pmc->execute([$pid]); $homeMsgCount = (int)$pmc->fetchColumn(); } catch (Throwable $e) {}
 
-// ── Notifications — schema ──
-try { $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'); } catch (Throwable $e) {}
-try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN ref_type VARCHAR(20) NULL"); } catch(Throwable $e) {}
-try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN ref_id INT NULL"); } catch(Throwable $e) {}
-try { $pdo->exec("ALTER TABLE player_notifications ADD UNIQUE KEY uq_pn_ref (player_id, ref_type, ref_id)"); } catch(Throwable $e) {}
-try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN is_seen TINYINT(1) NOT NULL DEFAULT 0"); } catch(Throwable $e) {}
-
-// ── Dismiss actions ──
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  $__act = $_POST['action'] ?? '';
-  if ($__act === 'dismiss_notif') {
-    $__nid = (int)($_POST['notif_id'] ?? 0);
-    if ($__nid > 0) try { $pdo->prepare("UPDATE player_notifications SET is_read=1 WHERE id=? AND player_id=?")->execute([$__nid, $pid]); } catch(Throwable $e) {}
-  } elseif ($__act === 'dismiss_all_notifs') {
-    try { $pdo->prepare("UPDATE player_notifications SET is_read=1 WHERE player_id=?")->execute([$pid]); } catch(Throwable $e) {}
-  }
-}
-
-// ── Seed persistent notifications from unread messages ──
-try {
-  $mq = $pdo->prepare("SELECT m.id, p.username FROM messages m JOIN players p ON p.id=m.from_id WHERE m.to_id=? AND m.is_read=0 ORDER BY m.created_at DESC LIMIT 20");
-  $mq->execute([$pid]);
-  $ins = $pdo->prepare("INSERT IGNORE INTO player_notifications (player_id, type, body, ref_type, ref_id) VALUES (?, 'message', ?, 'message', ?)");
-  foreach ($mq as $m) $ins->execute([$pid, "New message from " . $m['username'], $m['id']]);
-} catch(Throwable $e) {}
-
-// ── Seed persistent notifications from recent transfers ──
-try {
-  $tq = $pdo->prepare("SELECT t.id, p.username, t.amount FROM tx_log t JOIN players p ON p.id=t.from_id WHERE t.to_id=? AND t.kind='transfer' AND t.created_at >= NOW()-INTERVAL 7 DAY ORDER BY t.created_at DESC LIMIT 10");
-  $tq->execute([$pid]);
-  $ins = $pdo->prepare("INSERT IGNORE INTO player_notifications (player_id, type, body, ref_type, ref_id) VALUES (?, 'transfer', ?, 'tx', ?)");
-  foreach ($tq as $t) $ins->execute([$pid, "+" . number_format((int)$t['amount']) . " credits received from " . $t['username'], $t['id']]);
-} catch(Throwable $e) {}
+// ── Notifications ── (schema + seed + game-time formatting shared with
+// notifications_api.php, which is what actually keeps this feed live and
+// handles dismissal — see that file. This is just the first paint.)
+ensure_player_notifications_table($pdo);
+seed_player_notifications($pdo, $pid);
 
 // ── Fetch all unread notifications ──
 $newsFeed = [];
@@ -183,16 +155,14 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
 <!-- ══ NOTIFICATIONS ════════════════════════════════════════ -->
 <div class="panel" id="home-news" style="border:1px solid rgba(25,240,199,.2);background:rgba(25,240,199,.03)">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-    <h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.5px"><span class="<?= !empty($newsFeed) ? 'hm-bell' : '' ?>">&#128276;</span> Notifications<?php if (!empty($newsFeed)): ?> <span style="background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700;margin-left:6px"><?= count($newsFeed) ?></span><?php endif; ?></h3>
-    <?php if (!empty($newsFeed)): ?>
-    <form method="post" style="margin:0">
-      <input type="hidden" name="action" value="dismiss_all_notifs">
-      <button type="submit" style="font-size:10px;padding:2px 8px;background:transparent;border:1px solid var(--line);color:var(--muted);cursor:pointer;border-radius:4px">Clear All</button>
-    </form>
-    <?php endif; ?>
+    <h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.5px"><span id="home-notif-bell" class="<?= !empty($newsFeed) ? 'hm-bell' : '' ?>">&#128276;</span> Notifications<span id="home-notif-count-wrap"><?php if (!empty($newsFeed)): ?> <span id="home-notif-count" style="background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700;margin-left:6px"><?= count($newsFeed) ?></span><?php endif; ?></span></h3>
+    <div id="home-notif-clearall-wrap"<?= empty($newsFeed) ? ' style="display:none"' : '' ?>>
+      <button type="button" id="home-notif-clearall" style="font-size:10px;padding:2px 8px;background:transparent;border:1px solid var(--line);color:var(--muted);cursor:pointer;border-radius:4px">Clear All</button>
+    </div>
   </div>
+  <div id="home-notif-list">
   <?php if (empty($newsFeed)): ?>
-  <div style="text-align:center;padding:12px 0;color:var(--muted)">
+  <div id="home-notif-empty" style="text-align:center;padding:12px 0;color:var(--muted)">
     <div style="font-size:22px;opacity:.25;margin-bottom:5px">&#128276;</div>
     <div style="font-size:12px">No new notifications</div>
   </div>
@@ -206,17 +176,14 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
     <span style="font-size:13px;flex:none;color:<?= $ncol ?>;margin-top:2px"><?= $nicon ?></span>
     <div style="flex:1;min-width:0">
       <div style="font-size:12px"><?= $rawHtml ? $item['text'] : e($item['text']) ?></div>
-      <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= !empty($item['ts']) ? e(date('M j, g:ia', strtotime($item['ts']))) : '' ?></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:1px"><?= !empty($item['ts']) ? e(fmt_game_time($item['ts'])) : '' ?></div>
     </div>
     <?php if ($canDismiss): ?>
-    <form method="post" style="margin:0;flex:none;align-self:center">
-      <input type="hidden" name="action" value="dismiss_notif">
-      <input type="hidden" name="notif_id" value="<?= (int)$item['id'] ?>">
-      <button type="submit" class="hm-x" style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1;opacity:.6" title="Dismiss">&times;</button>
-    </form>
+    <button type="button" class="hm-x" data-id="<?= (int)$item['id'] ?>" style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1;opacity:.6;flex:none;align-self:center" title="Dismiss">&times;</button>
     <?php endif; ?>
   </div>
   <?php endforeach; endif; ?>
+  </div>
 </div>
 
 <!-- ══ STATS GRID ══════════════════════════════════════════════ -->
@@ -486,5 +453,97 @@ function loop(t){
   c.fillStyle=iv; c.fillRect(0,0,W*.55,H);
 }
 requestAnimationFrame(loop);
+})();
+</script>
+
+<script>
+(function(){
+'use strict';
+/* ── Live notification feed: polls notifications_api.php so new items show
+   up without a page reload, and dismisses go through direct, individually-
+   targeted requests instead of the sitewide AJAX-page-swap form handler
+   (whose full-page re-render was the suspect behind dismiss only ever
+   seeming to work on the newest entry). Buttons here are plain <button
+   type=button>, not <form> submits, so the generic handler never sees them. */
+var list = document.getElementById('home-notif-list');
+if (!list) return;
+var bell = document.getElementById('home-notif-bell');
+var countWrap = document.getElementById('home-notif-count-wrap');
+var clearAllWrap = document.getElementById('home-notif-clearall-wrap');
+var clearAllBtn = document.getElementById('home-notif-clearall');
+
+var ICONS = {message:'&#9993;',transfer:'&#128178;',news:'&#128203;',levelup:'&#11088;',friend_add:'&#128101;',pvp:'&#9876;',guild_loan:'&#9874;'};
+var COLORS = {message:'var(--accent)',transfer:'#3bcf63',news:'#e8d44d',levelup:'#e8d44d',friend_add:'var(--accent)',pvp:'var(--neon2)',guild_loan:'#e8a33d'};
+
+function render(items) {
+  if (!items.length) {
+    list.innerHTML = '<div id="home-notif-empty" style="text-align:center;padding:12px 0;color:var(--muted)">'
+      + '<div style="font-size:22px;opacity:.25;margin-bottom:5px">&#128276;</div>'
+      + '<div style="font-size:12px">No new notifications</div></div>';
+    if (bell) bell.classList.remove('hm-bell');
+    if (countWrap) countWrap.innerHTML = '';
+    if (clearAllWrap) clearAllWrap.style.display = 'none';
+    return;
+  }
+  if (bell) bell.classList.add('hm-bell');
+  if (countWrap) countWrap.innerHTML = ' <span id="home-notif-count" style="background:var(--accent);color:#0b0c1a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700;margin-left:6px">' + items.length + '</span>';
+  if (clearAllWrap) clearAllWrap.style.display = '';
+
+  list.innerHTML = '';
+  items.forEach(function (item, i) {
+    var row = document.createElement('div');
+    row.className = 'hm-notif';
+    row.style.cssText = 'animation-delay:' + (Math.min(10, i + 1) * 45) + 'ms;display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)';
+
+    var icon = document.createElement('span');
+    icon.style.cssText = 'font-size:13px;flex:none;color:' + (COLORS[item.type] || 'var(--muted)') + ';margin-top:2px';
+    icon.innerHTML = ICONS[item.type] || '&#8226;';
+    row.appendChild(icon);
+
+    var body = document.createElement('div');
+    body.style.cssText = 'flex:1;min-width:0';
+    var textEl = document.createElement('div');
+    textEl.style.fontSize = '12px';
+    if (item.raw) textEl.innerHTML = item.text; else textEl.textContent = item.text; // server-controlled HTML only for the synthetic levelup entry
+    var tsEl = document.createElement('div');
+    tsEl.style.cssText = 'font-size:10px;color:var(--muted);margin-top:1px';
+    tsEl.textContent = item.ts || '';
+    body.appendChild(textEl); body.appendChild(tsEl);
+    row.appendChild(body);
+
+    if (item.id !== null) {
+      var btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'hm-x'; btn.dataset.id = item.id;
+      btn.style.cssText = 'background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1;opacity:.6;flex:none;align-self:center';
+      btn.title = 'Dismiss'; btn.innerHTML = '&times;';
+      row.appendChild(btn);
+    }
+    list.appendChild(row);
+  });
+}
+
+function load() {
+  if (!document.body.contains(list)) { if (window.__homeNotifInterval) { clearInterval(window.__homeNotifInterval); window.__homeNotifInterval = null; } return; }
+  fetch('notifications_api.php?action=list', {credentials: 'same-origin'})
+    .then(function (r) { return r.json(); })
+    .then(function (d) { if (d && d.ok) render(d.items || []); })
+    .catch(function () {});
+}
+
+list.addEventListener('click', function (e) {
+  var btn = e.target.closest('.hm-x'); if (!btn) return;
+  var row = btn.closest('.hm-notif'); if (row) row.remove(); // optimistic removal
+  var fd = new FormData(); fd.append('action', 'dismiss'); fd.append('id', btn.dataset.id);
+  fetch('notifications_api.php', {method: 'POST', body: fd, credentials: 'same-origin'}).then(load).catch(load);
+});
+
+if (clearAllBtn) clearAllBtn.addEventListener('click', function () {
+  var fd = new FormData(); fd.append('action', 'dismiss_all');
+  fetch('notifications_api.php', {method: 'POST', body: fd, credentials: 'same-origin'}).then(load).catch(load);
+});
+
+load();
+if (window.__homeNotifInterval) clearInterval(window.__homeNotifInterval);
+window.__homeNotifInterval = setInterval(load, 12000);
 })();
 </script>

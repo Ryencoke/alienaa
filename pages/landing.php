@@ -397,7 +397,7 @@ try {
             <button type="button" class="pass-toggle" onclick="var i=this.previousElementSibling;i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🙈'">&#128065;</button>
           </div>
         </div>
-        <button type="submit" style="margin-top:16px;width:100%;padding:11px;font-size:14px">&#9889; Send Verification Code</button>
+        <button type="submit" style="margin-top:16px;width:100%;padding:11px;font-size:14px">Send Verification Code</button>
         <p class="muted" style="text-align:center;margin-top:12px;font-size:12px">Already have a ghost? <a href="index.php?p=login">Log in here</a>.</p>
       </form>
     </div>
@@ -420,7 +420,7 @@ try {
             autofocus oninput="this.value=this.value.replace(/\D/g,'').slice(0,6)">
           <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:6px;text-transform:uppercase;letter-spacing:.8px">6-digit code from your email</div>
         </div>
-        <button type="submit" style="margin-top:4px;width:100%;padding:11px;font-size:14px">&#9889; Activate Ghost</button>
+        <button type="submit" style="margin-top:4px;width:100%;padding:11px;font-size:14px">Activate Ghost</button>
       </form>
       <p class="muted" style="text-align:center;margin-top:12px;font-size:12px"><a href="#" onclick="document.getElementById('signup-step1').style.display='';document.getElementById('signup-step2').style.display='none';return false">&larr; Use a different email</a></p>
     </div>

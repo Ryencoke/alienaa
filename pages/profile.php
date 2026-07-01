@@ -118,7 +118,7 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
             <form method="post" action="index.php?p=friends" style="display:inline;margin:0">
               <input type="hidden" name="action" value="add">
               <input type="hidden" name="friend_id" value="<?= (int)$prof['id'] ?>">
-              <button type="submit" class="btn btn-ghost btn-sm">&#43; Add Friend</button>
+              <button type="submit" class="btn btn-ghost btn-sm">Add Friend</button>
             </form>
           <?php endif; ?>
         <?php endif; ?>
@@ -243,13 +243,13 @@ $isStaffViewer = in_array($player['role'] ?? '', ['admin','manager','moderator']
     <form method="post" action="index.php?p=friends" style="display:inline;margin:0">
       <input type="hidden" name="action" value="remove">
       <input type="hidden" name="friend_id" value="<?= (int)$id ?>">
-      <button type="submit" style="padding:7px 16px;font-size:12px;border:1px solid rgba(255,45,149,.3);color:var(--neon2);border-radius:6px;background:rgba(255,45,149,.04);cursor:pointer">&#10005; Remove Friend</button>
+      <button type="submit" style="padding:7px 16px;font-size:12px;border:1px solid rgba(255,45,149,.3);color:var(--neon2);border-radius:6px;background:rgba(255,45,149,.04);cursor:pointer">Remove Friend</button>
     </form>
     <?php else: ?>
     <form method="post" action="index.php?p=friends" style="display:inline;margin:0">
       <input type="hidden" name="action" value="add">
       <input type="hidden" name="friend_id" value="<?= (int)$id ?>">
-      <button type="submit" style="padding:7px 16px;font-size:12px;border:1px solid var(--line);color:var(--muted);border-radius:6px;background:var(--panel2);cursor:pointer">&#43; Add Friend</button>
+      <button type="submit" style="padding:7px 16px;font-size:12px;border:1px solid var(--line);color:var(--muted);border-radius:6px;background:var(--panel2);cursor:pointer">Add Friend</button>
     </form>
     <?php endif; ?>
   </div>

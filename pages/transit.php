@@ -164,7 +164,7 @@ $msgType = $msgType ?? 'ok';
       <form method="post" style="margin:0" data-trfx="run" data-tr-route="<?= e($rt['name']) ?>" data-tr-col="<?= $rt['col'] ?>">
         <input type="hidden" name="action" value="run">
         <input type="hidden" name="route" value="<?= e($k) ?>">
-        <button type="submit" class="tr-go">&#128230; Run Route</button>
+        <button type="submit" class="tr-go">Run Route</button>
       </form>
       <?php else: ?>
       <div style="text-align:center;font-size:11px;color:var(--muted);padding:6px;border:1px solid var(--line);border-radius:5px;font-style:italic">Need <?= $rt['cost'] ?> Health</div>
@@ -202,7 +202,7 @@ $msgType = $msgType ?? 'ok';
     <form method="post" style="margin:0" data-trfx="mine" data-tr-item="<?= e($m['item_name']) ?>">
       <input type="hidden" name="action" value="mine">
       <input type="hidden" name="node" value="<?= e($m['code']) ?>">
-      <button type="submit" style="font-size:12px;padding:6px 16px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">&#9954; Mine</button>
+      <button type="submit" style="font-size:12px;padding:6px 16px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">Mine</button>
     </form>
     <?php else: ?>
     <div style="font-size:11px;color:var(--muted);font-style:italic;padding:5px 12px;border:1px solid var(--line);border-radius:5px">Locked</div>

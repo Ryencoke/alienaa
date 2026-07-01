@@ -309,7 +309,7 @@ function skill_defs(): array {
     'scav'   => ['icon'=>'&#128270;', 'name'=>'Scavenging',     'effect'=>'+yield & unlock higher-tier gather nodes per level',     'color'=>'var(--accent)'],
     'hydro'  => ['icon'=>'&#127807;', 'name'=>'Hydroponics',    'effect'=>'+crop yield & unlock hydrofarm growth vats per level',   'color'=>'#3bcf63'],
     'fab'    => ['icon'=>'&#9881;',   'name'=>'Fabrication',    'effect'=>'+crafting output & unlock advanced recipes per level',   'color'=>'var(--neon2)'],
-    'combat' => ['icon'=>'&#9876;',   'name'=>'Combat',         'effect'=>'+damage & crit chance in combat sims per level',         'color'=>'#ff6b35'],
+    'combat' => ['icon'=>'&#9876;',   'name'=>'Combat',         'effect'=>'Unlocks higher-tier Combat Sim opponents per level',     'color'=>'#ff6b35'],
     'drone'  => ['icon'=>'&#129458;', 'name'=>'Drone Ops',      'effect'=>'+mining yield & unlock remote transit nodes per level',  'color'=>'#4d6be8'],
     'netrun' => ['icon'=>'&#128187;', 'name'=>'Netrunning',     'effect'=>'+hack success rate & unlock higher-tier net intrusions', 'color'=>'#a66de8'],
     'chem'   => ['icon'=>'&#9879;',   'name'=>'Streetchem',     'effect'=>'+stim potency & unlock compound synthesis recipes',      'color'=>'#e8d44d'],
@@ -443,6 +443,53 @@ function generalstore_catalog(): array {
     ['duct_tape',      'Industrial Duct Tape', '&#129683;', 'Fixes everything. No, really. Everything.',                  25,  null,          0],
     ['energy_drink',   'Reactor Brew',         '&#127866;', 'High-voltage synth caffeine. Cycle recovery bonus.',         45,  'cycles',     10],
   ];
+}
+
+// ---- Hideout notifications (shared between home.php's initial render and
+// notifications_api.php's poll/dismiss endpoint, so both stay in sync) ----
+
+function ensure_player_notifications_table(PDO $pdo): void {
+  try { $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'); } catch (Throwable $e) {}
+  try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN ref_type VARCHAR(20) NULL"); } catch (Throwable $e) {}
+  try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN ref_id INT NULL"); } catch (Throwable $e) {}
+  try { $pdo->exec("ALTER TABLE player_notifications ADD UNIQUE KEY uq_pn_ref (player_id, ref_type, ref_id)"); } catch (Throwable $e) {}
+  try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN is_seen TINYINT(1) NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
+}
+
+// Seeds player_notifications from unread messages/transfers. Called from both
+// home.php's own render (first paint) and notifications_api.php's poll (so
+// new notifications show up live without a page reload) — kept in one place
+// so the two can't drift into seeding differently.
+function seed_player_notifications(PDO $pdo, int $pid): void {
+  try {
+    $mq = $pdo->prepare("SELECT m.id, p.username FROM messages m JOIN players p ON p.id=m.from_id WHERE m.to_id=? AND m.is_read=0 ORDER BY m.created_at DESC LIMIT 20");
+    $mq->execute([$pid]);
+    $ins = $pdo->prepare("INSERT IGNORE INTO player_notifications (player_id, type, body, ref_type, ref_id) VALUES (?, 'message', ?, 'message', ?)");
+    foreach ($mq as $m) $ins->execute([$pid, "New message from " . $m['username'], $m['id']]);
+  } catch (Throwable $e) {}
+  try {
+    $tq = $pdo->prepare("SELECT t.id, p.username, t.amount FROM tx_log t JOIN players p ON p.id=t.from_id WHERE t.to_id=? AND t.kind='transfer' AND t.created_at >= NOW()-INTERVAL 7 DAY ORDER BY t.created_at DESC LIMIT 10");
+    $tq->execute([$pid]);
+    $ins = $pdo->prepare("INSERT IGNORE INTO player_notifications (player_id, type, body, ref_type, ref_id) VALUES (?, 'transfer', ?, 'tx', ?)");
+    foreach ($tq as $t) $ins->execute([$pid, "+" . number_format((int)$t['amount']) . " credits received from " . $t['username'], $t['id']]);
+  } catch (Throwable $e) {}
+}
+
+// Formats a raw MySQL DATETIME string in "game time" (Mountain Time —
+// the same zone the daily reset and City Time widget already use in
+// index.php) rather than PHP's ambient default timezone, which is what a
+// bare date(...)/strtotime(...) round-trip was silently using before —
+// on hosts where PHP's default zone isn't America/Denver, notification
+// timestamps were off from every other "game time" display on the site.
+function fmt_game_time($mysqlDatetime, string $fmt = 'M j, g:ia'): string {
+  if (empty($mysqlDatetime)) return '';
+  try {
+    $dt = new DateTime($mysqlDatetime); // interpreted in PHP's default tz — same moment MySQL's CURRENT_TIMESTAMP wrote
+    $dt->setTimezone(new DateTimeZone('America/Denver'));
+    return $dt->format($fmt);
+  } catch (Throwable $e) {
+    return date($fmt, strtotime((string)$mysqlDatetime));
+  }
 }
 
 // ---- XP / level-ups (shared, concurrency-safe) ----

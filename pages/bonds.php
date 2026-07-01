@@ -145,7 +145,7 @@ try {
         <input type="hidden" name="action" value="invest">
         <input type="hidden" name="term" value="<?= $days ?>">
         <input type="number" name="amount" min="100" max="<?= (int)$player['creds_bank'] ?>" placeholder="Amount (min 100)" style="width:100%;margin-bottom:8px">
-        <button type="submit" style="width:100%;font-size:12px">&#128138; Lock In Bond</button>
+        <button type="submit" style="width:100%;font-size:12px">Lock In Bond</button>
       </form>
     </div>
     <?php endforeach; ?>
@@ -187,7 +187,7 @@ try {
           <input type="hidden" name="action" value="collect">
           <input type="hidden" name="bond_id" value="<?= (int)$b['id'] ?>">
           <button type="submit" style="font-size:12px;<?= $matured ? 'background:rgba(59,207,99,.12);border-color:rgba(59,207,99,.4);color:#3bcf63' : 'background:rgba(255,45,149,.08);border-color:rgba(255,45,149,.25);color:var(--neon2)' ?>" <?= !$matured ? 'onclick="return confirm(\'Early withdrawal: you will pay a 10% principal penalty ('.$penalty.' cr). Continue?\')"' : '' ?>>
-            <?= $matured ? '&#9989; Collect' : '&#9888; Withdraw Early' ?>
+            <?= $matured ? 'Collect' : 'Withdraw Early' ?>
           </button>
         </form>
       </div>

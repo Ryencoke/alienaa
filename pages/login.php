@@ -97,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
             <button type="button" class="pass-toggle" onclick="var i=this.previousElementSibling;i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🙈'">&#128065;</button>
           </div>
         </div>
-        <button type="submit" class="btn btn-primary btn-block">&#9889; Jack In</button>
+        <button type="submit" class="btn btn-primary btn-block">Jack In</button>
       </form>
       <p class="auth-foot">No handle yet? <a href="index.php?p=landing">Register a ghost.</a></p>
     </div>

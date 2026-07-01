@@ -445,7 +445,7 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
         <span class="muted">Bet:</span>
         <input type="number" name="bet" class="bet-input" min="1" max="<?= (int)$maxBet ?>" value="<?= $defaultBet ?>">
       </div>
-      <button type="submit" class="btn btn-primary btn-block daemon-go-btn">&#127922; Roll the Dice</button>
+      <button type="submit" class="btn btn-primary btn-block daemon-go-btn">Roll the Dice</button>
     </form>
   </div>
 </div>
@@ -484,7 +484,7 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
         <span class="muted">Bet:</span>
         <input type="number" name="bet" class="bet-input" min="1" max="<?= (int)$maxBet ?>" value="<?= $defaultBet ?>">
       </div>
-      <button type="submit" id="spin-btn" class="btn btn-primary btn-block daemon-go-btn">&#127920; Spin the Reels</button>
+      <button type="submit" id="spin-btn" class="btn btn-primary btn-block daemon-go-btn">Spin the Reels</button>
     </form>
     <div class="daemon-pays">
       <span>&#128142;&#128142;&#128142; &middot; &#128276;&#128276;&#128276; &middot; &#127826;&#127826;&#127826; = 5&times;</span>
@@ -547,7 +547,7 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
     <form method="post" style="text-align:center;margin-top:14px">
       <input type="hidden" name="action" value="bj_reset">
       <input type="hidden" name="_tab" value="blackjack">
-      <button type="submit" class="btn btn-primary">&#127921; Deal Again</button>
+      <button type="submit" class="btn btn-primary">Deal Again</button>
     </form>
 
     <?php else: ?>
@@ -569,7 +569,7 @@ $gameIcons   = ['dice'=>'&#127922;', 'slots'=>'&#127920;', 'blackjack'=>'&#12792
         <span class="muted">Bet:</span>
         <input type="number" name="bet" class="bet-input" min="1" max="<?= (int)$maxBet ?>" value="<?= $defaultBet ?>">
       </div>
-      <button type="submit" class="btn btn-primary btn-block daemon-go-btn">&#127921; Deal Cards</button>
+      <button type="submit" class="btn btn-primary btn-block daemon-go-btn">Deal Cards</button>
     </form>
     <div class="daemon-pays">
       <span>Blackjack pays 3:2</span>
@@ -608,7 +608,7 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
           </div>
           <?php endforeach; ?>
         </div>
-        <button type="submit" class="btn btn-primary daemon-go-btn">&#9830; Draw</button>
+        <button type="submit" class="btn btn-primary daemon-go-btn">Draw</button>
       </form>
       <p class="muted" style="margin-top:10px;font-size:12px">Bet: <b style="color:var(--accent)"><?= number_format($vp['bet']) ?> creds</b></p>
     </div>
@@ -625,7 +625,7 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
     <form method="post" style="text-align:center;margin-top:14px">
       <input type="hidden" name="action" value="vp_reset">
       <input type="hidden" name="_tab" value="vp">
-      <button type="submit" class="btn btn-primary">&#9830; Deal Again</button>
+      <button type="submit" class="btn btn-primary">Deal Again</button>
     </form>
 
     <?php else: ?>
@@ -653,7 +653,7 @@ function vp_render_card(array $c, bool $hidden=false, bool $held=false): string 
         <span class="muted">Bet:</span>
         <input type="number" name="bet" class="bet-input" min="1" max="<?= (int)$maxBet ?>" value="<?= $defaultBet ?>">
       </div>
-      <button type="submit" class="btn btn-primary btn-block daemon-go-btn">&#9830; Deal Cards</button>
+      <button type="submit" class="btn btn-primary btn-block daemon-go-btn">Deal Cards</button>
     </form>
     <?php endif; ?>
   </div>

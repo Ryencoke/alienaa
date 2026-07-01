@@ -389,7 +389,7 @@ $totalStims = array_sum($myStims);
         <input type="hidden" name="action" value="brew">
         <input type="hidden" name="stim_id" value="<?= e($s['id']) ?>">
         <button type="submit" <?= (!$canMake || $locked) ? 'disabled' : '' ?> style="width:100%;font-size:12px;<?= !$canMake ? 'opacity:.4' : 'border-color:'.$scol.'66;color:'.$scol ?>">
-          <?= $locked ? '&#128274; Locked' : ($canMake ? '&#9879; Brew' : 'Missing Ingredients') ?>
+          <?= $locked ? 'Locked' : ($canMake ? 'Brew' : 'Missing Ingredients') ?>
         </button>
       </form>
     </div>
