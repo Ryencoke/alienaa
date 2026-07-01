@@ -67,12 +67,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $intf = ['level','creds_pocket','creds_bank','shards','integrity','integrity_max','xp','xp_next','signal','signal_max','cycles','cycles_max','loan'];
         $new = [];
         foreach ($intf as $f) $new[$f] = max(0, (int)($_POST[$f] ?? (int)($old[$f] ?? 0)));
-        $nr = $_POST['role'] ?? $old['role'];
+        // Role changes are Manager+ only — a non-manager admin's submitted value is
+        // ignored outright rather than trusted, even if the UI already hides the select.
+        $nr = $isManager ? ($_POST['role'] ?? $old['role']) : $old['role'];
         if (!in_array($nr, ['member','chatmod','moderator','admin','manager'], true)) $nr = $old['role'];
-        $sub = trim($_POST['sub_until'] ?? '');
-        if ($sub !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $sub)) $sub = (string)($old['sub_until'] ?? '');
-        $merchantUntil = trim($_POST['merchant_until'] ?? '');
-        if ($merchantUntil !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $merchantUntil)) $merchantUntil = (string)($old['merchant_until'] ?? '');
+        // Subscription/Accord are edited as "days from today" rather than a raw date.
+        $subDays = max(0, (int)($_POST['sub_days'] ?? 0));
+        $sub = $subDays > 0 ? date('Y-m-d', strtotime("+{$subDays} days")) : null;
+        $accordDays = max(0, (int)($_POST['accord_days'] ?? 0));
+        $merchantUntil = $accordDays > 0 ? date('Y-m-d', strtotime("+{$accordDays} days")) : null;
         $emailEdit    = trim($_POST['edit_email'] ?? '');
         if ($emailEdit !== '' && !filter_var($emailEdit, FILTER_VALIDATE_EMAIL)) $emailEdit = '';
         $usernameEdit = trim($_POST['edit_username'] ?? '');
@@ -84,8 +87,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $set = []; $params = [];
         foreach ($intf as $f) { $set[] = ($f === 'signal' ? '`signal`' : $f) . '=?'; $params[] = $new[$f]; }
         $set[] = 'role=?';      $params[] = $nr;
-        $set[] = 'sub_until=?';      $params[] = ($sub === '' ? null : $sub);
-        $set[] = 'merchant_until=?'; $params[] = ($merchantUntil === '' ? null : $merchantUntil);
+        $set[] = 'sub_until=?';      $params[] = $sub;
+        $set[] = 'merchant_until=?'; $params[] = $merchantUntil;
         $set[] = 'bio=?';       $params[] = $bioEdit;
         try { $pdo->exec('ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR(255) NULL'); } catch (Throwable $e) {}
         try { $pdo->exec('ALTER TABLE players ADD COLUMN IF NOT EXISTS birthday DATE NULL'); } catch (Throwable $e) {}
@@ -109,6 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($intf as $f) $log($f, $old[$f] ?? '', $new[$f]);
         $log('role', $old['role'] ?? '', $nr);
         $log('sub_until', $old['sub_until'] ?? '', $sub);
+        $log('merchant_until', $old['merchant_until'] ?? '', $merchantUntil);
         if ($usernameEdit) $log('username', $old['username'] ?? '', $usernameEdit);
         if ($birthdayEdit) $log('birthday', $old['birthday'] ?? '', $birthdayEdit);
         $log('bio', $old['bio'] ?? '', $bioEdit);
@@ -248,15 +252,26 @@ $back  = '<p class="muted"><a href="index.php?p=admin">&laquo; Admin</a></p>';
 if ($sec === 'editplayer' && $canAdmin) {
   $t = null;
   if ($editId) { $ep = $pdo->prepare('SELECT * FROM players WHERE id=?'); $ep->execute([$editId]); $t = $ep->fetch(); }
+  // Days remaining until a date column (0 if blank/past) — used for Subscription/Accord.
+  $adm_days_until = function ($dateStr) {
+    if (empty($dateStr)) return 0;
+    return max(0, (int)ceil((strtotime($dateStr) - strtotime(date('Y-m-d'))) / 86400));
+  };
   ?>
+  <style>
+  .adm-ep-sec{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
+  .adm-ep-sec h4{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--accent);display:flex;align-items:center;gap:6px}
+  .adm-ep-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 12px}
+  .adm-ep-grid .field{margin-bottom:0}
+  </style>
   <div class="panel">
     <h2>Edit Players</h2>
     <?= $back ?><?= $flash ?>
-    <form method="post" style="margin-bottom:10px">
+    <form method="post" style="margin-bottom:14px">
       <input type="hidden" name="action" value="find">
       <label>Find by handle</label>
-      <div style="position:relative;max-width:240px">
-        <p style="display:flex;gap:6px;margin:0"><input type="text" name="handle" id="adminFind" autocomplete="off" maxlength="32" data-no-counter><button type="submit">Find</button></p>
+      <div style="position:relative;max-width:280px">
+        <p style="display:flex;gap:6px;margin:0"><input type="text" name="handle" id="adminFind" autocomplete="off" maxlength="32" data-no-counter placeholder="Ghost's handle"><button type="submit">Find</button></p>
         <div id="adminAC" style="position:absolute;left:0;right:42px;top:34px;background:var(--panel);border:1px solid var(--accent);border-radius:4px;z-index:20;display:none;max-height:200px;overflow:auto"></div>
       </div>
     </form>
@@ -290,61 +305,85 @@ if ($sec === 'editplayer' && $canAdmin) {
       // Load syndicate
       $syndName = null;
       try { $sq = $pdo->prepare('SELECT s.name FROM syndicate_members m JOIN syndicates s ON s.id=m.syndicate_id WHERE m.player_id=? LIMIT 1'); $sq->execute([(int)$t['id']]); $syndName = $sq->fetchColumn() ?: null; } catch (Throwable $e) {}
+      $tCol = chat_color($t['role'] ?? 'member', '');
     ?>
-    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:16px">
-      <div style="font-size:18px;font-weight:700;color:var(--accent)"><?= e($t['username']) ?></div>
-      <div style="font-size:11px;color:var(--muted)">ID: <?= (int)$t['id'] ?> &middot; Level <?= (int)$t['level'] ?> &middot; Joined: <?= e(date('M j, Y', strtotime($t['created_at'] ?? 'now'))) ?></div>
-      <?php if ($syndName): ?><div style="font-size:11px;color:var(--accent);margin-top:3px">Syndicate: <?= e($syndName) ?></div><?php endif; ?>
-      <?php if ($curJail): ?><div style="font-size:11px;color:var(--neon2);margin-top:3px">&#128274; JAILED — <?= e($curJail['reason']) ?> &middot; <?= ceil((strtotime($curJail['release_at'])-time())/86400) ?>d left</div><?php endif; ?>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="width:44px;height:44px;border-radius:9px;background:var(--panel);border:2px solid <?= e($tCol) ?>;display:flex;align-items:center;justify-content:center;font-family:'Orbitron',sans-serif;font-weight:900;font-size:18px;color:<?= e($tCol) ?>;flex:none"><?= e(mb_strtoupper(mb_substr($t['username'],0,1))) ?></div>
+      <div style="flex:1;min-width:180px">
+        <div style="font-size:17px;font-weight:700;color:<?= e($tCol) ?>"><?= e($t['username']) ?> <?= role_tag($t['role'] ?? '', 'font-size:11px;margin-left:4px') ?></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">ID <?= (int)$t['id'] ?> &middot; Level <?= (int)$t['level'] ?> &middot; Joined <?= e(date('M j, Y', strtotime($t['created_at'] ?? 'now'))) ?></div>
+        <?php if ($syndName): ?><div style="font-size:11px;color:var(--accent);margin-top:3px">&#128101; <?= e($syndName) ?></div><?php endif; ?>
+        <?php if ($curJail): ?><div style="font-size:11px;color:var(--neon2);margin-top:3px">&#128274; JAILED — <?= e($curJail['reason']) ?> &middot; <?= ceil((strtotime($curJail['release_at'])-time())/86400) ?>d left</div><?php endif; ?>
+      </div>
     </div>
 
     <form method="post">
       <input type="hidden" name="action" value="save_player">
       <input type="hidden" name="uid" value="<?= (int)$t['id'] ?>">
 
-      <h4 style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Economy &amp; Core Stats</h4>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:16px">
-        <?php foreach (['level'=>'Level','creds_pocket'=>'Credits (pocket)','creds_bank'=>'Credits (bank)','shards'=>'Shards',
-                        'integrity'=>'Health','integrity_max'=>'Health max','xp'=>'XP','xp_next'=>'XP next',
-                        'signal'=>'Signal','signal_max'=>'Signal max','cycles'=>'Drive','cycles_max'=>'Drive max',
-                        'loan'=>'Loan (owed)'] as $k=>$lbl): ?>
-          <div><label style="font-size:11px"><?= $lbl ?></label><input type="number" name="<?= $k ?>" value="<?= (int)($t[$k] ?? 0) ?>"></div>
-        <?php endforeach; ?>
-        <div>
-          <label style="font-size:11px">Email</label>
-          <input type="email" name="edit_email" value="<?= e($t['email'] ?? '') ?>" placeholder="(optional)">
-        </div>
-        <div>
-          <label style="font-size:11px">Username</label>
-          <input type="text" name="edit_username" value="<?= e($t['username'] ?? '') ?>" maxlength="32" data-no-counter>
-        </div>
-        <div>
-          <label style="font-size:11px">Birthday</label>
-          <input type="date" name="edit_birthday" value="<?= e($t['birthday'] ?? '') ?>">
-        </div>
-        <div><label style="font-size:11px">Role</label>
-          <select name="role">
-            <?php foreach (['member','chatmod','moderator','admin','manager'] as $rr): ?>
-              <option value="<?= $rr ?>" <?= ($t['role'] ?? 'member') === $rr ? 'selected' : '' ?>><?= $rr ?></option>
-            <?php endforeach; ?>
-          </select></div>
-        <div><label style="font-size:11px">Subscription until</label><input type="date" name="sub_until" value="<?= e($t['sub_until'] ?? '') ?>"></div>
-        <div><label style="font-size:11px">Accord until</label><input type="date" name="merchant_until" value="<?= e($t['merchant_until'] ?? '') ?>"></div>
-        <div style="grid-column:1/-1">
-          <label style="font-size:11px">Bio</label>
-          <textarea name="edit_bio" maxlength="200" style="width:100%;min-height:50px"><?= e($t['bio'] ?? '') ?></textarea>
+      <div class="adm-ep-sec">
+        <h4>&#128176; Currency &amp; Progression</h4>
+        <div class="adm-ep-grid">
+          <?php foreach (['level'=>'Level','creds_pocket'=>'Credits (pocket)','creds_bank'=>'Credits (bank)','shards'=>'Shards','xp'=>'XP','xp_next'=>'XP next','loan'=>'Loan (owed)'] as $k=>$lbl): ?>
+            <div class="field"><span><?= $lbl ?></span><input type="number" name="<?= $k ?>" value="<?= (int)($t[$k] ?? 0) ?>"></div>
+          <?php endforeach; ?>
         </div>
       </div>
 
-      <h4 style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Combat Stats (PvP)</h4>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:16px">
-        <div><label style="font-size:11px">Strength</label><input type="number" name="str_pts" min="1" value="<?= (int)$pvpS['str_pts'] ?>"></div>
-        <div><label style="font-size:11px">Speed</label><input type="number" name="spd_pts" min="1" value="<?= (int)$pvpS['spd_pts'] ?>"></div>
-        <div><label style="font-size:11px">Endurance</label><input type="number" name="end_pts" min="1" value="<?= (int)$pvpS['end_pts'] ?>"></div>
-        <div><label style="font-size:11px">Unspent Points</label><input type="number" name="unspent" min="0" value="<?= (int)$pvpS['unspent'] ?>"></div>
+      <div class="adm-ep-sec">
+        <h4>&#10084; Vitals</h4>
+        <div class="adm-ep-grid">
+          <?php foreach (['integrity'=>'Health','integrity_max'=>'Health max','signal'=>'Signal','signal_max'=>'Signal max','cycles'=>'Drive','cycles_max'=>'Drive max'] as $k=>$lbl): ?>
+            <div class="field"><span><?= $lbl ?></span><input type="number" name="<?= $k ?>" value="<?= (int)($t[$k] ?? 0) ?>"></div>
+          <?php endforeach; ?>
+        </div>
       </div>
 
-      <p><button type="submit">Save Player</button></p>
+      <div class="adm-ep-sec">
+        <h4>&#128100; Account</h4>
+        <div class="adm-ep-grid">
+          <div class="field"><span>Email</span><input type="email" name="edit_email" value="<?= e($t['email'] ?? '') ?>" placeholder="(optional)"></div>
+          <div class="field"><span>Username</span><input type="text" name="edit_username" value="<?= e($t['username'] ?? '') ?>" maxlength="32" data-no-counter></div>
+          <div class="field"><span>Birthday</span><input type="date" name="edit_birthday" value="<?= e($t['birthday'] ?? '') ?>"></div>
+        </div>
+        <div class="field" style="margin-top:10px;margin-bottom:0"><span>Bio</span><textarea name="edit_bio" maxlength="200" style="width:100%;min-height:50px"><?= e($t['bio'] ?? '') ?></textarea></div>
+      </div>
+
+      <div class="adm-ep-sec">
+        <h4>&#128272; Access &amp; Status</h4>
+        <div class="adm-ep-grid">
+          <div class="field">
+            <span>Role<?= $isManager ? '' : ' (Manager+ only)' ?></span>
+            <?php if ($isManager): ?>
+            <select name="role">
+              <?php foreach (['member','chatmod','moderator','admin','manager'] as $rr): ?>
+                <option value="<?= $rr ?>" <?= ($t['role'] ?? 'member') === $rr ? 'selected' : '' ?>><?= $rr ?></option>
+              <?php endforeach; ?>
+            </select>
+            <?php else: ?>
+            <input type="text" value="<?= e($t['role'] ?? 'member') ?>" disabled title="Only Managers can change a player's role">
+            <?php endif; ?>
+          </div>
+          <div class="field"><span>Subscription days</span><input type="number" name="sub_days" min="0" value="<?= $adm_days_until($t['sub_until'] ?? null) ?>">
+            <span class="muted" style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0">0 = not subscribed</span>
+          </div>
+          <div class="field"><span>Accord days</span><input type="number" name="accord_days" min="0" value="<?= $adm_days_until($t['merchant_until'] ?? null) ?>">
+            <span class="muted" style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0">0 = not enlisted</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="adm-ep-sec">
+        <h4>&#9876; Combat Stats (PvP)</h4>
+        <div class="adm-ep-grid">
+          <div class="field"><span>Strength</span><input type="number" name="str_pts" min="1" value="<?= (int)$pvpS['str_pts'] ?>"></div>
+          <div class="field"><span>Speed</span><input type="number" name="spd_pts" min="1" value="<?= (int)$pvpS['spd_pts'] ?>"></div>
+          <div class="field"><span>Endurance</span><input type="number" name="end_pts" min="1" value="<?= (int)$pvpS['end_pts'] ?>"></div>
+          <div class="field"><span>Unspent Points</span><input type="number" name="unspent" min="0" value="<?= (int)$pvpS['unspent'] ?>"></div>
+        </div>
+      </div>
+
+      <button type="submit">&#128190; Save Player</button>
     </form>
 
     <?php
@@ -357,8 +396,8 @@ if ($sec === 'editplayer' && $canAdmin) {
       $grouped = [];
       foreach ($allItems as $it) $grouped[$it['category'] ?: 'Other'][] = $it;
     ?>
-    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px;margin-top:14px">
-      <h4 style="margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">&#127918; Inventory Items</h4>
+    <div class="adm-ep-sec" style="margin-top:14px">
+      <h4>&#127918; Inventory Items</h4>
       <form method="post">
         <input type="hidden" name="action" value="save_player_items">
         <input type="hidden" name="uid" value="<?= (int)$t['id'] ?>">
@@ -376,7 +415,7 @@ if ($sec === 'editplayer' && $canAdmin) {
           </div>
         </div>
         <?php endforeach; ?>
-        <p style="margin-top:10px"><button type="submit" style="font-size:12px">Save Inventory</button></p>
+        <button type="submit" style="font-size:12px">Save Inventory</button>
       </form>
     </div>
     <?php endif; ?>
@@ -1217,8 +1256,7 @@ try {
 } catch (Throwable $e) {}
 
 // Activity feed
-$feedSignups = []; $feedAdmin = [];
-try { $feedSignups = db()->query("SELECT id, username, level, created_at FROM players ORDER BY id DESC LIMIT 6")->fetchAll(); } catch (Throwable $e) {}
+$feedAdmin = [];
 try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_role, t.username target_name FROM admin_log l LEFT JOIN players a ON a.id=l.admin_id LEFT JOIN players t ON t.id=l.target_id ORDER BY l.id DESC LIMIT 20")->fetchAll(); } catch (Throwable $e) {}
 ?>
 <style>
@@ -1371,21 +1409,6 @@ try { $feedAdmin = db()->query("SELECT l.*, a.username admin_name, a.role admin_
     <span class="req">Chat+</span>
   </a>
 </div>
-
-<?php if ($canAdmin): ?>
-<!-- Activity feed -->
-<div class="panel" style="margin:0">
-  <h3 style="margin-top:0;font-size:13px">&#128075; Newest Ghosts</h3>
-  <?php if (empty($feedSignups)): ?><p class="muted" style="font-size:12px">No players yet.</p>
-  <?php else: foreach ($feedSignups as $fs): ?>
-  <div class="adm-feed-row">
-    <a href="index.php?p=admin&sec=editplayer&u=<?= (int)$fs['id'] ?>" style="flex:1"><?= e($fs['username']) ?></a>
-    <span class="muted" style="font-size:10px">Lv<?= (int)$fs['level'] ?></span>
-    <span class="muted" style="font-size:10px"><?= e(date('M j g:ia', strtotime($fs['created_at']))) ?></span>
-  </div>
-  <?php endforeach; endif; ?>
-</div>
-<?php endif; ?>
 
 <script>
 (function(){

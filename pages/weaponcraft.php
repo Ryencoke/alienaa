@@ -262,11 +262,12 @@ $oreNamesJson = json_encode($ORE_NAMES);
 
 <style>
 .wc-lvl-pill{display:inline-flex;align-items:center;gap:5px;background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.25);border-radius:20px;padding:4px 12px;font-size:12px;font-weight:700;color:var(--accent)}
-.wc-card{position:relative;overflow:hidden;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;cursor:pointer;transition:border-color .15s,transform .12s,box-shadow .15s}
-.wc-card:hover{transform:translateY(-2px)}
+.wc-card{position:relative;overflow:hidden;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 9px;cursor:pointer;transition:border-color .15s,transform .12s,box-shadow .15s}
+.wc-card:hover{transform:translateY(-1px)}
 .wc-card.sel{border-color:var(--wc-col,var(--accent));box-shadow:0 0 14px var(--wc-glow,rgba(25,240,199,.15))}
 .wc-card.broke{opacity:.55}
 .wc-chip{display:inline-block;font-size:10px;border-radius:4px;padding:2px 7px;margin:1px 3px 1px 0}
+#wc-layout{align-items:start}
 #wc-bay{position:sticky;top:10px}
 #wc-bay-canvas{display:block;width:100%;height:92px;border-radius:8px 8px 0 0;background:linear-gradient(180deg,#05050d,#090914)}
 .wc-gear-card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px}
@@ -314,26 +315,25 @@ $oreNamesJson = json_encode($ORE_NAMES);
   <div class="panel" style="margin:0">
     <h3 style="margin-top:0"><?= $wctab === 'weapons' ? '&#128299; Weapon Blueprints' : '&#128737; Armor Blueprints' ?></h3>
     <p class="muted" style="font-size:12px;margin-bottom:12px">Pick a blueprint, then fabricate it in the bay on the right. Ore mined at <a href="index.php?p=mining">The Sump</a>.</p>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px" id="wc-grid">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:8px" id="wc-grid">
     <?php foreach ($RECIPES as $r): if ($r['type'] !== $wantType) continue;
       $tier = $TIERS[$r['tier']]; $affordable = wc_can_afford($r['cost'], $oreInv);
       $costParts = [];
       foreach ($r['cost'] as $ore => $need) { $ok = ($oreInv[$ore] ?? 0) >= $need; $costParts[] = "<span class='wc-chip' style='background:".($ok?'rgba(25,240,199,.07)':'rgba(255,45,149,.07)')."; border:1px solid ".($ok?'rgba(25,240,199,.2)':'rgba(255,45,149,.3)')."; color:".($ok?'var(--text)':'var(--neon2)')."'>".$ORE_NAMES[$ore][1]." ".$need."&times; ".$ORE_NAMES[$ore][0]."</span>"; }
     ?>
     <div class="wc-card <?= $affordable ? '' : 'broke' ?>" data-id="<?= e($r['id']) ?>" style="--wc-col:<?= $tier['col'] ?>;--wc-glow:<?= $tier['col'] ?>33">
-      <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:5px">
-        <span style="font-size:20px;flex:none"><?= $r['icon'] ?></span>
+      <div style="display:flex;align-items:center;gap:7px">
+        <span style="font-size:17px;flex:none"><?= $r['icon'] ?></span>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:13px;color:<?= $tier['col'] ?>"><?= e($r['name']) ?></div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em"><?= $tier['label'] ?> &middot; Lv<?= $tier['level_req'] ?>+ to equip</div>
+          <div style="font-weight:700;font-size:12px;color:<?= $tier['col'] ?>;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= e($r['name']) ?></div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Lv<?= $tier['level_req'] ?>+ to equip</div>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;min-height:28px"><?= e($r['desc']) ?></div>
-      <div style="margin-bottom:6px">
+      <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:3px">
         <?php if ($r['atk'] > 0): ?><span class="wc-chip" style="background:rgba(255,45,149,.08);border:1px solid rgba(255,45,149,.2);color:var(--neon2);font-weight:700">+<?= $r['atk'] ?> ATK</span><?php endif; ?>
         <?php if ($r['def'] > 0): ?><span class="wc-chip" style="background:rgba(25,240,199,.08);border:1px solid rgba(25,240,199,.2);color:var(--accent);font-weight:700">+<?= $r['def'] ?> DEF</span><?php endif; ?>
+        <?= implode(' ', $costParts) ?>
       </div>
-      <div style="font-size:11px"><?= implode(' ', $costParts) ?></div>
     </div>
     <?php endforeach; ?>
     </div>
@@ -530,7 +530,7 @@ function selectCard(id){
   bayCost.innerHTML=costHtml;
   var afford=canAfford(r.cost);
   bayBtn.disabled=!afford;
-  bayBtn.textContent=afford?'⚔ Begin Fabrication':'⛔ Need more ore';
+  bayBtn.textContent=afford?'⚔ Begin Fabrication':'Need more ore';
   bayMsg.textContent='';
 }
 
@@ -577,7 +577,7 @@ if(bayBtn){
           bayIcon.classList.remove('wc-pop'); void bayIcon.offsetWidth; bayIcon.classList.add('wc-pop');
           var afford=canAfford(r.cost);
           bayBtn.disabled=!afford;
-          bayBtn.textContent=afford?'⚔ Begin Fabrication':'⛔ Need more ore';
+          bayBtn.textContent=afford?'⚔ Begin Fabrication':'Need more ore';
         })
         .catch(function(){
           bayMsg.textContent='Network error'; bayMsg.style.color='var(--neon2)';

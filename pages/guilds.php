@@ -102,6 +102,20 @@ function syn_can($rank, $perm) {
 function syn_log($pdo, $sid, $pid, $actorId, $action, $detail = '') {
   try { $pdo->prepare('INSERT INTO syndicate_log (syndicate_id,player_id,actor_id,action,detail) VALUES (?,?,?,?,?)')->execute([$sid,$pid,$actorId,$action,$detail]); } catch (Throwable $e) {}
 }
+// Group identical stockpile/armoury rows (same item + status) for display so donated
+// duplicates show once as "Name (×N)" instead of N separate rows. Each group keeps one
+// representative row (for its id/notes/etc — actions still act on that single row; the
+// count just reflects how many identical copies exist).
+function syn_group_stock(array $rows, array $extraKeys = []): array {
+  $groups = [];
+  foreach ($rows as $r) {
+    $key = $r['item_name'] . '|' . $r['available'];
+    foreach ($extraKeys as $ek) $key .= '|' . ($r[$ek] ?? '');
+    if (!isset($groups[$key])) { $groups[$key] = $r; $groups[$key]['_count'] = 0; }
+    $groups[$key]['_count']++;
+  }
+  return array_values($groups);
+}
 // Hideout notification (same table/shape pvp.php uses for combat notifications).
 function syn_notify($pdo, $playerId, $type, $body) {
   try {
@@ -926,6 +940,7 @@ elseif ($tab === 'stockpile' && $mySyn):
   // General items only (gear_type='item')
   $stockpile = [];
   try { $sq = $pdo->prepare("SELECT sp.*,p.username AS added_by_name FROM syndicate_stockpile sp LEFT JOIN players p ON p.id=sp.added_by WHERE sp.syndicate_id=? AND sp.gear_type='item' ORDER BY sp.item_name"); $sq->execute([$mySyn['syndicate_id']]); $stockpile = $sq->fetchAll(); } catch (Throwable $e) {}
+  $stockpileGrouped = syn_group_stock($stockpile);
   $activeLoans = [];
   try { $lq = $pdo->prepare("SELECT sl.*,sp.item_name,pl.username AS borrower_name FROM syndicate_loans sl JOIN syndicate_stockpile sp ON sp.id=sl.stockpile_id JOIN players pl ON pl.id=sl.player_id WHERE sl.syndicate_id=? AND sl.returned_at IS NULL AND sp.gear_type='item' ORDER BY sl.loaned_at DESC"); $lq->execute([$mySyn['syndicate_id']]); $activeLoans = $lq->fetchAll(); } catch (Throwable $e) {}
   $canManageStock = syn_can($myRank,'manage_stockpile');
@@ -970,10 +985,10 @@ elseif ($tab === 'stockpile' && $mySyn):
   </div>
   <?php if (empty($stockpile)): ?>
   <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No items in stockpile yet.</div>
-  <?php else: foreach ($stockpile as $si): ?>
+  <?php else: foreach ($stockpileGrouped as $si): ?>
   <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <div style="flex:1;min-width:120px">
-      <div style="font-weight:700;font-size:13px"><?= e($si['item_name']) ?></div>
+      <div style="font-weight:700;font-size:13px"><?= e($si['item_name']) ?><?php if ($si['_count'] > 1): ?> <span class="muted" style="font-weight:400">&times;<?= (int)$si['_count'] ?></span><?php endif; ?></div>
       <?php if ($si['notes']): ?><div style="font-size:11px;color:var(--muted)"><?= e($si['notes']) ?></div><?php endif; ?>
     </div>
     <span style="font-size:11px;font-weight:700;color:<?= $si['available']?'#3bcf63':'#e8a33d' ?>"><?= $si['available']?'Available':'On Loan' ?></span>
@@ -1007,6 +1022,7 @@ elseif ($tab === 'stockpile' && $mySyn):
 elseif ($tab === 'armoury' && $mySyn):
   $armoury = [];
   try { $sq = $pdo->prepare("SELECT sp.*,p.username AS added_by_name FROM syndicate_stockpile sp LEFT JOIN players p ON p.id=sp.added_by WHERE sp.syndicate_id=? AND sp.gear_type IN ('weapon','armor') ORDER BY sp.gear_type,sp.item_name"); $sq->execute([$mySyn['syndicate_id']]); $armoury = $sq->fetchAll(); } catch (Throwable $e) {}
+  $armouryGrouped = syn_group_stock($armoury, ['gear_type','atk_bonus','def_bonus']);
   $armouryLoans = [];
   try { $lq = $pdo->prepare("SELECT sl.*,sp.item_name,sp.gear_type,sp.atk_bonus,sp.def_bonus,pl.username AS borrower_name FROM syndicate_loans sl JOIN syndicate_stockpile sp ON sp.id=sl.stockpile_id JOIN players pl ON pl.id=sl.player_id WHERE sl.syndicate_id=? AND sl.returned_at IS NULL AND sp.gear_type IN ('weapon','armor') ORDER BY sl.loaned_at DESC"); $lq->execute([$mySyn['syndicate_id']]); $armouryLoans = $lq->fetchAll(); } catch (Throwable $e) {}
   $canManageStock = syn_can($myRank,'manage_stockpile');
@@ -1058,7 +1074,7 @@ elseif ($tab === 'armoury' && $mySyn):
   <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No weapons or armor stored yet.</div>
   <?php else:
     $lastType = null;
-    foreach ($armoury as $si):
+    foreach ($armouryGrouped as $si):
       if ($si['gear_type'] !== $lastType):
         $lastType = $si['gear_type'];
         $typeLabel = $lastType === 'weapon' ? '&#9876; Weapons' : '&#128737; Armor';
@@ -1067,7 +1083,7 @@ elseif ($tab === 'armoury' && $mySyn):
   <?php endif; ?>
   <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <div style="flex:1;min-width:120px">
-      <div style="font-weight:700;font-size:13px"><?= e($si['item_name']) ?></div>
+      <div style="font-weight:700;font-size:13px"><?= e($si['item_name']) ?><?php if ($si['_count'] > 1): ?> <span class="muted" style="font-weight:400">&times;<?= (int)$si['_count'] ?></span><?php endif; ?></div>
       <div style="font-size:11px;color:var(--muted)">
         <?php if ($si['gear_type']==='weapon' && $si['atk_bonus']>0): ?><span style="color:var(--neon2)">+<?= (int)$si['atk_bonus'] ?> ATK</span><?php endif; ?>
         <?php if ($si['gear_type']==='armor'  && $si['def_bonus']>0): ?><span style="color:var(--accent)">+<?= (int)$si['def_bonus'] ?> DEF</span><?php endif; ?>

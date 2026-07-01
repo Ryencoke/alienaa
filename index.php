@@ -97,6 +97,7 @@ if ($player) {
 // page layout and the client sees "Network error".
 if ($player && $_SERVER['REQUEST_METHOD'] === 'POST'
     && (!empty($_POST['mine_ajax']) || !empty($_POST['vat_ajax']) || !empty($_POST['exch_ajax'])
+        || !empty($_POST['wc_ajax'])
         || ($p === 'friends' && !empty($_SERVER['HTTP_X_REQUESTED_WITH'])))) {
   $__ajaxStaff = in_array($player['role'] ?? 'member', ['chatmod','moderator','admin','manager'], true);
   if ($jailRecord && !$__ajaxStaff) {
@@ -209,7 +210,10 @@ endif; ?>
   $__unreadMsgs = 0;
   try { $__uq=db()->prepare('SELECT COUNT(*) FROM messages WHERE to_id=? AND is_read=0'); $__uq->execute([$player['id']]); $__unreadMsgs=(int)$__uq->fetchColumn(); } catch(Throwable $e){}
   $__unreadNotifs = 0;
-  try { $__uq=db()->prepare('SELECT COUNT(*) FROM player_notifications WHERE player_id=? AND is_read=0'); $__uq->execute([$player['id']]); $__unreadNotifs=(int)$__uq->fetchColumn(); } catch(Throwable $e){}
+  // Uses is_seen (not is_read) so the Hideout link stops being bold once the
+  // player has visited, even though the notifications themselves stay listed
+  // until dismissed.
+  try { $__uq=db()->prepare('SELECT COUNT(*) FROM player_notifications WHERE player_id=? AND is_seen=0'); $__uq->execute([$player['id']]); $__unreadNotifs=(int)$__uq->fetchColumn(); } catch(Throwable $e){}
   $__unreadCount = $__unreadMsgs + $__unreadNotifs;
 ?>
 <nav class="topbar<?= $_hideTopbar ? ' topbar-hidden' : '' ?>" id="topnav">

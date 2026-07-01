@@ -185,7 +185,7 @@ $feePct = WITHDRAW_FEE_PCT;
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px" id="dep-hint"></div>
       </div>
-      <button type="submit" style="margin-top:4px;border-color:rgba(59,207,99,.4);color:#3bcf63">Deposit</button>
+      <button type="submit" style="margin-top:4px">Deposit</button>
     </form>
   </div>
 
@@ -205,7 +205,7 @@ $feePct = WITHDRAW_FEE_PCT;
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px" id="wd-fee-preview"></div>
       </div>
-      <button type="submit" style="margin-top:4px;border-color:rgba(232,163,61,.4);color:#e8a33d">Withdraw</button>
+      <button type="submit" style="margin-top:4px">Withdraw</button>
     </form>
   </div>
 
@@ -281,7 +281,7 @@ $feePct = WITHDRAW_FEE_PCT;
           <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0"><input type="radio" name="dest" value="bank" style="width:auto;accent-color:var(--accent)"> Bank</label>
         </div>
       </div>
-      <button type="submit" style="border-color:rgba(255,107,53,.4);color:#ff6b35">Borrow</button>
+      <button type="submit">Borrow</button>
     </form>
     <?php else: ?>
     <p class="muted" style="font-size:12px;margin-top:10px">You've reached your borrowing limit. Repay your existing loan to borrow more.</p>

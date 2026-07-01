@@ -97,64 +97,57 @@ $roomAccent = $roomAccents[$room] ?? '#19f0c7';
   <?php endforeach; ?>
 </div>
 
-<!-- Main chat + active chatters layout -->
-<div style="display:grid;grid-template-columns:1fr 160px;gap:10px;align-items:start">
-
-  <!-- Chat feed -->
-  <div class="panel" style="padding:0;overflow:hidden">
-    <div id="chatroom" class="chatroom-full">
-      <?php if ($rows): foreach ($rows as $r):
-        $col     = chat_color($r['role'], '');
-        $textCol = chat_color($r['role'], $r['chat_color']);
-      ?>
-        <?php $isMention = $r['uid'] != $pid && stripos($r['body'], $player['username']) !== false; ?>
-        <div class="chatline-full<?= $isMention ? ' chat-mention' : '' ?>">
-          <span class="chattime-full"><?= e(date('H:i', strtotime($r['created_at']))) ?></span>
-          <div class="chatline-body">
-            <a href="index.php?p=profile&id=<?= (int)$r['uid'] ?>" style="color:<?= e($col) ?>;font-weight:700"><?= e($r['username']) ?></a><span style="color:var(--muted)">:</span>
-            <span style="color:<?= e($textCol) ?>"><?= bbcode($r['body']) ?></span>
-          </div>
+<!-- Chat feed -->
+<div class="panel" style="padding:0;overflow:hidden">
+  <div id="chatroom" class="chatroom-full">
+    <?php if ($rows): foreach ($rows as $r):
+      $col     = chat_color($r['role'], '');
+      $textCol = chat_color($r['role'], $r['chat_color']);
+    ?>
+      <?php $isMention = $r['uid'] != $pid && stripos($r['body'], $player['username']) !== false; ?>
+      <div class="chatline-full<?= $isMention ? ' chat-mention' : '' ?>">
+        <span class="chattime-full"><?= e(date('H:i', strtotime($r['created_at']))) ?></span>
+        <div class="chatline-body">
+          <a href="index.php?p=profile&id=<?= (int)$r['uid'] ?>" style="color:<?= e($col) ?>;font-weight:700"><?= e($r['username']) ?></a><span style="color:var(--muted)">:</span>
+          <span style="color:<?= e($textCol) ?>"><?= bbcode($r['body']) ?></span>
         </div>
-      <?php endforeach; else: ?>
-        <div style="text-align:center;padding:40px;color:var(--muted)">
-          <div style="font-size:32px;margin-bottom:8px">&#128172;</div>
-          <div>Dead air. Say something.</div>
-        </div>
-      <?php endif; ?>
-    </div>
-    <div style="border-top:1px solid var(--line);padding:10px 14px;background:var(--panel2)">
-      <form id="chatform-full" style="display:flex;gap:8px;align-items:center">
-        <input type="hidden" name="action" value="say">
-        <input type="hidden" id="chat-room-key" value="<?= e($room) ?>">
-        <input type="text" id="chatinput-full" name="body" maxlength="240" autocomplete="off" placeholder="Transmit..." style="flex:1">
-        <span id="cht-count"></span>
-        <button type="submit" style="flex:none;padding:8px 16px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">Send</button>
-      </form>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px">
-        BBCode: <code>[b]bold[/b]</code> <code>[i]italics[/i]</code> &middot; Set text color in <a href="index.php?p=account&sec=chat">Account</a>.
       </div>
+    <?php endforeach; else: ?>
+      <div style="text-align:center;padding:40px;color:var(--muted)">
+        <div style="font-size:32px;margin-bottom:8px">&#128172;</div>
+        <div>Dead air. Say something.</div>
+      </div>
+    <?php endif; ?>
+  </div>
+  <div style="border-top:1px solid var(--line);padding:10px 14px;background:var(--panel2)">
+    <form id="chatform-full" style="display:flex;gap:8px;align-items:center">
+      <input type="hidden" name="action" value="say">
+      <input type="hidden" id="chat-room-key" value="<?= e($room) ?>">
+      <input type="text" id="chatinput-full" name="body" maxlength="240" autocomplete="off" placeholder="Transmit..." style="flex:1">
+      <span id="cht-count"></span>
+      <button type="submit" style="flex:none;padding:8px 16px;background:rgba(25,240,199,.08);border-color:rgba(25,240,199,.35);color:var(--accent)">Send</button>
+    </form>
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">
+      BBCode: <code>[b]bold[/b]</code> <code>[i]italics[/i]</code> &middot; Set text color in <a href="index.php?p=account&sec=chat">Account</a>.
     </div>
   </div>
+</div>
 
-  <!-- Active chatters -->
-  <div>
-    <div class="panel" style="padding:10px 12px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">&#128172; Active Now</div>
-      <div id="active-chatters">
-        <?php if (empty($activeChatters)): ?>
-        <div style="font-size:11px;color:var(--muted);font-style:italic">No one active yet</div>
-        <?php else: foreach ($activeChatters as $acu):
-          $acColor = chat_color($acu['role'], '');
-        ?>
-        <div style="font-size:12px;margin-bottom:4px">
-          <span style="display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin-right:4px;vertical-align:middle;box-shadow:0 0 4px rgba(25,240,199,.7)"></span>
-          <a href="index.php?p=profile&id=<?= (int)$acu['id'] ?>" style="color:<?= e($acColor) ?>"><?= e($acu['username']) ?></a>
-        </div>
-        <?php endforeach; endif; ?>
-      </div>
+<!-- Active chatters — horizontal strip below the feed instead of a squeezed side column -->
+<div class="panel" style="padding:10px 14px">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">&#128172; Active Now</div>
+  <div id="active-chatters" style="display:flex;flex-wrap:wrap;gap:6px 16px">
+    <?php if (empty($activeChatters)): ?>
+    <div style="font-size:11px;color:var(--muted);font-style:italic">No one active yet</div>
+    <?php else: foreach ($activeChatters as $acu):
+      $acColor = chat_color($acu['role'], '');
+    ?>
+    <div style="font-size:12px;white-space:nowrap">
+      <span style="display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin-right:4px;vertical-align:middle;box-shadow:0 0 4px rgba(25,240,199,.7)"></span>
+      <a href="index.php?p=profile&id=<?= (int)$acu['id'] ?>" style="color:<?= e($acColor) ?>"><?= e($acu['username']) ?></a>
     </div>
+    <?php endforeach; endif; ?>
   </div>
-
 </div>
 
 <script>
@@ -164,17 +157,6 @@ $roomAccent = $roomAccents[$room] ?? '#19f0c7';
       inp =document.getElementById('chatinput-full'),
       roomKey=document.getElementById('chat-room-key').value;
   if(!room||!form) return;
-
-  // Replace quickchat sidebar with Active Now list while in chat
-  var qcp=document.getElementById('quickchat-panel');
-  var qcpOrig=qcp?qcp.innerHTML:null;
-  if(qcp){
-    qcp.innerHTML='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">&#128172; Active Now</div><div id="sidebar-active-now"><div style="font-size:11px;color:var(--muted);font-style:italic">Loading...</div></div>';
-  }
-  document.addEventListener('sprawl:swapped', function restore(){
-    if(qcp&&qcpOrig) qcp.innerHTML=qcpOrig;
-    document.removeEventListener('sprawl:swapped', restore);
-  });
 
   var MYNAME=<?= json_encode($player['username']) ?>;
   var prevCount=-1;
@@ -212,22 +194,19 @@ $roomAccent = $roomAccents[$room] ?? '#19f0c7';
   }
 
   function renderActive(active){
-    var ids=['active-chatters','sidebar-active-now'];
-    ids.forEach(function(id){
-      var box=document.getElementById(id); if(!box) return;
-      if(!active||!active.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted);font-style:italic">No one active yet</div>'; return; }
-      box.innerHTML='';
-      active.forEach(function(a){
-        var d=document.createElement('div'); d.style.cssText='font-size:12px;margin-bottom:4px';
-        var dot=document.createElement('span');
-        dot.style.cssText='display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin-right:4px;vertical-align:middle;box-shadow:0 0 4px rgba(25,240,199,.7)';
-        var link=document.createElement('a');
-        link.href='index.php?p=profile&id='+encodeURIComponent(a.id);
-        link.style.color=a.color||'#c9d1e0';
-        link.textContent=a.name||''; // textContent, not innerHTML — usernames are untrusted
-        d.appendChild(dot); d.appendChild(link);
-        box.appendChild(d);
-      });
+    var box=document.getElementById('active-chatters'); if(!box) return;
+    if(!active||!active.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted);font-style:italic">No one active yet</div>'; return; }
+    box.innerHTML='';
+    active.forEach(function(a){
+      var d=document.createElement('div'); d.style.cssText='font-size:12px;white-space:nowrap';
+      var dot=document.createElement('span');
+      dot.style.cssText='display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin-right:4px;vertical-align:middle;box-shadow:0 0 4px rgba(25,240,199,.7)';
+      var link=document.createElement('a');
+      link.href='index.php?p=profile&id='+encodeURIComponent(a.id);
+      link.style.color=a.color||'#c9d1e0';
+      link.textContent=a.name||''; // textContent, not innerHTML — usernames are untrusted
+      d.appendChild(dot); d.appendChild(link);
+      box.appendChild(d);
     });
   }
 

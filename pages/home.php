@@ -63,11 +63,24 @@ try {
   $sgq->execute([$pid]); $myHomeGuild = $sgq->fetch();
 } catch (Throwable $e) {}
 
+// ── Player Details (account age, alignment, activity counts) ──
+$acctAgeDays = !empty($player['created_at']) ? max(0, (int)floor((time() - strtotime($player['created_at'])) / 86400)) : 0;
+$acctAgeLabel = $acctAgeDays >= 365 ? number_format($acctAgeDays / 365, 1) . ' yrs' : $acctAgeDays . ' day' . ($acctAgeDays !== 1 ? 's' : '');
+$homePostCount = 0;
+try { $ppc = $pdo->prepare('SELECT COUNT(*) FROM posts WHERE author_id = ?'); $ppc->execute([$pid]); $homePostCount = (int)$ppc->fetchColumn(); } catch (Throwable $e) {}
+$homeChatCount = 0;
+try { $pcc = $pdo->prepare('SELECT COUNT(*) FROM chat_messages WHERE player_id = ?'); $pcc->execute([$pid]); $homeChatCount = (int)$pcc->fetchColumn(); } catch (Throwable $e) {}
+$homeFriendCount = 0;
+try { $pfc = $pdo->prepare('SELECT COUNT(*) FROM friends WHERE player_id = ?'); $pfc->execute([$pid]); $homeFriendCount = (int)$pfc->fetchColumn(); } catch (Throwable $e) {}
+$homeMsgCount = 0;
+try { $pmc = $pdo->prepare('SELECT COUNT(*) FROM messages WHERE from_id = ?'); $pmc->execute([$pid]); $homeMsgCount = (int)$pmc->fetchColumn(); } catch (Throwable $e) {}
+
 // ── Notifications — schema ──
 try { $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'); } catch (Throwable $e) {}
 try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN ref_type VARCHAR(20) NULL"); } catch(Throwable $e) {}
 try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN ref_id INT NULL"); } catch(Throwable $e) {}
 try { $pdo->exec("ALTER TABLE player_notifications ADD UNIQUE KEY uq_pn_ref (player_id, ref_type, ref_id)"); } catch(Throwable $e) {}
+try { $pdo->exec("ALTER TABLE player_notifications ADD COLUMN is_seen TINYINT(1) NOT NULL DEFAULT 0"); } catch(Throwable $e) {}
 
 // ── Dismiss actions ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -102,6 +115,11 @@ try {
   $nq = $pdo->prepare("SELECT id, type, body AS text, created_at AS ts FROM player_notifications WHERE player_id=? AND is_read=0 ORDER BY created_at DESC LIMIT 20");
   $nq->execute([$pid]); $newsFeed = $nq->fetchAll();
 } catch(Throwable $e) {}
+
+// Visiting the Hideout marks notifications as seen (clears the sidebar "new"
+// badge/bold from the next page load on) without dismissing them — they stay
+// listed here until the player explicitly clears them.
+try { $pdo->prepare("UPDATE player_notifications SET is_seen=1 WHERE player_id=? AND is_seen=0")->execute([$pid]); } catch(Throwable $e) {}
 
 // ── Dynamic: unspent attr points — read from player_stats.unspent ──
 $attrPoints = (int)($cStats['unspent'] ?? 0);
@@ -202,7 +220,7 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
 </div>
 
 <!-- ══ STATS GRID ══════════════════════════════════════════════ -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">
 
   <!-- Vitals -->
   <div class="panel hm-card" style="--hm-col:#3bcf63;--hm-glow:rgba(59,207,99,.08)">
@@ -320,6 +338,39 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
       <a href="index.php?p=guilds" style="display:inline-block;margin-top:8px;font-size:11px;color:var(--accent);padding:5px 14px;border:1px solid rgba(25,240,199,.2);border-radius:5px;text-decoration:none">Browse &rarr;</a>
     </div>
     <?php endif; ?>
+  </div>
+
+  <!-- Player Details -->
+  <div class="panel hm-card" style="--hm-col:#a66de8;--hm-glow:rgba(166,109,232,.08)">
+    <h3 style="margin-top:0;margin-bottom:14px;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128100; Player Details</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 10px">
+        <div style="color:var(--muted)">Account Age</div>
+        <div style="font-weight:700;color:var(--text);margin-top:2px"><?= e($acctAgeLabel) ?></div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 10px">
+        <div style="color:var(--muted)">Alignment</div>
+        <div style="font-weight:700;margin-top:2px;color:<?= $myMortality>0 ? '#e8d44d' : ($myMortality<0 ? 'var(--neon2)' : 'var(--muted)') ?>">
+          <?= mortality_icon($myMortality) ?> <?= $myMortality>0 ? 'Good' : ($myMortality<0 ? 'Evil' : 'Neutral') ?><?= $myMortality!==0 ? ' ('.($myMortality>0?'+':'').$myMortality.')' : '' ?>
+        </div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 10px">
+        <div style="color:var(--muted)">Board Posts</div>
+        <div style="font-weight:700;color:var(--text);margin-top:2px"><?= number_format($homePostCount) ?></div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 10px">
+        <div style="color:var(--muted)">Chat Messages</div>
+        <div style="font-weight:700;color:var(--text);margin-top:2px"><?= number_format($homeChatCount) ?></div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 10px">
+        <div style="color:var(--muted)">Friends</div>
+        <div style="font-weight:700;color:var(--text);margin-top:2px"><?= number_format($homeFriendCount) ?></div>
+      </div>
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:7px 10px">
+        <div style="color:var(--muted)">PMs Sent</div>
+        <div style="font-weight:700;color:var(--text);margin-top:2px"><?= number_format($homeMsgCount) ?></div>
+      </div>
+    </div>
   </div>
 
 </div>
