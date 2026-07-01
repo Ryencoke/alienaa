@@ -159,17 +159,15 @@ function mortality_icon($score) {
 // (.avatar in the sidebar, .hh-av on the Hideout hero, .prof-avatar on
 // profile pages) — callers keep their own wrapper div/class/size untouched.
 // $boxPx must match the wrapper's actual pixel size so the body/hat glyphs
-// scale correctly. Falls back to the classic letter avatar until the player
-// has explicitly set a look at the Chrome Boutique (avatar_active flag) —
-// this is deliberately NOT gender alone, since gender may have been set for
-// pronouns/RP long before this feature existed and shouldn't silently swap
-// a player's avatar out from under them.
+// scale correctly. The base look is driven entirely by the player's Account
+// gender setting (M/F) — no separate opt-in step. Falls back to the classic
+// letter avatar when gender is unset.
 //
 // This is the single choke point for avatar rendering — swapping these
 // emoji/CSS placeholders for real sprite <img> layers later only requires
 // editing this function body, not any of its call sites.
 function render_avatar_inner(array $playerRow, int $boxPx = 52): string {
-  $active = !empty($playerRow['avatar_active']) && in_array($playerRow['gender'] ?? '', ['M', 'F'], true);
+  $active = in_array($playerRow['gender'] ?? '', ['M', 'F'], true);
   if (!$active) {
     $letter = mb_strtoupper(mb_substr((string)($playerRow['username'] ?? '?'), 0, 1));
     return e($letter);

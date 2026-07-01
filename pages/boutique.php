@@ -1,17 +1,17 @@
-<?php /* pages/boutique.php — Chrome Boutique: avatar base look + cosmetic wardrobe.
-   Placeholder rendering only (no real sprite art yet) — see lib.php's
-   render_avatar_inner() for the single choke point that'll need updating
-   once real art exists. */
+<?php /* pages/boutique.php — Chrome Boutique: cosmetic wardrobe for your avatar.
+   The base look (male/female body) is driven entirely by the player's
+   Account gender setting, not a separate picker here. Placeholder rendering
+   only (no real sprite art yet) — see lib.php's render_avatar_inner() for
+   the single choke point that'll need updating once real art exists. */
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
 $msgErr = false;
 
-// Schema — avatar base/equip state lives directly on players (see lib.php's
+// Schema — equip state lives directly on players (see lib.php's
 // render_avatar_inner()) so the sidebar/hero/profile avatars never need an
 // extra query or join; only this page needs to self-heal the columns.
-try { $pdo->exec("ALTER TABLE players ADD COLUMN avatar_active TINYINT(1) NOT NULL DEFAULT 0 AFTER gender"); } catch (Throwable $e) {}
-try { $pdo->exec("ALTER TABLE players ADD COLUMN equip_hat    VARCHAR(32) NULL DEFAULT NULL AFTER avatar_active"); } catch (Throwable $e) {}
+try { $pdo->exec("ALTER TABLE players ADD COLUMN equip_hat    VARCHAR(32) NULL DEFAULT NULL AFTER gender"); } catch (Throwable $e) {}
 try { $pdo->exec("ALTER TABLE players ADD COLUMN equip_jacket VARCHAR(32) NULL DEFAULT NULL AFTER equip_hat"); } catch (Throwable $e) {}
 try { $pdo->exec("ALTER TABLE players ADD COLUMN equip_pants  VARCHAR(32) NULL DEFAULT NULL AFTER equip_jacket"); } catch (Throwable $e) {}
 try { $pdo->exec("ALTER TABLE players ADD COLUMN equip_shoes  VARCHAR(32) NULL DEFAULT NULL AFTER equip_pants"); } catch (Throwable $e) {}
@@ -29,13 +29,7 @@ $SLOT_LABELS = ['hat' => '&#129504; Hats', 'jacket' => '&#129513; Jackets', 'pan
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = $_POST['action'] ?? '';
   try {
-    if ($action === 'set_sex') {
-      $sex = ($_POST['sex'] ?? '') === 'F' ? 'F' : 'M';
-      $pdo->prepare('UPDATE players SET gender = ?, avatar_active = 1 WHERE id = ?')->execute([$sex, $pid]);
-      $player = current_player();
-      $msg = 'Base look set.';
-
-    } elseif ($action === 'buy') {
+    if ($action === 'buy') {
       $code = $_POST['item_code'] ?? '';
       $item = $BC_BY_CODE[$code] ?? null;
       if (!$item) throw new RuntimeException('Item not found.');
@@ -94,15 +88,15 @@ if (!in_array($tab, ['hat', 'jacket', 'pants', 'shoes'], true)) $tab = 'hat';
 $items = array_values(array_filter($CATALOG, fn($c) => $c[3] === $tab));
 $pocket = (int)($player['creds_pocket'] ?? 0);
 $mySex = $player['gender'] ?? '';
-$avatarActive = !empty($player['avatar_active']) && in_array($mySex, ['M', 'F'], true);
+$avatarActive = in_array($mySex, ['M', 'F'], true);
 
 // Live "paper doll" summary preview — Boutique-only, deliberately separate
 // from lib.php's render_avatar_inner() (that one is for the small 52-72px
 // boxes elsewhere and can't legibly show jacket/pants/shoes).
 function boutique_render_preview(array $player, array $BC_BY_CODE): string {
-  $active = !empty($player['avatar_active']) && in_array($player['gender'] ?? '', ['M', 'F'], true);
+  $active = in_array($player['gender'] ?? '', ['M', 'F'], true);
   if (!$active) {
-    return '<div style="text-align:center;padding:24px 10px;color:var(--muted);font-size:12px">Set your base look below to preview your avatar.</div>';
+    return '<div style="text-align:center;padding:24px 10px;color:var(--muted);font-size:12px">Set your gender in <a href="index.php?p=account&sec=profile" style="color:var(--accent)">Account &rarr;</a> to unlock your avatar.</div>';
   }
   $bodyEmoji = $player['gender'] === 'F' ? '&#128105;' : '&#128104;';
   $hatItem = !empty($player['equip_hat']) ? ($BC_BY_CODE[$player['equip_hat']] ?? null) : null;
@@ -152,25 +146,12 @@ function boutique_render_preview(array $player, array $BC_BY_CODE): string {
 <div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>
 <?php endif; ?>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-  <div class="panel" style="margin:0">
-    <h3 style="margin-top:0;font-size:13px">Base Look</h3>
-    <p class="muted" style="font-size:12px;margin-top:-4px"><?= $avatarActive ? 'Change your base look anytime — anything you own stays equipped.' : 'Choose your avatar\'s base look to get started.' ?></p>
-    <form method="post" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:10px">
-      <input type="hidden" name="action" value="set_sex">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="radio" name="sex" value="M" <?= $mySex === 'M' ? 'checked' : '' ?> style="width:auto;accent-color:#5fa8e8"> <span style="color:#5fa8e8">&#9794; Male</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="radio" name="sex" value="F" <?= $mySex === 'F' ? 'checked' : '' ?> style="width:auto;accent-color:#ff75b5"> <span style="color:#ff75b5">&#9792; Female</span>
-      </label>
-      <button type="submit" style="font-size:12px"><?= $avatarActive ? 'Update' : 'Confirm' ?></button>
-    </form>
-  </div>
-  <div class="panel" style="margin:0">
-    <h3 style="margin-top:0;font-size:13px">Preview</h3>
-    <?= boutique_render_preview($player, $BC_BY_CODE) ?>
-  </div>
+<div class="panel">
+  <h3 style="margin-top:0;font-size:13px">Preview</h3>
+  <?php if (!$avatarActive): ?>
+  <p class="muted" style="font-size:12px;margin-top:-4px">Your base look follows your Account gender setting.</p>
+  <?php endif; ?>
+  <?= boutique_render_preview($player, $BC_BY_CODE) ?>
 </div>
 
 <div class="tabs" style="margin:14px 0 16px">
