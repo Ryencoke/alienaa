@@ -78,7 +78,7 @@ if ($sec === 'cryo') {
   if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'freeze') {
     if (!$sub) { $msg = 'Cryo is for subscribers only.'; }
     else {
-      $days = max(3, (int)($_POST['days'] ?? 3));
+      $days = max(3, min(30, (int)($_POST['days'] ?? 3)));
       $until = date('Y-m-d', strtotime("+{$days} days"));
       $pdo->prepare('UPDATE players SET cryo_until = ? WHERE id = ?')->execute([$until, $pid]);
       $msg = "Frozen until {$until}."; $player = current_player();

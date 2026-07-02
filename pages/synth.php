@@ -182,6 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($usedHerbs) $wq->execute([json_encode($myHerbs), "vat_herbs:{$pid}"]);
       $wq->execute([json_encode($myStims), "synth_stim:{$pid}"]);
       $pdo->commit();
+      contract_record($pdo, $pid, 'stim_brewed');
       $msg = 'Synthesized 1x ' . $stim['name'] . '!';
       $tab = 'brew';
 

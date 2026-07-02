@@ -54,10 +54,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $imgPath = $fname;
       }
       $pdo->prepare('INSERT INTO tickets (player_id, subject, body, screenshot) VALUES (?,?,?,?)')->execute([$pid, $sub, $body, $imgPath]);
-      // Notify staff: increment admin new-ticket counter
+      // Notify staff: increment admin new-ticket counter atomically so concurrent
+      // submissions each add 1 instead of read-then-write clobbering the count.
       try {
-        $nq = $pdo->query("SELECT COALESCE(v,0) FROM settings WHERE k='admin_new_tickets'"); $nc = (int)($nq->fetchColumn() ?: 0);
-        $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute(['admin_new_tickets', $nc + 1]);
+        $pdo->prepare("INSERT INTO settings (k,v) VALUES ('admin_new_tickets',1) ON DUPLICATE KEY UPDATE v=v+1")->execute();
       } catch (Throwable $e) {}
       $msg = 'Ticket submitted. We will respond shortly.';
 
@@ -75,7 +75,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ((int)$rc->fetchColumn() > 0) throw new RuntimeException('You\'ve already replied. Staff will respond soon — additional replies are not permitted.');
       }
       $pdo->prepare('INSERT INTO ticket_replies (ticket_id, author_id, body, is_staff) VALUES (?,?,?,?)')->execute([$tid, $pid, $body, $isStaff ? 1 : 0]);
-      $pdo->prepare("UPDATE tickets SET status='pending', updated_at=NOW() WHERE id=?")->execute([$tid]);
+      // A reply must not silently reopen a closed ticket — leave closed tickets
+      // closed (a staffer reopens explicitly via setstatus); only non-closed
+      // tickets flip to pending as before. Always bump updated_at.
+      if ($t['status'] === 'closed') {
+        $pdo->prepare('UPDATE tickets SET updated_at=NOW() WHERE id=?')->execute([$tid]);
+      } else {
+        $pdo->prepare("UPDATE tickets SET status='pending', updated_at=NOW() WHERE id=?")->execute([$tid]);
+      }
       $msg = 'Reply sent.';
 
     } elseif ($act === 'setstatus' && $isStaff) {

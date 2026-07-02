@@ -44,7 +44,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($listing['seller_id'] == $pid) { $pdo->rollBack(); throw new RuntimeException("That's your own listing."); }
 
       $want = isset($_POST['all']) ? (int)$listing['qty'] : (int)($_POST['qty'] ?? 0);
-      if ($want <= 0 || $want > $listing['qty']) $want = (int)$listing['qty'];
+      // An empty/zero qty must NOT silently buy the whole stack — reject it.
+      // (The "All" button posts ?all and covers intentional buy-everything.)
+      if ($want <= 0) { $pdo->rollBack(); throw new RuntimeException('Enter a valid quantity.'); }
+      if ($want > (int)$listing['qty']) $want = (int)$listing['qty'];
       $total = $want * (int)$listing['unit_price'];
 
       $pay = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');

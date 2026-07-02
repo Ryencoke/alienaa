@@ -8,7 +8,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
   // further attempts (even a correct password) until the window expires. Stored
   // in the generic settings k/v store as "count|first_attempt_unix_ts" — no
   // schema migration needed, mirrors how cooldowns elsewhere in the app work.
-  $lockKey = 'login_fail:' . $em;
+  // Fixed-length key: settings.k is VARCHAR(48), so hashing keeps long emails
+  // from overflowing the column (which would fatal or silently truncate and
+  // cross-lock unrelated users). 'login_fail:' (11) + 32-char hash = 43.
+  $lockKey = 'login_fail:' . substr(sha1(strtolower($em)), 0, 32);
   $lockMax = 5; $lockWindow = 900; // 15 minutes
   $failCount = 0; $firstAttempt = 0;
   $lockRaw = setting_get($pdo, $lockKey, '');
@@ -31,7 +34,13 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     }
     $ip = $_SERVER['REMOTE_ADDR'] ?? '';
     $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
-    if ($row && password_verify($pw,$row['pass_hash'])) {
+    if ($row && password_verify($pw,$row['pass_hash']) && ($row['role'] ?? '') === 'banned') {
+      // Credentials are valid but the account is locked out — refuse without
+      // establishing a session. Clear the lockout counter so a banned user
+      // isn't also rate-limited on top of the ban message.
+      setting_set($pdo, $lockKey, '');
+      $err = 'This account is locked.';
+    } elseif ($row && password_verify($pw,$row['pass_hash'])) {
       setting_set($pdo, $lockKey, ''); // clear lockout on success
       session_regenerate_id(true);
       $_SESSION['pid']=(int)$row['id']; // int, so strict ===-comparisons against (int) ids behave
@@ -40,11 +49,16 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
       try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id'],$ip,$ua,'login']); } catch(Throwable $e){}
       header('Location: index.php?p=welcome'); exit;
     }
-    $failCount++;
-    if ($firstAttempt === 0) $firstAttempt = time();
-    setting_set($pdo, $lockKey, $failCount . '|' . $firstAttempt);
-    try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id']??null,$ip,$ua,'fail']); } catch(Throwable $e){}
-    $err='Bad credentials. The Grid does not know you.';
+    // Only count as a failed attempt when it's a genuine credential mismatch —
+    // a valid-but-banned login ($err already set above) must not increment the
+    // lockout counter or be reported as bad credentials.
+    if ($err === '') {
+      $failCount++;
+      if ($firstAttempt === 0) $firstAttempt = time();
+      setting_set($pdo, $lockKey, $failCount . '|' . $firstAttempt);
+      try { $pdo->prepare('INSERT INTO ip_log (player_id,ip,user_agent,action) VALUES (?,?,?,?)')->execute([$row['id']??null,$ip,$ua,'fail']); } catch(Throwable $e){}
+      $err='Bad credentials. The Grid does not know you.';
+    }
   }
 }
 ?>

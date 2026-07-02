@@ -71,7 +71,7 @@ try {
 <?= scene_header_js() ?>
 
 <?php if ($msg): ?>
-<div class="flash <?= str_contains($msg,'Not enough')||str_contains($msg,'Unknown') ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>
+<div class="flash <?= str_contains($msg,'Not enough')||str_contains($msg,'Unknown')||str_contains($msg,'already have a stronger') ? 'flash-err' : 'flash-ok' ?>"><?= e($msg) ?></div>
 <?php endif; ?>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">

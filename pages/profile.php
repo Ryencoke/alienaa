@@ -99,6 +99,9 @@ $winRate   = ($totalWins + $totalLoss) > 0 ? round($totalWins / ($totalWins + $t
         <?php if (!empty($prof['created_at'])): ?>
           <span class="prof-meta-item">&#128197; Joined <?= e(date('M Y', strtotime($prof['created_at']))) ?></span>
         <?php endif; ?>
+        <?php if (!$isMe && !$isBanned) { $profBounty = bounty_pool_on(db(), (int)$prof['id']); if ($profBounty > 0): ?>
+          <a href="index.php?p=bounties" class="prof-meta-item" style="color:#e8d44d;text-decoration:none">&#127919; <?= number_format($profBounty) ?> cr bounty</a>
+        <?php endif; } ?>
         <?php
           $lastSeenTs = strtotime($prof['last_seen'] ?? '');
           $lsStr = $isOnline ? '<span style="color:#3bcf63">Online now</span>' : ($lastSeenTs ? e(date('M j, g:ia', $lastSeenTs)) : '');

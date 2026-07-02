@@ -168,6 +168,168 @@ try {
   if ($mySyn) $myRank = $mySyn['rank'];
 } catch (Throwable $e) {}
 
+// ── Territory infrastructure ──
+require_once __DIR__ . '/../territory_engine.php';
+require_once __DIR__ . '/../combat_engine.php';
+function ensure_territory_table(PDO $pdo): void {
+  try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS syndicate_territory (
+      district_key VARCHAR(24) PRIMARY KEY, controller_id INT NULL,
+      fortification DECIMAL(6,2) NOT NULL DEFAULT 0, pot INT NOT NULL DEFAULT 0,
+      last_tick DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, claimed_at DATETIME NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_controller (controller_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS territory_log (
+      id INT AUTO_INCREMENT PRIMARY KEY, district_key VARCHAR(24) NOT NULL,
+      attacker_id INT NOT NULL, syndicate_id INT NOT NULL, outcome VARCHAR(12) NOT NULL,
+      fort_after DECIMAL(6,2) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_district (district_key, created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $ins = $pdo->prepare('INSERT IGNORE INTO syndicate_territory (district_key) VALUES (?)');
+    foreach (array_keys(TERR_DISTRICTS) as $k) $ins->execute([$k]);
+  } catch (Throwable $e) {}
+}
+try { ensure_territory_table($pdo); } catch (Throwable $e) {}
+
+// Lazy tick: apply passive fortification regen + credit yield for a held
+// district since its last_tick. Call inside a transaction with the row locked.
+function terr_tick_locked(PDO $pdo, string $key): ?array {
+  $q = $pdo->prepare('SELECT * FROM syndicate_territory WHERE district_key=? FOR UPDATE');
+  $q->execute([$key]); $row = $q->fetch();
+  if (!$row) return null;
+  $elapsed = max(0, time() - strtotime($row['last_tick']));
+  $hrs = $elapsed / 3600;
+  if ($hrs > 0 && $row['controller_id'] !== null) {
+    $nf = terr_regen((float)$row['fortification'], $hrs);
+    $np = terr_yield((float)$row['fortification'], $hrs, (float)$row['pot']);
+    $pdo->prepare('UPDATE syndicate_territory SET fortification=?, pot=?, last_tick=NOW() WHERE district_key=?')
+        ->execute([$nf, $np, $key]);
+    $row['fortification'] = $nf; $row['pot'] = $np;
+  } elseif ($hrs > 0) {
+    $pdo->prepare('UPDATE syndicate_territory SET last_tick=NOW() WHERE district_key=?')->execute([$key]);
+  }
+  return $row;
+}
+// Attacker combat stats (ghost STR/SPD/END + equipped gear + stim buffs),
+// scaled to fight HP the same way the Arena does (integrity + END*5).
+function terr_attacker_stats(PDO $pdo, array $pl): array {
+  $pid2 = (int)$pl['id'];
+  $st = ['str_pts'=>5,'spd_pts'=>5,'end_pts'=>5];
+  try { $q = $pdo->prepare('SELECT str_pts,spd_pts,end_pts FROM player_stats WHERE pid=?'); $q->execute([$pid2]); if ($r = $q->fetch()) $st = $r; } catch (Throwable $e) {}
+  $str=(int)$st['str_pts']; $spd=(int)$st['spd_pts']; $end=(int)$st['end_pts'];
+  $wa=0;$ad=0; if ($wg=equipped_gear($pdo,$pid2,'weapon')) $wa=(int)$wg['atk']; if ($ag=equipped_gear($pdo,$pid2,'armor')) $ad=(int)$ag['def'];
+  $ba=0;$bd=0;
+  try { $bq=$pdo->prepare('SELECT v FROM settings WHERE k=?');
+    $bq->execute(["buff:atk:{$pid2}"]); $bv=$bq->fetchColumn(); if($bv){[$b,$e2]=explode('|',$bv,2); if(time()<(int)$e2)$ba=(int)$b;}
+    $bq->execute(["buff:def:{$pid2}"]); $bv=$bq->fetchColumn(); if($bv){[$b,$e2]=explode('|',$bv,2); if(time()<(int)$e2)$bd=(int)$b;}
+  } catch (Throwable $e) {}
+  // Territory perk: holding districts makes your raiders tougher (same +2%/
+  // district, cap +10% edge as the Arena/Sim).
+  $tm = syn_territory_combat_mult($pdo, $pid2);
+  return ['atk'=>max(1,(int)round(($str*3+$wa+$ba)*$tm)),'def'=>max(1,(int)round(($end*2+$ad+$bd)*$tm)),'spd'=>$spd,'hp'=>max(10,(int)$pl['integrity']+$end*5)];
+}
+
+// ── Territory assault AJAX (interactive combat vs the district garrison) ──
+if (!empty($_POST['ta_ajax'])) {
+  header('Content-Type: application/json');
+  $taAct = $_POST['ta_action'] ?? '';
+  $fight = $_SESSION['terr_assault'] ?? null;
+  if ($fight && (($fight['v'] ?? 0) !== 1)) { $fight = null; unset($_SESSION['terr_assault']); }
+  try {
+    $pl = current_player(); $plid = (int)$pl['id'];
+    // Re-read membership fresh (the top-of-file load is fine, but be safe).
+    $mq = $pdo->prepare('SELECT sm.syndicate_id, sm.rank FROM syndicate_members sm WHERE sm.player_id=?');
+    $mq->execute([$plid]); $mem = $mq->fetch();
+    if (!$mem) throw new RuntimeException('You must be in a syndicate to fight for territory.');
+    $mySid = (int)$mem['syndicate_id'];
+    if (is_merchant($pl)) throw new RuntimeException('Commerce Accord active — combat is locked.');
+
+    if ($taAct === 'assault_start') {
+      if ($fight) { echo json_encode(['ok'=>true,'state'=>cb_to_client($fight),'foe'=>$fight['terr']['foe']]); exit; }
+      $key = $_POST['district'] ?? '';
+      if (!terr_is_district($key)) throw new RuntimeException('No such district.');
+      if ((int)$pl['integrity'] < 10) throw new RuntimeException('Your Health is too low to fight. Rest first.');
+      $sg = $pdo->prepare('UPDATE players SET `signal` = `signal` - ? WHERE id=? AND `signal` >= ?');
+      $sg->execute([TERR_ASSAULT_SIGNAL, $plid, TERR_ASSAULT_SIGNAL]);
+      if ($sg->rowCount() !== 1) throw new RuntimeException('Signal depleted — daily combat limit reached.');
+      // Tick + read the district under lock so the garrison reflects current fort.
+      $pdo->beginTransaction();
+      $row = terr_tick_locked($pdo, $key);
+      if (!$row) { $pdo->rollBack(); throw new RuntimeException('District not found.'); }
+      if ((int)$row['controller_id'] === $mySid) { $pdo->rollBack(); throw new RuntimeException('Your syndicate already holds this district.'); }
+      $fort = (float)$row['fortification'];
+      $pdo->commit();
+      $atk = terr_attacker_stats($pdo, $pl);
+      $garr = terr_garrison($key, $fort);
+      $fight = cb_start([
+        'hp'=>$atk['hp'],'atk'=>$atk['atk'],'def'=>$atk['def'],'combat_lv'=>0,
+        'kits'=>min(9, (function() use ($pdo,$plid){ try { $pc=$pdo->prepare("SELECT COALESCE(pi.qty,0) FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND i.code='patch_kit'"); $pc->execute([$plid]); return (int)$pc->fetchColumn(); } catch(Throwable $e){ return 0; } })()),
+      ], $garr);
+      $fight['terr'] = ['district'=>$key,'sid'=>$mySid,
+        'foe'=>['name'=>$garr['name'],'fort'=>round($fort),'district'=>$key,'dname'=>terr_name($key)]];
+      $_SESSION['terr_assault'] = $fight;
+      $pl = current_player();
+      echo json_encode(['ok'=>true,'state'=>cb_to_client($fight),'foe'=>$fight['terr']['foe'],'signal'=>(int)$pl['signal']]); exit;
+    }
+
+    if (!$fight) throw new RuntimeException('No active assault.');
+    if ($taAct === 'assault_round') {
+      $r = cb_round($fight, $_POST['act'] ?? '');
+      if (!$r['ok']) { echo json_encode(['ok'=>false,'err'=>$r['err']]); exit; }
+      if (($_POST['act'] ?? '') === 'stim') {
+        $pkId = 0; try { $pkId=(int)($pdo->query("SELECT id FROM items WHERE code='patch_kit'")->fetchColumn()?:0); } catch(Throwable $e){}
+        $u = $pkId ? $pdo->prepare('UPDATE player_items SET qty=qty-1 WHERE player_id=? AND item_id=? AND qty>=1') : null;
+        if ($u) $u->execute([$plid,$pkId]);
+        if (!$u || $u->rowCount() !== 1) { echo json_encode(['ok'=>false,'err'=>'No Patch Kits in your stash.']); exit; }
+        try { $pdo->prepare('DELETE FROM player_items WHERE player_id=? AND item_id=? AND qty=0')->execute([$plid,$pkId]); } catch(Throwable $e){}
+      }
+      $st = $r['st'];
+      if (!$st['over']) { $_SESSION['terr_assault'] = $st; echo json_encode(['ok'=>true,'events'=>$r['events'],'state'=>cb_to_client($st)]); exit; }
+
+      // Settle. Integrity damage always; a WIN chips fortification (and may flip).
+      $terr = $st['terr']; $key = $terr['district']; $won = $st['outcome'] === 'win';
+      $intLoss = min((int)$pl['integrity'], max(1, (int)ceil($st['taken'] / CB_HP_SCALE)));
+      $flipped = false; $fortAfter = 0.0; $dmg = 0;
+      $pdo->beginTransaction();
+      $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id=?')->execute([$intLoss, $plid]);
+      $row = terr_tick_locked($pdo, $key);
+      if ($row) {
+        if ($won && (int)($row['controller_id'] ?? 0) !== $mySid) {
+          $dmg = terr_assault_damage($st['pstart'] > 0 ? $st['php'] / $st['pstart'] : 0);
+          $res = terr_apply_assault((float)$row['fortification'], $dmg);
+          $fortAfter = $res['fort']; $flipped = $res['flipped'];
+          if ($flipped) {
+            $pdo->prepare('UPDATE syndicate_territory SET controller_id=?, fortification=?, pot=0, claimed_at=NOW(), last_tick=NOW() WHERE district_key=?')
+                ->execute([$mySid, $fortAfter, $key]);
+          } else {
+            $pdo->prepare('UPDATE syndicate_territory SET fortification=?, last_tick=NOW() WHERE district_key=?')
+                ->execute([$fortAfter, $key]);
+          }
+        } else {
+          $fortAfter = (float)$row['fortification'];
+        }
+      }
+      $logOutcome = $flipped ? 'flip' : $st['outcome'];
+      try { $pdo->prepare('INSERT INTO territory_log (district_key,attacker_id,syndicate_id,outcome,fort_after) VALUES (?,?,?,?,?)')
+              ->execute([$key,$plid,$mySid,$logOutcome,$fortAfter]); } catch(Throwable $e){}
+      $pdo->commit();
+      $xp = $won ? 8 + (int)round($terr['foe']['fort'] / 5) : 3;
+      try { grant_battle_xp($plid, $xp); } catch (Throwable $e) {}
+      if ($flipped) { try { syn_log($pdo, $mySid, $plid, $plid, 'territory', 'Captured '.terr_name($key).'!'); } catch(Throwable $e){} }
+      unset($_SESSION['terr_assault']);
+      $pl = current_player();
+      echo json_encode(['ok'=>true,'events'=>$r['events'],'state'=>cb_to_client($st),
+        'settle'=>['outcome'=>$st['outcome'],'flipped'=>$flipped,'dmg'=>$dmg,'fort_after'=>round($fortAfter),
+          'dname'=>terr_name($key),'xp'=>$xp,'hp_lost'=>$intLoss,'hp'=>(int)$pl['integrity'],
+          'dealt'=>(int)$st['dealt'],'taken'=>(int)$st['taken']]]); exit;
+    }
+    throw new RuntimeException('Unknown action.');
+  } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    echo json_encode(['ok'=>false,'err'=>$e->getMessage()]);
+  }
+  exit;
+}
+
 $leaderIsSubbed = false;
 if ($mySyn) {
   try {
@@ -182,7 +344,7 @@ $playerIsSubbed = is_subscribed($player);
 // acting member has their own individual subscription. Locking gates the
 // whole syndicate area (every "my syndicate" tab + every write action) instead
 // of the old per-tab warnings that still let everything function underneath.
-$MY_SYN_TABS = ['home','board','chat','members','staff','stockpile','armoury','treasury','log'];
+$MY_SYN_TABS = ['home','board','chat','members','staff','stockpile','armoury','treasury','territory','log'];
 $synLocked = $mySyn && !$leaderIsSubbed && !$playerIsSubbed;
 
 // ── Actions ──
@@ -192,7 +354,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Locked syndicate: block every action except leaving, regardless of what
     // the (hidden) UI would otherwise offer — a locked tab has no forms to
     // submit, but this stops a direct POST from bypassing that.
-    if ($synLocked && $act !== 'leave') throw new RuntimeException('Syndicate locked — the leader\'s subscription has expired.');
+    // A locked syndicate must stay escapable: 'leave' lets ordinary members out,
+    // and 'transfer_leader' lets the leader hand the crown to someone (who may
+    // hold a sub) so the syndicate can be unlocked — everything else stays blocked.
+    if ($synLocked && !in_array($act, ['leave','transfer_leader'], true)) throw new RuntimeException('Syndicate locked — the leader\'s subscription has expired.');
 
     if ($act === 'create') {
       if ($mySyn) throw new RuntimeException('You already belong to a Syndicate. Leave it first.');
@@ -284,7 +449,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $u = $pdo->prepare('UPDATE players SET creds_pocket=creds_pocket-? WHERE id=? AND creds_pocket>=?'); $u->execute([$amt,$pid,$amt]);
       if ($u->rowCount()!==1) throw new RuntimeException('Not enough credits in pocket.');
       $pdo->prepare('UPDATE syndicates SET bank=bank+? WHERE id=?')->execute([$amt,$mySyn['syndicate_id']]);
-      syn_grant_xp($pdo, (int)$mySyn['syndicate_id'], max(1,(int)($amt/100)));
+      syn_grant_xp($pdo, (int)$mySyn['syndicate_id'], (int)($amt/100));
       syn_log($pdo,$mySyn['syndicate_id'],$pid,$pid,'donated',number_format($amt).' cr donated to bank');
       $player = current_player();
       $msg = 'Donated ' . number_format($amt) . ' credits.';
@@ -308,6 +473,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $player = current_player();
       $msg = 'Withdrew ' . number_format($amt) . ' credits.';
       $q->execute([$pid]); $mySyn = $q->fetch() ?: null; if ($mySyn) $myRank = $mySyn['rank'];
+
+    } elseif ($act === 'terr_reinforce') {
+      if (!$mySyn || !syn_can($myRank,'manage_bank')) throw new RuntimeException('Only the Overseer, Underlord, or Vault Keeper can reinforce.');
+      $key = $_POST['district'] ?? '';
+      if (!terr_is_district($key)) throw new RuntimeException('No such district.');
+      $sid = (int)$mySyn['syndicate_id'];
+      $pdo->beginTransaction();
+      $row = terr_tick_locked($pdo, $key);
+      if (!$row || (int)$row['controller_id'] !== $sid) { $pdo->rollBack(); throw new RuntimeException('Your syndicate does not hold that district.'); }
+      $pts = terr_reinforce_points((float)$row['fortification'], TERR_REINFORCE_MAX);
+      if ($pts < 1) { $pdo->rollBack(); throw new RuntimeException('That district is already fully fortified.'); }
+      $cost = terr_reinforce_cost($pts);
+      $bu = $pdo->prepare('UPDATE syndicates SET bank = bank - ? WHERE id=? AND bank >= ?');
+      $bu->execute([$cost, $sid, $cost]);
+      if ($bu->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Syndicate bank too low — reinforcing '.$pts.' points costs '.number_format($cost).' cr.'); }
+      $pdo->prepare('UPDATE syndicate_territory SET fortification = fortification + ? WHERE district_key=?')->execute([$pts, $key]);
+      $pdo->commit();
+      syn_log($pdo, $sid, $pid, $pid, 'territory', 'Reinforced '.terr_name($key).' (+'.$pts.' fortification, '.number_format($cost).' cr)');
+      $q->execute([$pid]); $mySyn = $q->fetch() ?: null; if ($mySyn) $myRank = $mySyn['rank'];
+      $msg = 'Reinforced '.e(terr_name($key)).' by '.$pts.' fortification for '.number_format($cost).' credits.'; $msgOk = true;
+
+    } elseif ($act === 'terr_collect') {
+      if (!$mySyn || !syn_can($myRank,'manage_bank')) throw new RuntimeException('Only the Overseer, Underlord, or Vault Keeper can collect the tithe.');
+      $sid = (int)$mySyn['syndicate_id'];
+      $held = $pdo->prepare('SELECT district_key FROM syndicate_territory WHERE controller_id=?');
+      $held->execute([$sid]);
+      $keys = $held->fetchAll(PDO::FETCH_COLUMN);
+      $total = 0;
+      $pdo->beginTransaction();
+      foreach ($keys as $k) {
+        $row = terr_tick_locked($pdo, $k);
+        if ($row && (int)$row['controller_id'] === $sid && (int)$row['pot'] > 0) {
+          $total += (int)$row['pot'];
+          $pdo->prepare('UPDATE syndicate_territory SET pot=0 WHERE district_key=?')->execute([$k]);
+        }
+      }
+      if ($total > 0) $pdo->prepare('UPDATE syndicates SET bank = bank + ? WHERE id=?')->execute([$total, $sid]);
+      $pdo->commit();
+      if ($total > 0) { syn_log($pdo, $sid, $pid, $pid, 'territory', 'Collected '.number_format($total).' cr in territory tithe'); $q->execute([$pid]); $mySyn = $q->fetch() ?: null; if ($mySyn) $myRank = $mySyn['rank']; }
+      $msg = $total > 0 ? 'Collected '.number_format($total).' credits of territory tithe into the bank.' : 'No tithe to collect yet.'; $msgOk = $total > 0;
 
     } elseif ($act === 'post') {
       if (!$mySyn || !syn_can($myRank,'post_board')) throw new RuntimeException('Members only.');
@@ -351,6 +556,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $tq = $pdo->prepare('SELECT username FROM players WHERE id=?'); $tq->execute([$target]); $tn = $tq->fetchColumn() ?: '?';
       syn_log($pdo,$mySyn['syndicate_id'],$target,$pid,'role_change',$tn.' set to '.($SYN_RANK_LABELS[$newRank]??$newRank));
       $msg = 'Rank updated.';
+
+    } elseif ($act === 'transfer_leader') {
+      // Only the sitting leader may hand over the crown. The new leader must be an
+      // existing member of this syndicate and cannot be the leader themselves. The
+      // outgoing leader steps down to co-leader. Allowed even when $synLocked so a
+      // leader whose sub lapsed can pass leadership to a subbed member and unlock.
+      if (!$mySyn || $myRank !== 'leader') throw new RuntimeException('Only the Overseer can transfer leadership.');
+      $target = (int)($_POST['target_id'] ?? 0);
+      if ($target === $pid) throw new RuntimeException('You are already the leader.');
+      $trq = $pdo->prepare('SELECT rank FROM syndicate_members WHERE player_id=? AND syndicate_id=?');
+      $trq->execute([$target, $mySyn['syndicate_id']]);
+      $curRank = $trq->fetchColumn();
+      if (!$curRank) throw new RuntimeException('Not a member of this Syndicate.');
+      // Promote target to leader, demote self to co-leader, and update syndicates.leader_id —
+      // all together so a mid-sequence failure can't leave two leaders or none.
+      $pdo->beginTransaction();
+      $pdo->prepare('UPDATE syndicate_members SET rank=? WHERE player_id=? AND syndicate_id=?')->execute(['leader',$target,$mySyn['syndicate_id']]);
+      $pdo->prepare('UPDATE syndicate_members SET rank=? WHERE player_id=? AND syndicate_id=?')->execute(['coleader',$pid,$mySyn['syndicate_id']]);
+      $pdo->prepare('UPDATE syndicates SET leader_id=? WHERE id=?')->execute([$target,$mySyn['syndicate_id']]);
+      $pdo->commit();
+      $tq = $pdo->prepare('SELECT username FROM players WHERE id=?'); $tq->execute([$target]); $tn = $tq->fetchColumn() ?: '?';
+      syn_log($pdo,$mySyn['syndicate_id'],$target,$pid,'role_change','Leadership transferred to '.$tn.' (you are now '.($SYN_RANK_LABELS['coleader']).')');
+      $msg = 'Leadership transferred to ' . $tn . '. You are now ' . $SYN_RANK_LABELS['coleader'] . '.';
+      $q->execute([$pid]); $mySyn = $q->fetch() ?: null; if ($mySyn) $myRank = $mySyn['rank'];
 
     } elseif ($act === 'kick') {
       if (!$mySyn || !syn_can($myRank,'manage_members')) throw new RuntimeException('No permission.');
@@ -416,16 +645,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $catQ = $pdo->prepare('SELECT id FROM items WHERE name=? LIMIT 1'); $catQ->execute([$si['item_name']]);
       $catalogId = (int)$catQ->fetchColumn();
       if (!$catalogId) throw new RuntimeException('This item can no longer be matched to the item catalog — flag it to staff.');
+      $rn = $pdo->prepare('SELECT username FROM players WHERE id=?'); $rn->execute([$recipient]); $rname = $rn->fetchColumn() ?: '?';
+      // Lock the candidate stockpile rows FOR UPDATE and re-check availability inside
+      // the transaction — two concurrent gives can't both claim the same rows and
+      // duplicate the item onto both recipients.
+      $pdo->beginTransaction();
       // Every donated unit is its own row (no qty column) — grab up to
       // $giveQty identical, available rows for this item to hand over as a batch.
-      $rowsQ = $pdo->prepare('SELECT id FROM syndicate_stockpile WHERE syndicate_id=? AND item_name=? AND gear_type="item" AND available=1 LIMIT ' . (int)$giveQty);
+      $rowsQ = $pdo->prepare('SELECT id FROM syndicate_stockpile WHERE syndicate_id=? AND item_name=? AND gear_type="item" AND available=1 LIMIT ' . (int)$giveQty . ' FOR UPDATE');
       $rowsQ->execute([$mySyn['syndicate_id'], $si['item_name']]);
       $rowIds = $rowsQ->fetchAll(PDO::FETCH_COLUMN);
       if (count($rowIds) < $giveQty) throw new RuntimeException('Not enough of that item in the Stockpile — only ' . count($rowIds) . ' available.');
-      $rn = $pdo->prepare('SELECT username FROM players WHERE id=?'); $rn->execute([$recipient]); $rname = $rn->fetchColumn() ?: '?';
       $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)')->execute([$recipient, $catalogId, $giveQty]);
       $delQ = $pdo->prepare('DELETE FROM syndicate_stockpile WHERE id IN (' . implode(',', array_fill(0, count($rowIds), '?')) . ') AND syndicate_id=?');
       $delQ->execute(array_merge($rowIds, [$mySyn['syndicate_id']]));
+      $pdo->commit();
       $qtyTag = $giveQty > 1 ? ' &times;' . $giveQty : '';
       syn_log($pdo,$mySyn['syndicate_id'],$recipient,$pid,'stockpile_give','"'.$si['item_name'].'"'.$qtyTag.' given'); // recipient rendered as a profile link (see tab=log)
       syn_notify($pdo, $recipient, 'guild_loan', ($giveQty > 1 ? $giveQty.'&times; ' : '').'&ldquo;'.e($si['item_name']).'&rdquo; '.($giveQty > 1 ? 'were' : 'was').' given to you from the Stockpile by '.notif_player_link((int)$pid, $player['username'], $player['role'] ?? null).'.');
@@ -434,13 +668,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($act === 'loan_item') {
       if (!$mySyn || !syn_can($myRank,'loan_items')) throw new RuntimeException('No permission.');
       $iid = (int)($_POST['item_id'] ?? 0); $borrower = (int)($_POST['borrower_id'] ?? 0);
-      // Verify item belongs to this syndicate and is available
-      $sq = $pdo->prepare('SELECT * FROM syndicate_stockpile WHERE id=? AND syndicate_id=? AND available=1'); $sq->execute([$iid,$mySyn['syndicate_id']]); $si = $sq->fetch();
+      // Verify borrower is in syndicate
+      $bq = $pdo->prepare('SELECT rank FROM syndicate_members WHERE player_id=? AND syndicate_id=?'); $bq->execute([$borrower,$mySyn['syndicate_id']]); if (!$bq->fetchColumn()) throw new RuntimeException('Not a syndicate member.');
+      // Lock the armoury row FOR UPDATE and re-check availability inside the
+      // transaction — two concurrent loans can't both read available=1 off the
+      // same row and each create a live loan from one physical item.
+      $pdo->beginTransaction();
+      $sq = $pdo->prepare('SELECT * FROM syndicate_stockpile WHERE id=? AND syndicate_id=? AND available=1 FOR UPDATE'); $sq->execute([$iid,$mySyn['syndicate_id']]); $si = $sq->fetch();
       if (!$si) throw new RuntimeException('Item not found or already loaned.');
       // Only weapons/armor are loanable — general stockpile items stay donated outright.
       if (!in_array($si['gear_type'] ?? '', ['weapon','armor'], true)) throw new RuntimeException('Only weapons and armor can be loaned.');
-      // Verify borrower is in syndicate
-      $bq = $pdo->prepare('SELECT rank FROM syndicate_members WHERE player_id=? AND syndicate_id=?'); $bq->execute([$borrower,$mySyn['syndicate_id']]); if (!$bq->fetchColumn()) throw new RuntimeException('Not a syndicate member.');
       // Insert into borrower's player_gear
       $pdo->prepare("INSERT INTO player_gear (player_id,recipe_id,name,gear_type,atk_bonus,def_bonus,loan_id) VALUES (?,0,?,?,?,?,0)")->execute([$borrower,$si['item_name'],$si['gear_type'],$si['atk_bonus'],$si['def_bonus']]);
       $pgid = (int)$pdo->lastInsertId();
@@ -451,6 +688,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('UPDATE player_gear SET loan_id=? WHERE id=?')->execute([$lid,$pgid]);
       // Mark stockpile item as loaned out
       $pdo->prepare('UPDATE syndicate_stockpile SET available=0 WHERE id=?')->execute([$iid]);
+      $pdo->commit();
       $bname = $pdo->prepare('SELECT username FROM players WHERE id=?'); $bname->execute([$borrower]); $bn = $bname->fetchColumn() ?: '?';
       syn_log($pdo,$mySyn['syndicate_id'],$borrower,$pid,'loan_out','"'.$si['item_name'].'" loaned'); // borrower rendered as a profile link (see tab=log)
       syn_notify($pdo, $borrower, 'guild_loan', '&ldquo;'.e($si['item_name']).'&rdquo; was loaned to you from the Armoury by '.notif_player_link((int)$pid, $player['username'], $player['role'] ?? null).'.');
@@ -552,7 +790,7 @@ if ($mySyn) {
   <?php
   $membersLabel = '&#128101; Members' . ($pendingApps ? ' <span style="background:var(--neon2);color:#000;border-radius:10px;padding:1px 6px;font-size:9px;font-weight:700">'.$pendingApps.'</span>' : '');
   $tabDefs = $mySyn
-    ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','chat'=>'&#128172; Chat','members'=>$membersLabel,'staff'=>'&#128737; Staff','stockpile'=>'&#9874; Stockpile','armoury'=>'&#9876; Armoury','treasury'=>'&#128178; Treasury','log'=>'&#128196; Log']
+    ? ['home'=>'&#128202; Overview','board'=>'&#128203; Board','chat'=>'&#128172; Chat','members'=>$membersLabel,'staff'=>'&#128737; Staff','stockpile'=>'&#9874; Stockpile','armoury'=>'&#9876; Armoury','treasury'=>'&#128178; Treasury','territory'=>'&#127937; Territory','log'=>'&#128196; Log']
     : ['create'=>'&#43; Create'];
   // Directory is shown to everyone — members browse other Syndicates here too,
   // they just won't see an Apply button on their own (or any, while affiliated).
@@ -583,8 +821,24 @@ if ($synLocked && in_array($tab, $MY_SYN_TABS, true)): ?>
     <input type="hidden" name="action" value="leave">
     <button type="submit" style="background:rgba(255,45,149,.08);border-color:rgba(255,45,149,.25);color:var(--neon2);font-size:12px">Leave Syndicate</button>
   </form>
+  <?php elseif ($myRank === 'leader'): ?>
+  <p style="font-size:11px;color:#e8a33d;margin-top:16px">Subscribe to restore full access for your members &mdash; or transfer leadership to a member with an active subscription to unlock the Syndicate.</p>
+  <?php
+    // Other members the crown can be handed to so a subbed member can unlock the syndicate.
+    $lockXfer = [];
+    try { $lxq = $pdo->prepare('SELECT sm.player_id,p.username FROM syndicate_members sm JOIN players p ON p.id=sm.player_id WHERE sm.syndicate_id=? AND sm.player_id<>? ORDER BY p.username'); $lxq->execute([$mySyn['syndicate_id'],$pid]); $lockXfer = $lxq->fetchAll(); } catch (Throwable $e) {}
+  ?>
+  <?php if (!empty($lockXfer)): ?>
+  <form method="post" style="margin-top:16px;display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:wrap" onsubmit="return confirm('Transfer leadership to the selected member? You will step down to co-leader.')">
+    <input type="hidden" name="action" value="transfer_leader">
+    <select name="target_id" style="font-size:11px;padding:4px 8px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px">
+      <?php foreach ($lockXfer as $lx): ?><option value="<?= (int)$lx['player_id'] ?>"><?= e($lx['username']) ?></option><?php endforeach; ?>
+    </select>
+    <button type="submit" style="background:rgba(255,45,149,.08);border-color:rgba(255,45,149,.25);color:var(--neon2);font-size:12px">Transfer Leadership</button>
+  </form>
+  <?php endif; ?>
   <?php else: ?>
-  <p style="font-size:11px;color:#e8a33d;margin-top:16px">As leader/co-leader, subscribe to restore full access for your members.</p>
+  <p style="font-size:11px;color:#e8a33d;margin-top:16px">As co-leader, ask the Overseer to subscribe or transfer leadership to unlock the Syndicate.</p>
   <?php endif; ?>
 </div>
 
@@ -928,6 +1182,13 @@ elseif ($tab === 'members' && $mySyn):
         <input type="hidden" name="target_id" value="<?= (int)$m['player_id'] ?>">
         <button type="submit" style="font-size:11px;padding:4px 10px;height:28px;line-height:1;background:rgba(226,59,59,.1);border-color:rgba(226,59,59,.3);color:#e23b3b" onclick="return confirm('Kick <?= e($m['username']) ?>?')">Kick</button>
       </form>
+      <?php if ($myRank === 'leader'): ?>
+      <form method="post" style="margin:0">
+        <input type="hidden" name="action" value="transfer_leader">
+        <input type="hidden" name="target_id" value="<?= (int)$m['player_id'] ?>">
+        <button type="submit" style="font-size:11px;padding:4px 10px;height:28px;line-height:1;background:rgba(255,45,149,.08);border-color:rgba(255,45,149,.25);color:var(--neon2)" onclick="return confirm('Transfer leadership to <?= e($m['username']) ?>? You will step down to <?= e($SYN_RANK_LABELS['coleader']) ?>.')">Make Leader</button>
+      </form>
+      <?php endif; ?>
     </div>
     <?php endif; ?>
   </div>
@@ -1238,6 +1499,202 @@ elseif ($tab === 'treasury' && $mySyn): ?>
 </div>
 <?php endif; ?>
 
+
+<?php // ══ TERRITORY ══════════════════════════════════════
+elseif ($tab === 'territory' && $mySyn):
+  $mySid = (int)$mySyn['syndicate_id'];
+  // Tick every district once (persisted) so the map shows real current numbers.
+  try {
+    foreach (array_keys(TERR_DISTRICTS) as $k) { $pdo->beginTransaction(); terr_tick_locked($pdo, $k); $pdo->commit(); }
+  } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); }
+  $terrRows = [];
+  try {
+    $tq = $pdo->query("SELECT t.*, s.name AS syn_name, s.tag AS syn_tag FROM syndicate_territory t LEFT JOIN syndicates s ON s.id=t.controller_id");
+    foreach ($tq as $r) $terrRows[$r['district_key']] = $r;
+  } catch (Throwable $e) {}
+  $myHeld = 0; $myPot = 0;
+  foreach ($terrRows as $r) if ((int)($r['controller_id'] ?? 0) === $mySid) { $myHeld++; $myPot += (int)$r['pot']; }
+  $canManage = syn_can($myRank, 'manage_bank');
+  $canFight = (int)$player['integrity'] >= 10 && (int)$player['signal'] >= 1 && !is_merchant($player);
+  $ppk = 0; try { $pk=$pdo->prepare("SELECT COALESCE(pi.qty,0) FROM player_items pi JOIN items i ON i.id=pi.item_id WHERE pi.player_id=? AND i.code='patch_kit'"); $pk->execute([$pid]); $ppk=(int)$pk->fetchColumn(); } catch(Throwable $e){}
+?>
+<div class="panel">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+    <div>
+      <h3 style="margin:0 0 4px">&#127937; Territory</h3>
+      <p class="muted" style="font-size:12px;margin:0">Hold the Sprawl's districts. Each one you control accrues a credit tithe and regenerates its own defenses. Rivals take a district by beating its garrison in combat until its fortification breaks.</p>
+    </div>
+    <div style="text-align:right;font-size:12px">
+      <div>Districts held: <b style="color:var(--accent)"><?= $myHeld ?></b> / <?= count(TERR_DISTRICTS) ?></div>
+      <?php $terrBonus = (int)round(min(SYN_TERRITORY_PERK_CAP, $myHeld) * SYN_TERRITORY_PERK_PER * 100); ?>
+      <div style="margin-top:2px">Combat bonus: <b style="color:<?= $terrBonus > 0 ? 'var(--neon2)' : 'var(--muted)' ?>">+<?= $terrBonus ?>% ATK/DEF</b><?php if ($myHeld > SYN_TERRITORY_PERK_CAP): ?> <span class="muted" style="font-size:10px">(cap <?= (int)round(SYN_TERRITORY_PERK_CAP*SYN_TERRITORY_PERK_PER*100) ?>%)</span><?php endif; ?></div>
+      <div style="margin-top:2px">Tithe ready: <b style="color:#3bcf63"><?= number_format($myPot) ?> cr</b></div>
+      <?php if ($canManage && $myPot > 0): ?>
+      <form method="post" style="margin:6px 0 0"><input type="hidden" name="action" value="terr_collect">
+        <button type="submit" class="btn btn-sm" style="background:rgba(59,207,99,.12);border-color:rgba(59,207,99,.4);color:#3bcf63">Collect Tithe &rarr; Bank</button></form>
+      <?php endif; ?>
+    </div>
+  </div>
+  <?php if (!$canFight): ?>
+  <div class="muted" style="font-size:11px;margin-top:8px"><?= is_merchant($player) ? '&#9878; Commerce Accord active — combat locked.' : ((int)$player['integrity'] < 10 ? '&#9888; Health too low to assault — rest first.' : '&#9888; Signal depleted — no assaults until it resets.') ?></div>
+  <?php endif; ?>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
+  <?php foreach (TERR_DISTRICTS as $key => $info):
+    $r = $terrRows[$key] ?? ['controller_id'=>null,'fortification'=>0,'pot'=>0,'syn_name'=>null,'syn_tag'=>null];
+    $fort = (float)$r['fortification'];
+    $ctrl = $r['controller_id'] !== null ? (int)$r['controller_id'] : 0;
+    $mine = $ctrl === $mySid;
+    $unclaimed = $ctrl === 0;
+    $fortPct = max(0, min(100, round($fort)));
+    $fc = $fortPct >= 70 ? '#ff2d95' : ($fortPct >= 40 ? '#e8a33d' : '#3bcf63');
+    $edge = $mine ? 'var(--accent)' : ($unclaimed ? 'var(--line)' : 'var(--neon2)');
+  ?>
+  <div class="panel" style="margin:0;border-color:<?= $edge ?><?= $mine ? '' : '55' ?>">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;font-size:13px"><?= e($info[0]) ?></div>
+      <?php if ($mine): ?><span style="font-size:9px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px">Yours</span><?php endif; ?>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin:2px 0 8px">
+      <?php if ($unclaimed): ?><span style="color:#3bcf63">Unclaimed &mdash; ripe for the taking</span>
+      <?php else: ?>Held by <b style="color:<?= $mine ? 'var(--accent)' : 'var(--neon2)' ?>">[<?= e($r['syn_tag'] ?? '??') ?>] <?= e($r['syn_name'] ?? 'Unknown') ?></b><?php endif; ?>
+    </div>
+    <div style="font-size:10px;color:var(--muted)"><?= e($info[1]) ?></div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin:8px 0 3px"><span>Fortification</span><b style="color:<?= $fc ?>"><?= $fortPct ?>%</b></div>
+    <div style="height:7px;border-radius:4px;background:#0a0812;overflow:hidden"><div style="width:<?= $fortPct ?>%;height:100%;background:<?= $fc ?>"></div></div>
+    <?php if ($mine): ?>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">Tithe pot: <b style="color:#3bcf63"><?= number_format((int)$r['pot']) ?> cr</b></div>
+      <?php if ($canManage && $fortPct < 100): ?>
+      <form method="post" style="margin:8px 0 0" onsubmit="return confirm('Reinforce <?= e($info[0]) ?> from the guild bank?')">
+        <input type="hidden" name="action" value="terr_reinforce"><input type="hidden" name="district" value="<?= e($key) ?>">
+        <button type="submit" class="btn btn-sm" style="width:100%;background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.4);color:#e8a33d">Reinforce (+<?= (int)TERR_REINFORCE_MAX ?>, <?= number_format(terr_reinforce_cost((int)TERR_REINFORCE_MAX)) ?> cr)</button>
+      </form>
+      <?php elseif ($fortPct >= 100): ?><div style="font-size:10px;color:var(--muted);text-align:center;margin-top:8px;font-style:italic">Fully fortified</div><?php endif; ?>
+    <?php else: ?>
+      <button type="button" class="btn btn-sm" style="width:100%;margin-top:8px;background:rgba(255,45,149,.1);border-color:rgba(255,45,149,.4);color:var(--neon2)" onclick="taStart('<?= e($key) ?>')" <?= $canFight ? '' : 'disabled' ?>><?= $unclaimed ? 'Claim (assault garrison)' : 'Assault' ?></button>
+    <?php endif; ?>
+  </div>
+  <?php endforeach; ?>
+</div>
+
+<!-- ══ ASSAULT FIGHT PANEL ══ -->
+<style>
+.ta-bar{height:12px;border-radius:6px;background:#080812;overflow:hidden}.ta-bar>div{height:100%;border-radius:6px;transition:width .35s ease}
+.ta-act{flex:1;min-width:82px;padding:9px 6px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);color:var(--text);cursor:pointer;font-size:12px;line-height:1.3;transition:transform .07s,border-color .15s,background .15s}
+.ta-act:hover:not(:disabled){border-color:var(--neon2);background:rgba(255,45,149,.06)}.ta-act:active:not(:disabled){transform:scale(.96)}.ta-act:disabled{opacity:.38;cursor:not-allowed}
+.ta-act b{display:block;font-size:13px}.ta-act span{color:var(--muted);font-size:10px}
+#ta-tele{border-radius:8px;padding:9px 12px;text-align:center;font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:.06em}
+#ta-panel.shake{animation:pvpShake .26s linear}#ta-panel.hitflash{animation:pvFlashRed .45s ease-out}
+#ta-foe-card.hit{animation:pvEnemyHit .35s ease-out}#ta-you-card.heal{animation:pvPulseGreen .6s ease-out}
+#ta-feed{max-height:130px;overflow-y:auto;font-size:12px;display:flex;flex-direction:column;gap:3px;text-align:left}
+.ta-badge{display:inline-block;border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Orbitron',sans-serif}
+</style>
+<div id="ta-panel" class="panel" style="display:none;margin-top:12px">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    <div><div style="font-size:14px;font-weight:700">&#9876; Assault: <span id="ta-foe-name">&mdash;</span></div>
+      <div style="font-size:11px;color:var(--muted)"><span id="ta-foe-meta"></span></div></div>
+    <div style="font-size:11px;color:var(--muted)">Round <b id="ta-round" style="color:var(--text)">1</b>/<span id="ta-cap">25</span></div>
+  </div>
+  <div id="ta-foe-card" style="background:var(--panel2);border:1px solid rgba(255,45,149,.25);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:5px"><span>Garrison HP</span><span><b id="ta-ehp" style="color:var(--neon2)">0</b> / <span id="ta-emax">0</span></span></div>
+    <div class="ta-bar"><div id="ta-ehp-bar" style="width:100%;background:linear-gradient(90deg,var(--neon2),#ff7070)"></div></div>
+    <div id="ta-badges" style="margin-top:7px;min-height:18px"></div>
+  </div>
+  <div id="ta-tele" style="background:rgba(255,255,255,.03);border:1px solid var(--line);margin-bottom:10px">&mdash;</div>
+  <div id="ta-you-card" style="background:var(--panel2);border:1px solid rgba(25,240,199,.25);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:5px"><span>Your Fight HP</span><span><b id="ta-php" style="color:var(--accent)">0</b> / <span id="ta-pmax">0</span></span></div>
+    <div class="ta-bar"><div id="ta-php-bar" style="width:100%;background:linear-gradient(90deg,var(--accent),#3bcf63)"></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin:8px 0 5px"><span>Stamina</span><span><b id="ta-stam" style="color:#e8a33d">100</b> / 100</span></div>
+    <div class="ta-bar" style="height:8px"><div id="ta-stam-bar" style="width:100%;background:linear-gradient(90deg,#e8a33d,#ffce6b)"></div></div>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+    <button type="button" class="ta-act" data-act="strike" onclick="taAct('strike')"><b>&#9876; Strike</b><span>15 &middot; interrupts</span></button>
+    <button type="button" class="ta-act" data-act="guard" onclick="taAct('guard')"><b>&#128737; Guard</b><span>+25 &middot; staggers heavy</span></button>
+    <button type="button" class="ta-act" data-act="feint" onclick="taAct('feint')"><b>&#127917; Feint</b><span>10 &middot; opens guard</span></button>
+    <button type="button" class="ta-act" data-act="burst" onclick="taAct('burst')"><b>&#128165; Burst</b><span>35 &middot; huge on openings</span></button>
+    <button type="button" class="ta-act" data-act="stim" onclick="taAct('stim')"><b>&#128137; Stim</b><span id="ta-stim-sub">Patch Kit</span></button>
+    <button type="button" class="ta-act" data-act="flee" onclick="taAct('flee')" style="border-color:rgba(255,45,149,.3);color:var(--neon2)"><b>&#127939; Flee</b><span>parting shot</span></button>
+  </div>
+  <div id="ta-result" style="display:none;text-align:center;margin-bottom:10px"></div>
+  <div id="ta-feed" style="background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:7px;padding:8px 10px"></div>
+</div>
+
+<script>
+/* ══ Territory assault client (reuses the combat engine) ══ */
+(function(){
+'use strict';
+var state=null, foe=null, busy=false, ending=false, ppk=<?= (int)$ppk ?>;
+var TELE={heavy:{t:'&#9888; HEAVY WIND-UP',c:'#ff9090',b:'rgba(255,100,100,.08)',d:'rgba(255,100,100,.35)'},quick:{t:'&#9889; QUICK JAB',c:'#e8a33d',b:'rgba(232,163,61,.08)',d:'rgba(232,163,61,.35)'},guard:{t:'&#128737; GUARD UP',c:'#19f0c7',b:'rgba(25,240,199,.06)',d:'rgba(25,240,199,.3)'},charge:{t:'&#9762; CHARGING',c:'#9d6bff',b:'rgba(157,107,255,.1)',d:'rgba(157,107,255,.4)'},unleash:{t:'&#9762;&#9762; UNLEASH — BRACE',c:'#ff2d95',b:'rgba(255,45,149,.14)',d:'rgba(255,45,149,.55)'},stagger:{t:'&#128171; STAGGERED — OPEN',c:'#3bcf63',b:'rgba(59,207,99,.1)',d:'rgba(59,207,99,.45)'}};
+function el(id){return document.getElementById(id);}
+function esc(s){var d=document.createElement('div');d.textContent=String(s);return d.innerHTML;}
+function feed(h,c){var f=el('ta-feed');if(!f)return;var d=document.createElement('div');d.innerHTML=h;if(c)d.style.color=c;f.insertBefore(d,f.firstChild);while(f.children.length>16)f.removeChild(f.lastChild);}
+function render(){
+  if(!state)return;
+  el('ta-foe-name').textContent=(foe&&foe.name)||state.ename;
+  el('ta-foe-meta').textContent=(foe?foe.dname+' · fortification '+foe.fort+'%':'')+' · Garrison (Sentinel)';
+  el('ta-round').textContent=state.round;el('ta-cap').textContent=state.cap;
+  el('ta-ehp').textContent=state.ehp;el('ta-emax').textContent=state.emax;
+  el('ta-ehp-bar').style.width=Math.max(0,Math.min(100,state.ehp/state.emax*100))+'%';
+  el('ta-php').textContent=state.php;el('ta-pmax').textContent=state.pstart;
+  el('ta-php-bar').style.width=Math.max(0,Math.min(100,state.php/state.pstart*100))+'%';
+  el('ta-stam').textContent=state.stam;el('ta-stam-bar').style.width=state.stam+'%';
+  var t=TELE[state.tele]||TELE.quick;var tb=el('ta-tele');
+  tb.innerHTML=t.t+' <span style="font-size:10px;color:var(--muted);letter-spacing:0">(read ~'+state.telepct+'%)</span>';
+  tb.style.color=t.c;tb.style.background=t.b;tb.style.borderColor=t.d;
+  var bd='';if(state.charge>0)bd+='<span class="ta-badge" style="background:rgba(157,107,255,.12);border:1px solid rgba(157,107,255,.4);color:#9d6bff">CHARGED</span> ';
+  if(state.estag>0)bd+='<span class="ta-badge" style="background:rgba(59,207,99,.12);border:1px solid rgba(59,207,99,.4);color:#3bcf63">STAGGERED</span> ';
+  if(state.popen>0)bd+='<span class="ta-badge" style="background:rgba(25,240,199,.1);border:1px solid rgba(25,240,199,.4);color:var(--accent)">OPENED &times;1.5</span>';
+  el('ta-badges').innerHTML=bd;
+  document.querySelectorAll('.ta-act').forEach(function(b){var a=b.getAttribute('data-act');
+    if(a==='flee'){b.disabled=ending;return;}
+    if(a==='stim'){var can=!ending&&state.kits>0&&state.stims_used<state.stim_max&&state.php<state.pstart;b.disabled=!can;el('ta-stim-sub').textContent=state.kits+' kit'+(state.kits===1?'':'s');return;}
+    b.disabled=ending||(state.costs[a]||0)>state.stam;});
+}
+function taPost(data,cb){if(busy)return;busy=true;data.ta_ajax=1;var fd=new FormData();for(var k in data)fd.append(k,data[k]);
+  fetch('index.php?p=guilds',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){busy=false;cb(d);}).catch(function(){busy=false;feed('Network error','var(--neon2)');});}
+var EVTXT={interrupt:['&#9876; Charge INTERRUPTED','#19f0c7'],charge:['&#9762; Garrison charging — brace','#9d6bff'],unleash:['&#9762; CHARGED BLOW','#ff2d95'],stagger:['&#128171; Garrison STAGGERED — open','#3bcf63'],open:['&#127917; Guard opened (&times;1.5 next)','#19f0c7'],openhit:['&#128165; Exploit the opening','#19f0c7'],counter:['Garrison counter-jabs','#e8a33d']};
+function animate(events,done){var i=0;(function next(){if(i>=events.length){if(done)done();return;}var ev=events[i++];var p=el('ta-panel');
+  if(ev.t==='pdmg'){var fc=el('ta-foe-card');fc.classList.remove('hit');void fc.offsetWidth;fc.classList.add('hit');if(window.pvpFX)pvpFX.hit(ev.v>25);feed('You '+(ev.act==='burst'?'BURST for':ev.act==='feint'?'jab for':'strike for')+' <b style="color:#19f0c7">'+ev.v+'</b>');}
+  else if(ev.t==='edmg'){p.classList.remove('hitflash');p.classList.remove('shake');void p.offsetWidth;p.classList.add(ev.blocked?'hitflash':'shake');if(window.pvpFX)pvpFX.hit(!ev.blocked&&ev.v>25);if(ev.blocked)feed('You block — <b style="color:#ff9090">'+ev.v+'</b> through','var(--muted)');else feed('Garrison hits for <b style="color:#ff9090">'+ev.v+'</b>');}
+  else if(ev.t==='stim'){var yc=el('ta-you-card');yc.classList.remove('heal');void yc.offsetWidth;yc.classList.add('heal');if(window.pvpFX)pvpFX.tone(500,.1,'sine',.045);feed('&#128137; Stim — <b style="color:#3bcf63">+'+ev.v+'</b> HP');}
+  else if(ev.t==='regen'){feed('+'+ev.v+' stamina','var(--muted)');}
+  else if(EVTXT[ev.t]){feed(EVTXT[ev.t][0],EVTXT[ev.t][1]);}
+  setTimeout(next,ev.t==='pdmg'||ev.t==='edmg'?370:210);})();}
+window.taStart=function(key){taPost({ta_action:'assault_start',district:key},function(d){
+  if(!d.ok){alert(d.err||'Error');return;}
+  state=d.state;foe=d.foe||null;ending=false;var f=el('ta-feed');if(f)f.innerHTML='';
+  el('ta-result').style.display='none';el('ta-panel').style.display='';
+  render();if(window.pvpFX)pvpFX.intro();
+  feed('Breaching <b>'+esc((foe&&foe.dname)||'')+'</b> — fortification '+((foe&&foe.fort)||0)+'%. Read the garrison.','#19f0c7');
+  el('ta-panel').scrollIntoView({behavior:'smooth',block:'center'});});};
+window.taAct=function(a){if(!state||busy||ending)return;taPost({ta_action:'assault_round',act:a},function(d){
+  if(!d.ok){feed(d.err||'Error','var(--neon2)');return;}
+  state=d.state;
+  animate(d.events,function(){render();if(d.settle){ending=true;render();var s=d.settle;
+    var head,col;
+    if(s.flipped){head='DISTRICT CAPTURED';col='var(--accent)';if(window.pvpFX)pvpFX.victory();}
+    else if(s.outcome==='win'){head='GARRISON BEATEN';col='#3bcf63';if(window.pvpFX)pvpFX.victory();}
+    else if(s.outcome==='loss'){head='DRIVEN OFF';col='var(--neon2)';if(window.pvpFX)pvpFX.defeat();}
+    else{head=s.outcome==='fled'?'WITHDREW':'STALEMATE';col='#e8a33d';if(window.pvpFX)pvpFX.miss();}
+    var b='<div style="font-family:\'Orbitron\',sans-serif;font-weight:900;font-size:22px;color:'+col+';text-shadow:0 0 16px '+col+'">'+head+'</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin:3px 0 8px">'+esc(s.dname)+' &mdash; fortification now <b style="color:'+col+'">'+s.fort_after+'%</b>'+(s.dmg?' (&minus;'+s.dmg+')':'')+'</div>'
+      +'<div style="display:flex;justify-content:center;gap:16px;flex-wrap:wrap"><div class="pvp-reward"><b style="color:#e8a33d">+'+s.xp+' XP</b><div style="font-size:10px;color:var(--muted)">Earned</div></div>'
+      +'<div class="pvp-reward"><b style="color:var(--neon2)">-'+s.hp_lost+' HP</b><div style="font-size:10px;color:var(--muted)">Health</div></div></div>'
+      +'<div style="margin-top:10px"><button type="button" class="ta-act" style="flex:none;min-width:0;padding:8px 18px" onclick="location.href=\'index.php?p=guilds&tab=territory\'">Back to the Map</button></div>';
+    if(s.flipped)b+='<div style="font-size:11px;color:var(--accent);margin-top:6px">Your syndicate now controls '+esc(s.dname)+'.</div>';
+    var res=el('ta-result');res.innerHTML=b;res.style.display='';
+  }});});};
+if(!window._taKeys){window._taKeys=true;document.addEventListener('keydown',function(e){
+  var p=document.getElementById('ta-panel');if(!p||!document.body.contains(p)||p.style.display==='none')return;
+  if(/INPUT|TEXTAREA|SELECT/.test((e.target&&e.target.tagName)||''))return;
+  var m={'1':'strike','2':'guard','3':'feint','4':'burst','5':'stim','6':'flee'};if(m[e.key]){e.preventDefault();window.taAct&&window.taAct(m[e.key]);}});}
+<?php if (!empty($_SESSION['terr_assault']) && ($_SESSION['terr_assault']['v'] ?? 0) === 1): $rf = $_SESSION['terr_assault']; ?>
+state=<?= json_encode(cb_to_client($rf)) ?>;foe=<?= json_encode($rf['terr']['foe']) ?>;
+el('ta-panel').style.display='';render();feed('Assault resumed. Read the garrison.','#19f0c7');
+<?php endif; ?>
+})();
+</script>
 
 <?php // ══ LOG ════════════════════════════════════════════
 elseif ($tab === 'log' && $mySyn && (syn_can($myRank,'view_log') || $isAdmin)):

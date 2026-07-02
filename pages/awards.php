@@ -31,7 +31,7 @@ try {
 
   } elseif ($tab === 'wins') {
     $rows = $pdo->query("SELECT p.id, p.username, p.level, p.role, p.chat_color, COUNT(c.id) AS wins
-      FROM players p LEFT JOIN combat_log c ON c.player_id = p.id AND c.outcome = 'win'
+      FROM players p LEFT JOIN pvp_log c ON c.winner_id = p.id
       GROUP BY p.id ORDER BY wins DESC LIMIT 50")->fetchAll();
     foreach ($rows as &$r) $r['_val'] = number_format($r['wins']) . ' W';
   }

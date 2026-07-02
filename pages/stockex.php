@@ -41,18 +41,25 @@ try {
 // across the board; shares_available can still trend toward zero on a very
 // popular ticker, it just takes real sustained demand to get there.
 const SX_SHARE_FLOAT = 1000000;
+// Long-run anchor prices — the original listing prices, single source of truth
+// for both seeding a fresh install and the drift loop's mean reversion (which
+// pulls each ticker gently back toward its anchor so a persistently positive
+// driver compounds toward a bounded equilibrium instead of minting credits
+// forever — sell payouts have no counterparty).
+const SX_ANCHORS = ['NXUS'=>500,'ARMX'=>320,'PHRS'=>180,'NRGY'=>240,'DATV'=>410,
+                    'SCRP'=>90,'CHEM'=>150,'CRED'=>600,'INFX'=>280,'GRDX'=>380];
 try {
   $count = (int)$pdo->query("SELECT COUNT(*) FROM stocks")->fetchColumn();
   if ($count === 0) {
     $seeds = [
-      ['NXUS','Nexus Corp','tech',500],['ARMX','ArmaTech Industries','weapons',320],
-      ['PHRS','Pharmasynth Co','pharma',180],['NRGY','NeonGrid Energy','energy',240],
-      ['DATV','DataVault Ltd','tech',410],['SCRP','Scrapyard Holdings','manufacturing',90],
-      ['CHEM','StreetChem Inc','pharma',150],['CRED','CreditFlow Bank','finance',600],
-      ['INFX','Infect-X Security','security',280],['GRDX','Grid Exchange','finance',380],
+      ['NXUS','Nexus Corp','tech'],['ARMX','ArmaTech Industries','weapons'],
+      ['PHRS','Pharmasynth Co','pharma'],['NRGY','NeonGrid Energy','energy'],
+      ['DATV','DataVault Ltd','tech'],['SCRP','Scrapyard Holdings','manufacturing'],
+      ['CHEM','StreetChem Inc','pharma'],['CRED','CreditFlow Bank','finance'],
+      ['INFX','Infect-X Security','security'],['GRDX','Grid Exchange','finance'],
     ];
     $ins = $pdo->prepare('INSERT IGNORE INTO stocks (ticker,name,category,price,prev_price,shares_total,shares_available) VALUES (?,?,?,?,?,?,?)');
-    foreach ($seeds as $s) $ins->execute([$s[0],$s[1],$s[2],$s[3],$s[3],SX_SHARE_FLOAT,SX_SHARE_FLOAT]);
+    foreach ($seeds as $s) $ins->execute([$s[0],$s[1],$s[2],SX_ANCHORS[$s[0]],SX_ANCHORS[$s[0]],SX_SHARE_FLOAT,SX_SHARE_FLOAT]);
   }
   // Bump every existing ticker's float up to the new 1,000,000 flat size —
   // preserves how much has already been bought (shares_available only rises
@@ -121,8 +128,14 @@ function sx_stock_boost(string $ticker, array $gm, float $actScore): array {
         : 'Market trading volume is quiet right now, so this exchange-tracking stock has little to feed on.';
       return [$b, $r];
     case 'CRED':
-      $b = 0.002 + min(0.008, $gm['bankSum'] / 50000000 * 0.01);
-      $r = 'A slow, steady drift upward — total banked wealth citywide keeps it climbing gently regardless of daily noise.';
+      // Two-sided: positive only when citywide banked wealth is above ~15M cr.
+      // The old version was 0.002 + min(0.008, ...) — strictly positive every
+      // tick, which (with no counterparty on sells) made buy-and-hold CRED an
+      // unbounded credit printer.
+      $b = min(0.008, $gm['bankSum'] / 50000000 * 0.01) - 0.003;
+      $r = $b >= 0
+        ? 'Citywide banked wealth is deep right now, buoying the bank\'s book — a slow, steady climb.'
+        : 'Citywide banked wealth is thin right now, and the bank\'s book sags gently with it.';
       return [$b, $r];
     case 'INFX':
       $b = $gm['combats1h'] > 5 ? 0.02 : -0.003;
@@ -175,7 +188,7 @@ function sx_stock_factors(string $ticker, array $gm, float $actScore): array {
         ['label'=>'Auction Bids (1h)',  'value'=>number_format($gm['bids1h']),  'good'=>$gm['bids1h'] > 0],
       ];
     case 'CRED':
-      return [['label'=>'Total Banked Wealth', 'value'=>number_format($gm['bankSum']).' cr', 'good'=>true]];
+      return [['label'=>'Total Banked Wealth', 'value'=>number_format($gm['bankSum']).' cr', 'good'=>$gm['bankSum'] > 15000000]];
     case 'INFX':
       return [['label'=>'PvP Fights (1h)', 'value'=>number_format($gm['combats1h']), 'good'=>$gm['combats1h'] > 5]];
     case 'SCRP':
@@ -188,7 +201,7 @@ function sx_stock_factors(string $ticker, array $gm, float $actScore): array {
 // Market fluctuation driven by game activity — log price every ~5 minutes
 try {
   $allStocks = $pdo->query("SELECT id, ticker, price FROM stocks")->fetchAll();
-  $upd = $pdo->prepare('UPDATE stocks SET prev_price=price, price=?, trend=SIGN(?-price) WHERE id=?');
+  $upd = $pdo->prepare('UPDATE stocks SET prev_price=price, price=? WHERE id=?');
   $logPrice = $pdo->prepare('INSERT INTO stock_price_log (stock_id, price) VALUES (?,?)');
   $lastLog  = (int)($pdo->query("SELECT MAX(UNIX_TIMESTAMP(recorded_at)) FROM stock_price_log")->fetchColumn() ?: 0);
   $doLog    = (time() - $lastLog) >= 300;
@@ -202,9 +215,16 @@ try {
       case 'SCRP': $boost += (mt_rand(-15,20)/1000); break;  // scraps: boom/bust
     }
     $pct = $base + $boost;
-    $np  = max(5, (int)round($s['price'] * (1 + $pct)));
-    $upd->execute([$np, $np, $s['id']]);
-    if ($doLog) $logPrice->execute([$s['id'], $np]);
+    // Mean reversion toward the ticker's anchor price, proportional to how far
+    // it has strayed. Self-limiting in both directions: a sustained positive
+    // driver settles at a bounded premium over anchor (e.g. CRED's max
+    // +0.5%/tick equilibrates ~25% above) rather than compounding forever,
+    // and a crashed ticker gets an equivalent lift back up.
+    $anchor = SX_ANCHORS[$s['ticker']] ?? 0;
+    if ($anchor > 0) $pct -= 0.02 * (($s['price'] - $anchor) / $anchor);
+    $np  = max(5, min(2000000000, (int)round($s['price'] * (1 + $pct))));
+    $upd->execute([$np, $s['id']]);
+    $logPrice->execute([$s['id'], $np]);
   }
 } catch (Throwable $e) {}
 
@@ -296,7 +316,7 @@ $stockInfo = [
   'DATV' => ['desc'=>'DataVault Ltd secures encrypted data caches. Rises when hacking/netrunning activity increases and breach attempts spike.',                       'trend'=>'Volatile — correlates with hack/intrusion events'],
   'SCRP' => ['desc'=>'Scrapyard Holdings runs salvage operations in the outer sectors. Cheap stock with sudden spikes when rare materials surface.',                   'trend'=>'Low base, high spike potential — boom or bust'],
   'CHEM' => ['desc'=>'StreetChem Inc distributes chemicals and combat stims. Steady performer that rises when conflict in the Sprawl is high.',                         'trend'=>'Moderate — follows conflict and synth activity'],
-  'CRED' => ['desc'=>'CreditFlow Bank holds the debt of half the city. Stable but slow-growing. The safest store of value on the exchange.',                           'trend'=>'Very stable — slow upward drift over time'],
+  'CRED' => ['desc'=>'CreditFlow Bank holds the debt of half the city. Stable but slow-growing. The safest store of value on the exchange.',                           'trend'=>'Very stable — hugs its long-run value, drifting with citywide banked wealth'],
   'INFX' => ['desc'=>'Infect-X Security contracts city defense and prison systems. Profits spike when crime rates rise and incarceration increases.',                   'trend'=>'Spikes during crime waves and conflict cycles'],
   'GRDX' => ['desc'=>'Grid Exchange is the exchange itself — meta stock. Rises with overall trading volume and market activity. Self-referential.',                    'trend'=>'Moderate — follows overall market volume'],
 ];
@@ -1168,6 +1188,9 @@ document.querySelectorAll('.sx-qty').forEach(function(inp){
    stockex_api.php; the price-drift engine itself only runs from a normal
    page load of this file, this just displays whatever it last computed. */
 (function(){
+  if(window._sxPollBound) return;
+  window._sxPollBound=true;
+
   var timer=null;
   function poll(){
     // Self-terminates once these elements leave the DOM (navigated away via

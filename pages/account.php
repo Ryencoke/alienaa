@@ -80,11 +80,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       setting_set($pdo, 'font:'.$pid, $font);
       $msg = 'Font preference saved.';
     }
-    elseif ($action === 'handle') {
-      // Handle renames go through the ID Registry (50 shards, 30-day cooldown) —
-      // this free path bypassed that and is intentionally retired.
-      $msg = 'Handle changes are processed at the ID Registry.';
-    }
     elseif ($action === 'add_goal') {
       $gtype   = $_POST['goal_type']   ?? 'custom';
       $gtarget = max(0,(int)($_POST['goal_target'] ?? 0));
@@ -598,15 +593,6 @@ $curAccent = $player['accent_color'] ?? '';
     inp.type=inp.type==='password'?'text':'password';
     btn.textContent=inp.type==='password'?'👁':'🙈';
   }
-  (function(){
-    var hi=document.getElementById('handle-input'), hw=document.getElementById('handle-warn');
-    if(!hi||!hw) return;
-    hi.addEventListener('input',function(){
-      var v=hi.value, ok=/^[A-Za-z0-9_]{3,32}$/.test(v);
-      hw.textContent = v.length > 32 ? 'Too long — max 32 characters.' : (v.length < 3 && v.length > 0 ? 'Too short — min 3 characters.' : '');
-      hw.style.display = !ok && v.length > 0 ? '' : 'none';
-    });
-  })();
   </script>
 
 <?php elseif ($sec === 'goals'):

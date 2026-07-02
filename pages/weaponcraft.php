@@ -64,37 +64,87 @@ function wc_can_afford($cost, $oreInv) {
   return true;
 }
 
-// ── AJAX: crafting (the interactive part — mirrors vats.php's AJAX pattern) ────────────
+// ── AJAX: the FORGE minigame (heat-and-strike → quality). Crafting is now a
+// three-phase forge session on forge_engine.php: forge_start reserves the ore
+// atomically and opens a session bound to the recipe; forge_act runs one
+// heat/strike round; the final strike commits the gear with stats SCALED by
+// the quality you rolled (plus a quality label) — combat/display are already
+// quality-aware because the stored bonuses are the scaled ones. Abandoning
+// refunds the reserved ore. Mirrors the sim/thenet session/AJAX pattern. ──
+require_once __DIR__ . '/../forge_engine.php';
 if (!empty($_POST['wc_ajax'])) {
   header('Content-Type: application/json');
   $wcAct = $_POST['wc_action'] ?? '';
+  $forge = $_SESSION['wc_forge'] ?? null;
+  if ($forge && (($forge['v'] ?? 0) !== 1)) { $forge = null; unset($_SESSION['wc_forge']); }
   try {
-    if ($wcAct === 'craft') {
+    if ($wcAct === 'forge_start') {
+      if ($forge) { // resume — don't reserve ore twice
+        echo json_encode(['ok'=>true,'state'=>forge_to_client($forge),'recipe'=>$forge['wc']['disp']]); exit;
+      }
       $rid = $_POST['recipe_id'] ?? '';
       $recipe = $RECIPES_BY_ID[$rid] ?? null;
       if (!$recipe) throw new RuntimeException('Unknown blueprint.');
       $fabReq = $TIER_FAB_REQ[$recipe['tier']] ?? 0;
       if ($fabSkill < $fabReq) throw new RuntimeException('Requires '.$fabReq.' Fabrication skill to build this blueprint — study up at the Datacore.');
-      $oreInv = wc_load_ore($pdo, $pid);
       $cost = $recipe['cost'];
-      foreach ($cost as $ore => $need) {
-        if (($oreInv[$ore] ?? 0) < $need) throw new RuntimeException('Need '.$need.'× '.($ORE_NAMES[$ore][0] ?? $ore).' — you only have '.($oreInv[$ore] ?? 0).'.');
-      }
+      // Reserve the ore atomically up front — the forge holds it until you
+      // finish (gear committed) or abandon (ore refunded).
       $pdo->beginTransaction();
       foreach ($cost as $ore => $need) {
         $du = $pdo->prepare('UPDATE player_ore SET quantity = quantity - ? WHERE player_id = ? AND ore_type = ? AND quantity >= ?');
         $du->execute([$need, $pid, $ore, $need]);
-        if ($du->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Stock changed — try again.'); }
+        if ($du->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Need '.$need.'× '.($ORE_NAMES[$ore][0] ?? $ore).' — not enough in stock.'); }
       }
-      $pdo->prepare('INSERT INTO player_gear (player_id, recipe_id, name, gear_type, atk_bonus, def_bonus) VALUES (?,?,?,?,?,?)')
-          ->execute([$pid, $recipe['id'], $recipe['name'], $recipe['type'], $recipe['atk'], $recipe['def']]);
       $pdo->commit();
-      $oreInv = wc_load_ore($pdo, $pid);
-      echo json_encode(['ok'=>true, 'ore'=>$oreInv, 'item'=>[
-        'name'=>$recipe['name'],'icon'=>$recipe['icon'],'col'=>$TIERS[$recipe['tier']]['col'],
-        'atk'=>$recipe['atk'],'def'=>$recipe['def'],'type'=>$recipe['type'],
-      ], 'msg'=>$recipe['name'].' fabricated.']);
-      exit;
+      $forge = forge_start($fabSkill);
+      $forge['wc'] = [
+        'rid' => $recipe['id'], 'name' => $recipe['name'], 'type' => $recipe['type'],
+        'atk' => (int)$recipe['atk'], 'def' => (int)$recipe['def'], 'cost' => $cost,
+        'disp' => ['name'=>$recipe['name'],'icon'=>$recipe['icon'],'col'=>$TIERS[$recipe['tier']]['col'],'atk'=>(int)$recipe['atk'],'def'=>(int)$recipe['def'],'type'=>$recipe['type']],
+      ];
+      $_SESSION['wc_forge'] = $forge;
+      echo json_encode(['ok'=>true,'state'=>forge_to_client($forge),'recipe'=>$forge['wc']['disp'],'ore'=>wc_load_ore($pdo,$pid)]); exit;
+    }
+
+    if ($wcAct === 'forge_abandon') {
+      if ($forge) {
+        // Refund the reserved ore.
+        try {
+          $pdo->beginTransaction();
+          foreach (($forge['wc']['cost'] ?? []) as $ore => $need) {
+            $pdo->prepare('INSERT INTO player_ore (player_id, ore_type, quantity) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantity = quantity + ?')->execute([$pid, $ore, $need, $need]);
+          }
+          $pdo->commit();
+        } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); }
+        unset($_SESSION['wc_forge']);
+      }
+      echo json_encode(['ok'=>true,'abandoned'=>true,'ore'=>wc_load_ore($pdo,$pid)]); exit;
+    }
+
+    if ($wcAct === 'forge_act') {
+      if (!$forge) throw new RuntimeException('No billet on the anvil.');
+      $r = forge_step($forge, $_POST['a'] ?? '');
+      if (!$r['ok']) { echo json_encode(['ok'=>false,'err'=>$r['err']]); exit; }
+      $st = $r['st'];
+      if (!$st['over']) {
+        $_SESSION['wc_forge'] = $st;
+        echo json_encode(['ok'=>true,'events'=>$r['events'],'state'=>forge_to_client($st)]); exit;
+      }
+      // Finished: commit the gear with quality-scaled stats. Ore was already
+      // spent at start; a failed insert leaves the session so it can retry.
+      $wc = $forge['wc']; $q = (int)$st['quality'];
+      $atk = (int)round($wc['atk'] * $q / 100);
+      $def = (int)round($wc['def'] * $q / 100);
+      $pdo->prepare('INSERT INTO player_gear (player_id, recipe_id, name, gear_type, atk_bonus, def_bonus, quality) VALUES (?,?,?,?,?,?,?)')
+          ->execute([$pid, $wc['rid'], $wc['name'], $wc['type'], $atk, $def, $q]);
+      contract_record($pdo, $pid, 'gear_forged');
+      unset($_SESSION['wc_forge']);
+      echo json_encode(['ok'=>true,'events'=>$r['events'],'state'=>forge_to_client($st),
+        'settle'=>['quality'=>$q,'grade'=>$st['grade'],'name'=>$wc['name'],'icon'=>$wc['disp']['icon'],
+                   'col'=>$wc['disp']['col'],'type'=>$wc['type'],'atk'=>$atk,'def'=>$def,
+                   'base_atk'=>$wc['atk'],'base_def'=>$wc['def']],
+        'ore'=>wc_load_ore($pdo,$pid)]); exit;
     }
     throw new RuntimeException('Unknown action.');
   } catch (Throwable $e) {
@@ -127,11 +177,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST['wc_ajax'])) {
       $ownQ->execute([$gid, $pid]);
       $owned = $ownQ->fetch();
       if (!$owned) throw new RuntimeException('You do not own that item.');
+      // Level gate: Fabrication builds resolve via $RECIPES_BY_ID -> tier
+      // level_req; Blacksmith (Forge) gear resolves via the Forge catalog's
+      // level_req at index 10. A recipe_id matches only one catalog, so try the
+      // Fab map first and fall back to the Forge catalog — otherwise blacksmith
+      // gear could be equipped here at any level.
       $recipe = $RECIPES_BY_ID[$owned['recipe_id']] ?? null;
+      $reqLevel = 0;
       if ($recipe) {
-        $reqLevel = $TIERS[$recipe['tier']]['level_req'] ?? 1;
-        if ($myLevel < $reqLevel) throw new RuntimeException('Requires Level '.$reqLevel.' to equip.');
+        $reqLevel = (int)($TIERS[$recipe['tier']]['level_req'] ?? 1);
+      } else {
+        foreach (blacksmith_catalog() as $bc) {
+          if ($bc[0] === $owned['recipe_id']) { $reqLevel = (int)($bc[10] ?? 1); break; }
+        }
       }
+      if ($reqLevel > 0 && $myLevel < $reqLevel) throw new RuntimeException('Requires Level '.$reqLevel.' to equip.');
       $gtype = $owned['gear_type'];
       $sk = $gtype === 'weapon' ? "equipped_weapon:{$pid}" : "equipped_armor:{$pid}";
       $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute([$sk, $gid]);
@@ -275,6 +335,38 @@ $oreNamesJson = json_encode($ORE_NAMES);
     </div>
   </div>
 
+  <!-- ══ FORGE OVERLAY (heat-and-strike minigame) ══ -->
+  <div id="forge-ov" style="display:none;position:fixed;inset:0;z-index:10002;background:rgba(4,3,8,.72);backdrop-filter:blur(3px);align-items:center;justify-content:center">
+    <div style="background:var(--panel);border:1px solid rgba(232,163,61,.4);border-radius:12px;max-width:440px;width:92%;padding:18px;box-shadow:0 0 40px rgba(255,120,30,.15)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-weight:700;font-size:15px"><span id="forge-icon"></span> <span id="forge-name">Forging</span></div>
+        <div style="font-size:11px;color:var(--muted)">Strike <b id="forge-strikes" style="color:var(--text)">0</b>/<span id="forge-need">5</span> &middot; Actions <b id="forge-actions">0</b>/<span id="forge-cap">16</span></div>
+      </div>
+      <div id="forge-sub" style="font-size:11px;color:var(--muted);margin-bottom:12px">Keep the billet in the bright band, then Strike. Cold cracks it; too hot scorches it.</div>
+
+      <!-- temperature gauge: cold | good | perfect | good | hot -->
+      <div style="position:relative;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:#0a0812;margin-bottom:4px">
+        <div id="forge-zones" style="position:absolute;inset:0"></div>
+        <div id="forge-needle" style="position:absolute;top:0;bottom:0;width:3px;background:#fff;box-shadow:0 0 10px #fff;transition:left .3s ease;left:62%"></div>
+        <div id="forge-tempval" style="position:absolute;right:6px;top:8px;font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:#fff;text-shadow:0 1px 4px #000"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-bottom:12px"><span>COLD</span><span>SWEET SPOT</span><span>HOT</span></div>
+
+      <div id="forge-blows" style="display:flex;gap:5px;justify-content:center;margin-bottom:12px"></div>
+
+      <div id="forge-controls" style="display:flex;gap:6px">
+        <button type="button" class="btn" id="forge-stoke" onclick="forgeAct('stoke')" style="flex:1;background:rgba(255,107,53,.12);border-color:rgba(255,107,53,.4);color:#ff8c42">&#128293; Stoke<br><span style="font-size:9px;opacity:.7">heat +</span></button>
+        <button type="button" class="btn" id="forge-strike" onclick="forgeAct('strike')" style="flex:1.4;background:rgba(232,163,61,.15);border-color:rgba(232,163,61,.5);color:#e8a33d;font-weight:700">&#128296; Strike<br><span style="font-size:9px;opacity:.7">land a blow</span></button>
+        <button type="button" class="btn" id="forge-draw" onclick="forgeAct('draw')" style="flex:1;background:rgba(77,232,232,.1);border-color:rgba(77,232,232,.35);color:#4de8e8">&#10052; Draw<br><span style="font-size:9px;opacity:.7">heat &minus;</span></button>
+      </div>
+      <div id="forge-result" style="display:none;text-align:center;margin-top:6px"></div>
+      <div style="text-align:center;margin-top:10px">
+        <button type="button" class="btn btn-sm btn-ghost" id="forge-abandon" onclick="forgeAbandon()" style="font-size:11px">Abandon (refund ore)</button>
+      </div>
+      <div style="font-size:9px;color:var(--muted);text-align:center;margin-top:6px">Keys: Q stoke &middot; W strike &middot; E draw</div>
+    </div>
+  </div>
+
   <!-- Fabrication Bay -->
   <div class="panel" id="wc-bay" style="margin:0;padding:0;overflow:hidden">
     <canvas id="wc-bay-canvas"></canvas>
@@ -325,7 +417,10 @@ $oreNamesJson = json_encode($ORE_NAMES);
       <?php if ($locked): ?>
         <div style="font-size:10px;font-weight:700;color:var(--neon2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">&#128274; Requires Level <?= $reqLevel ?></div>
       <?php endif; ?>
-      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:3px"><?= e($g['name']) ?></div>
+      <?php $gq = (int)($g['quality'] ?? 100); ?>
+      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:3px"><?= e($g['name']) ?>
+        <span style="font-size:10px;font-weight:700;color:<?= gear_quality_color($gq) ?>" title="Forge quality: <?= $gq ?>% of base stats"><?= e(gear_quality_label($gq)) ?><?= $gq !== 100 ? ' '.($gq>100?'+':'').($gq-100).'%' : '' ?></span>
+      </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px"><?= $g['gear_type'] === 'weapon' ? 'Weapon' : 'Armor' ?><?= $tier ? ' &middot; '.e($tier['label']) : '' ?></div>
       <?php if ($g['atk_bonus'] > 0): ?>
         <span class="wc-chip" style="background:rgba(255,45,149,.1);border:1px solid rgba(255,45,149,.3);color:var(--neon2);font-weight:700">+<?= $g['atk_bonus'] ?> ATK</span>
@@ -398,6 +493,7 @@ if(canvas){
   for(var i=0;i<14;i++) sparks.push({x:Math.random()*W,y:Math.random()*H,v:.15+Math.random()*.35,p:Math.random()*9});
   var burst=[];
   function loop(t){
+    if(!document.body.contains(canvas)) return;
     requestAnimationFrame(loop);
     ctx.clearRect(0,0,W,H);
     var bg=ctx.createLinearGradient(0,0,0,H);
@@ -492,38 +588,138 @@ function syncOreDom(){
 }
 
 if(bayBtn){
+  bayBtn.textContent='Begin Fabrication';
   bayBtn.addEventListener('click',function(){
     if(!selId || bayBtn.disabled) return;
-    var r=findRecipe(selId); if(!r) return;
-    bayBtn.disabled=true; bayBtn.textContent='Fabricating…';
-    building=true; buildT0=performance.now();
-    sfx(220,.12,'square',.04); sfx(340,.1,'square',.03);
-    setTimeout(function(){
-      var fd=new FormData();
-      fd.append('wc_ajax','1'); fd.append('wc_action','craft'); fd.append('recipe_id',selId);
-      fetch(window.location.href,{method:'POST',body:fd,credentials:'same-origin'})
-        .then(function(res){return res.json();})
-        .then(function(d){
-          if(!d.ok){
-            bayMsg.textContent=d.err||'Error'; bayMsg.style.color='var(--neon2)';
-            bayBtn.disabled=false; bayBtn.textContent='Begin Fabrication';
-            sfx(120,.15,'square',.04);
-            return;
-          }
-          ore=d.ore; syncOreDom();
-          bayMsg.textContent=d.msg; bayMsg.style.color='#3bcf63';
-          sfx(520,.1,'square',.045); setTimeout(function(){sfx(760,.14,'square',.045);},90); setTimeout(function(){sfx(980,.16,'square',.04);},180);
-          bayIcon.classList.remove('wc-pop'); void bayIcon.offsetWidth; bayIcon.classList.add('wc-pop');
-          var afford=canAfford(r.cost);
-          bayBtn.disabled=!afford;
-          bayBtn.textContent=afford?'Begin Fabrication':'Need more ore';
-        })
-        .catch(function(){
-          bayMsg.textContent='Network error'; bayMsg.style.color='var(--neon2)';
-          bayBtn.disabled=false; bayBtn.textContent='Begin Fabrication';
-        });
-    }, BUILD_MS);
+    forgeStart(selId);
   });
 }
+
+/* ══ Forge minigame client ══ */
+var forgeBusy=false, forgeState=null, forgeEnding=false;
+var fovEl=document.getElementById('forge-ov');
+function fEl(id){ return document.getElementById(id); }
+
+function forgePost(data,cb){
+  if(forgeBusy) return; forgeBusy=true;
+  data.wc_ajax='1';
+  var fd=new FormData(); for(var k in data) fd.append(k,data[k]);
+  fetch(window.location.href,{method:'POST',body:fd,credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){forgeBusy=false;cb(d);})
+    .catch(function(){forgeBusy=false; if(bayMsg){bayMsg.textContent='Network error';bayMsg.style.color='var(--neon2)';}});
+}
+
+function forgeZones(s){
+  // paint cold | poor | good | perfect | good | poor | hot as a 0-100 gradient
+  var stops=[];
+  function seg(a,b,col){ stops.push(col+' '+a+'%',col+' '+b+'%'); }
+  var pl=s.bullseye-s.perf_win, pr=s.bullseye+s.perf_win;
+  var gl=s.bullseye-s.good_win, gr=s.bullseye+s.good_win;
+  seg(0,s.cold,'#3a2030'); seg(s.cold,gl,'#5a3a1a'); seg(gl,pl,'#c98a2a');
+  seg(pl,pr,'#3bcf63'); seg(pr,gr,'#c98a2a'); seg(gr,s.hot,'#5a3a1a'); seg(s.hot,100,'#6a1a1a');
+  fEl('forge-zones').style.background='linear-gradient(90deg,'+stops.join(',')+')';
+}
+function forgeRender(){
+  var s=forgeState; if(!s) return;
+  forgeZones(s);
+  fEl('forge-needle').style.left=Math.max(0,Math.min(100,s.temp))+'%';
+  fEl('forge-tempval').textContent=Math.round(s.temp)+'°';
+  fEl('forge-strikes').textContent=s.strikes; fEl('forge-need').textContent=s.need;
+  fEl('forge-actions').textContent=s.actions; fEl('forge-cap').textContent=s.cap;
+  var blows='';
+  for(var i=0;i<s.need;i++){
+    var sc=s.scores[i];
+    var col=sc==null?'rgba(255,255,255,.12)':(sc>=90?'#3bcf63':sc>=60?'#e8a33d':sc>=30?'#ff8c42':'#ff6b6b');
+    blows+='<div style="width:30px;height:8px;border-radius:4px;background:'+col+'" title="'+(sc==null?'unstruck':sc)+'"></div>';
+  }
+  fEl('forge-blows').innerHTML=blows;
+  var over=forgeEnding;
+  ['forge-stoke','forge-strike','forge-draw'].forEach(function(id){ fEl(id).disabled=over; });
+}
+function forgeBand(sc){ return sc>=90?['#3bcf63','clean strike!']:sc>=60?['#e8a33d','solid blow']:sc>=30?['#ff8c42','poor blow']:['#ff6b6b','ruined blow']; }
+
+window.forgeStart=function(rid){
+  forgePost({wc_action:'forge_start',recipe_id:rid},function(d){
+    if(!d.ok){ if(bayMsg){bayMsg.textContent=d.err||'Error';bayMsg.style.color='var(--neon2)';} sfx(120,.15,'square',.04); return; }
+    if(d.ore){ ore=d.ore; syncOreDom(); }
+    forgeState=d.state; forgeEnding=false;
+    fEl('forge-icon').innerHTML=d.recipe.icon; fEl('forge-name').textContent=d.recipe.name;
+    fEl('forge-result').style.display='none'; fEl('forge-result').innerHTML='';
+    fEl('forge-controls').style.display='flex'; fEl('forge-abandon').style.display='';
+    fEl('forge-sub').textContent='Keep the billet in the bright band, then Strike.';
+    fovEl.style.display='flex';
+    forgeRender();
+    sfx(220,.12,'square',.04);
+  });
+};
+window.forgeAct=function(a){
+  if(!forgeState||forgeBusy||forgeEnding) return;
+  forgePost({wc_action:'forge_act',a:a},function(d){
+    if(!d.ok){ fEl('forge-sub').textContent=d.err||'Error'; return; }
+    forgeState=d.state;
+    (d.events||[]).forEach(function(ev){
+      if(ev.t==='strike'){ var b=forgeBand(ev.score); sfx(ev.score>=90?900:ev.score>=60?600:200,.09,'square',.05); fEl('forge-sub').innerHTML='<b style="color:'+b[0]+'">'+b[1]+'</b> ('+ev.score+')'; }
+      else if(ev.t==='heat'){ sfx(ev.dir==='up'?300:180,.06,'sine',.03); }
+    });
+    if(d.ore){ ore=d.ore; syncOreDom(); }
+    if(d.settle){
+      forgeEnding=true;
+      var s=d.settle;
+      var col=({Masterwork:'#e8d44d',Fine:'var(--accent)',Standard:'var(--muted)',Crude:'#e8a33d',Flawed:'#ff6b6b'})[s.grade]||'var(--muted)';
+      sfx(520,.1,'square',.045); setTimeout(function(){sfx(760,.14,'square',.045);},90); setTimeout(function(){sfx(980,.16,'square',.04);},180);
+      var stat = s.type==='weapon' ? ('+'+s.atk+' ATK') : ('+'+s.def+' DEF');
+      var base = s.type==='weapon' ? s.base_atk : s.base_def;
+      fEl('forge-controls').style.display='none'; fEl('forge-abandon').style.display='none';
+      fEl('forge-result').innerHTML='<div style="font-family:\'Orbitron\',sans-serif;font-weight:900;font-size:20px;color:'+col+';text-shadow:0 0 16px '+col+'">'+s.grade.toUpperCase()+'</div>'
+        +'<div style="font-size:13px;margin:3px 0 2px">'+s.icon+' '+s.name+' &mdash; <b style="color:'+col+'">'+stat+'</b></div>'
+        +'<div style="font-size:11px;color:var(--muted)">Quality '+s.quality+'% of the '+base+' base &middot; added to your Arsenal</div>'
+        +'<button type="button" class="btn btn-sm btn-primary" style="margin-top:10px" onclick="forgeClose(true)">To the Arsenal</button>'
+        +'<button type="button" class="btn btn-sm btn-ghost" style="margin-top:10px;margin-left:6px" onclick="forgeClose(false)">Forge Another</button>';
+      fEl('forge-result').style.display='';
+    }
+    forgeRender();
+  });
+};
+window.forgeAbandon=function(){
+  if(!forgeState) { fovEl.style.display='none'; return; }
+  if(!forgeEnding && !confirm('Abandon this billet? Your ore is refunded.')) return;
+  forgePost({wc_action:'forge_abandon'},function(d){
+    if(d.ore){ ore=d.ore; syncOreDom(); }
+    forgeState=null; forgeEnding=false; fovEl.style.display='none';
+    if(bayBtn){ var r=findRecipe(selId); bayBtn.disabled=!(r&&canAfford(r.cost)); }
+  });
+};
+window.forgeClose=function(toArsenal){
+  forgeState=null; forgeEnding=false; fovEl.style.display='none';
+  if(toArsenal){ window.location.href='index.php?p=weaponcraft&tab=arsenal'; return; }
+  // Forge another: refresh affordability from the ore we already synced.
+  if(bayBtn){ var r=findRecipe(selId); bayBtn.disabled=!(r&&canAfford(r.cost)); bayBtn.textContent='Begin Fabrication'; }
+};
+
+if(!window._forgeKeys){
+  window._forgeKeys=true;
+  document.addEventListener('keydown',function(e){
+    if(!fovEl||fovEl.style.display==='none') return;
+    if(/INPUT|TEXTAREA|SELECT/.test((e.target&&e.target.tagName)||'')) return;
+    var k=e.key.toLowerCase();
+    if(k==='q'){ e.preventDefault(); forgeAct('stoke'); }
+    else if(k==='w'){ e.preventDefault(); forgeAct('strike'); }
+    else if(k==='e'){ e.preventDefault(); forgeAct('draw'); }
+  });
+}
+
+// Resume an in-progress forge if the page reloaded mid-session (called by the
+// trailing script below, so it runs after this IIFE has defined everything).
+window.forgeResume=function(state,recipe){
+  if(!fovEl) return;
+  forgeState=state; forgeEnding=false;
+  fEl('forge-icon').innerHTML=recipe.icon; fEl('forge-name').textContent=recipe.name;
+  fEl('forge-result').style.display='none'; fEl('forge-controls').style.display='flex'; fEl('forge-abandon').style.display='';
+  fovEl.style.display='flex';
+  forgeRender();
+};
 })();
 </script>
+<?php if (!empty($_SESSION['wc_forge']) && ($_SESSION['wc_forge']['v'] ?? 0) === 1): $rf = $_SESSION['wc_forge']; ?>
+<script>window.forgeResume && window.forgeResume(<?= json_encode(forge_to_client($rf)) ?>, <?= json_encode($rf['wc']['disp']) ?>);</script>
+<?php endif; ?>

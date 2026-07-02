@@ -24,6 +24,7 @@ try {
   $lq = $pdo->query("SELECT g.code AS node_code, g.skill_code, g.skill_req, g.yield_min, g.yield_max, g.xp_reward, g.name AS node_name,
                             i.id AS item_id, i.code AS item_code, i.name AS item_name
                      FROM gather_nodes g JOIN items i ON i.id = g.item_id
+                     WHERE g.venue = 'foundry'
                      ORDER BY g.skill_req");
   $lootPool = $lq->fetchAll();
 } catch (Throwable $e) {}
@@ -63,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $runResult = [];
       $totalXp = 0;
       $foundryBonus = 0;
-      try { $fbq=$pdo->prepare('SELECT v FROM settings WHERE k=?'); $fbq->execute(["apt_foundry_bonus:{$pid}"]); $foundryBonus=(int)$fbq->fetchColumn(); } catch(Throwable $e){}
+      try { $fbq=$pdo->prepare('SELECT COALESCE(SUM(v),0) FROM settings WHERE k IN (?,?)'); $fbq->execute(["apt_foundry_bonus:{$pid}", "apt_foundry_bonus_rent:{$pid}"]); $foundryBonus=(int)$fbq->fetchColumn(); } catch(Throwable $e){}
       $pdo->beginTransaction();
 
       // Claim the cooldown FIRST, atomically — the page-top $cdLeft read is
@@ -97,6 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       // (Cooldown was already claimed atomically above, in the same transaction.)
       $pdo->commit();
+      grant_xp($pid, $totalXp);
       $cdLeft = FOUNDRY_CD;
       $player = current_player();
 
@@ -130,6 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      ON DUPLICATE KEY UPDATE qty = qty + VALUES(qty)')
           ->execute([$pid, $rec['out_item_id'], $rec['out_qty']]);
       $pdo->commit();
+      grant_xp($pid, (int)$rec['xp_reward']);
 
       $msg = "Fabricated {$rec['out_qty']} &times; {$rec['out_name']}.";
       $craftedFx = ['qty'=>(int)$rec['out_qty'],'item'=>$rec['out_name']];

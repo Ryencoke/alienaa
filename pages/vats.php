@@ -49,6 +49,18 @@ function vats_load_herbs($pdo, $pid): array {
   } catch (Throwable $e) {}
   return [];
 }
+// Row-locking read of the herb blob, mirroring synth.php's $synth_lock_blob.
+// synth.php locks vat_herbs:{pid} FOR UPDATE when brewing; harvest must take
+// the same lock before its read-modify-write or a concurrent brew (browser A)
+// + harvest (browser B) can interleave and let the harvest clobber the brew's
+// herb consumption (free potions / infinite herbs). INSERT IGNORE first so the
+// row exists to lock even on a player's first-ever harvest.
+function vats_lock_herbs($pdo, $pid): array {
+  $pdo->prepare('INSERT IGNORE INTO settings (k,v) VALUES (?,?)')->execute(["vat_herbs:{$pid}", '{}']);
+  $q = $pdo->prepare('SELECT v FROM settings WHERE k=? FOR UPDATE');
+  $q->execute(["vat_herbs:{$pid}"]);
+  return json_decode($q->fetchColumn() ?: '{}', true) ?: [];
+}
 function vats_save_herbs($pdo, $pid, array $h): void {
   $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')
       ->execute(["vat_herbs:{$pid}", json_encode($h)]);
@@ -115,7 +127,7 @@ if (!empty($_POST['vat_ajax'])) {
       $yieldBase  = mt_rand($crop['yield_min'], $crop['yield_max']);
       $yieldBonus = (int)round($yieldBase * ($hydroLevel - 1) * 0.10);
       $yield      = $yieldBase + $yieldBonus;
-      $herbs = vats_load_herbs($pdo, $pid);
+      $herbs = vats_lock_herbs($pdo, $pid);
       $herbs[$vat['crop_code']] = ($herbs[$vat['crop_code']] ?? 0) + $yield;
       vats_save_herbs($pdo, $pid, $herbs);
       $pdo->prepare('UPDATE player_vats SET harvested=1, yield_qty=? WHERE id=?')->execute([$yield, $vatId]);
@@ -328,8 +340,6 @@ function showMsg(txt,col){
 function syncDom(){
   if(!state) return;
   var pe=document.getElementById('vhud-plots'); if(pe) pe.textContent=state.plots.length+'/'+state.max_plots;
-  var ce=document.getElementById('vhud-creds'); if(ce) ce.textContent=Number(state.creds).toLocaleString('en-US');
-  var de=document.getElementById('vhud-drive'); if(de) de.textContent=Number(state.drive).toLocaleString('en-US');
   var sat=document.getElementById('vat-satchel');
   if(sat){
     var keys=Object.keys(state.herbs||{}).filter(function(k){return state.herbs[k]>0;});

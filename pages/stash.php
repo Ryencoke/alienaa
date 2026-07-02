@@ -18,17 +18,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $q->execute([$iid, $pid]);
         $gearRow = $q->fetch();
         $slot = $gearRow ? $gearRow['gear_type'] : false;
-        // Blacksmith gear carries a level requirement (Forge catalog row 10);
-        // Fabrication Lab gear is gated separately by weaponcraft.php's own
-        // equip flow, so only look this up when the recipe_id is a Forge code.
+        // Gear level requirements live in two separate catalogs: Blacksmith
+        // (Forge) rows carry level_req at index 10, while Fabrication Lab builds
+        // resolve their recipe_id -> tier and the tier's level_req. A recipe_id
+        // only ever matches one of the two, so check both and enforce whichever
+        // it belongs to — otherwise Fabrication gear would slip through here.
         if ($gearRow) {
+          $lvlReq = 0;
           foreach (blacksmith_catalog() as $bc) {
-            if ($bc[0] === $gearRow['recipe_id']) {
-              $lvlReq = (int)($bc[10] ?? 1);
-              if ((int)$player['level'] < $lvlReq) throw new RuntimeException("Requires Level {$lvlReq} to equip.");
-              break;
+            if ($bc[0] === $gearRow['recipe_id']) { $lvlReq = (int)($bc[10] ?? 1); break; }
+          }
+          if ($lvlReq === 0) {
+            $wcTiers = weaponcraft_tiers();
+            foreach (weaponcraft_recipes() as $wr) {
+              if ($wr['id'] === $gearRow['recipe_id']) {
+                $lvlReq = (int)($wcTiers[$wr['tier']]['level_req'] ?? 1);
+                break;
+              }
             }
           }
+          if ($lvlReq > 0 && (int)$player['level'] < $lvlReq) throw new RuntimeException("Requires Level {$lvlReq} to equip.");
         }
       } else {
         $q = $pdo->prepare('SELECT i.slot FROM items i JOIN player_items pi ON pi.item_id = i.id AND pi.player_id = ?

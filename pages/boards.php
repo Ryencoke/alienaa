@@ -188,6 +188,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      VALUES (?,?,?,?,NOW())')->execute([$topic, $parent ?: null, $pid, $body]);
       $pdo->prepare('UPDATE topics SET last_post_at = NOW() WHERE id = ?')->execute([$topic]);
       $pdo->commit();
+      // Stamp the author's own reads to NOW() so their own reply doesn't light up
+      // the topic (topic view) or the board index (board view) as NEW to themselves.
+      try {
+        $pdo->prepare('INSERT INTO topic_reads (player_id,topic_id,last_read) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE last_read=NOW()')->execute([$pid, $topic]);
+        $pdo->prepare('INSERT INTO board_reads (player_id,board_id,last_read) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE last_read=NOW()')->execute([$pid, topic_board_id($pdo, $topic)]);
+      } catch (Throwable $e) {}
       $tid = $topic; $msg = 'Reply posted.';
     }
 

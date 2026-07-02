@@ -15,6 +15,7 @@
 $pid = $_SESSION['pid'];
 $pdo = db();
 $msg = '';
+$msgOk = false; // true only on a genuine success — drives flash-ok vs flash-err
 
 // grant_xp() lives in lib.php (shared, concurrency-safe)
 
@@ -83,11 +84,16 @@ function pvp_calc_stats($p, $stats, $pdo) {
     if ($bv !== false && $bv !== '') { [$bon,$exp] = explode('|', $bv, 2); if (time() < (int)$exp) $buffDef = (int)$bon; }
   } catch (Throwable $e) {}
 
+  // Territory perk: each district the fighter's syndicate holds adds a small
+  // ATK/DEF edge (both sides get their own, since this runs per fighter).
+  // Capped at +10% — map dominance is an edge, not an autowin.
+  $terrMult = syn_territory_combat_mult($pdo, $pid2);
   return [
-    'atk'        => max(1, $str * 3 + $weaponAtk + $buffAtk + (int)($p['atk'] ?? 0)),
-    'def'        => max(1, $end * 2 + $armorDef  + $buffDef  + (int)($p['def'] ?? 0)),
+    'atk'        => max(1, (int)round(($str * 3 + $weaponAtk + $buffAtk + (int)($p['atk'] ?? 0)) * $terrMult)),
+    'def'        => max(1, (int)round(($end * 2 + $armorDef  + $buffDef  + (int)($p['def'] ?? 0)) * $terrMult)),
     'spd'        => $spd,
     'hp'         => max(10, (int)$p['integrity'] + $end * 5),
+    'terr_mult'  => $terrMult,
     'str'        => $str, 'end' => $end,
     'weapon_atk' => $weaponAtk, 'armor_def'   => $armorDef,
     'buff_atk'   => $buffAtk,   'buff_def'    => $buffDef,
@@ -95,51 +101,270 @@ function pvp_calc_stats($p, $stats, $pdo) {
   ];
 }
 
-function pvp_simulate($atk_p, $atk_s, $def_p, $def_s) {
-  $atkHp = $atk_s['hp']; $defHp = $def_s['hp'];
-  $atkAtk = $atk_s['atk']; $atkDef = $atk_s['def']; $atkSpd = $atk_s['spd'];
-  $defAtk = $def_s['atk']; $defDef = $def_s['def']; $defSpd = $def_s['spd'];
-  $rounds = []; $roundNum = 0;
-  while ($atkHp > 0 && $defHp > 0 && $roundNum < 20) {
-    $roundNum++;
-    $round = ['num'=>$roundNum,'events'=>[]];
-    // Determine who strikes first this round based on speed
-    $atkFirst = ($atkSpd + mt_rand(0,4)) >= ($defSpd + mt_rand(0,4));
+/* Fights run on combat_engine.php (the same telegraph/stamina engine the
+   Combat Sim uses — headless-tested). The defender is driven by the engine's
+   AI, with two PvP-specific mappings:
+   - TEMPERAMENT comes from the defender's real build (STR-heavy = Brawler,
+     SPD = Stalker, END = Sentinel, balanced = Juggernaut) — deterministic,
+     so scouting a target genuinely teaches you how they'll fight.
+   - TELEGRAPH CLARITY comes from the SPEED gap (75 ± 1%/point, clamped
+     55-95): fast attackers read tells better, fast defenders are harder to
+     read. This replaces the old dodge roll as SPD's combat role. */
+require_once __DIR__ . '/../combat_engine.php';
 
-    $doPunch = function($offAtk, $offName, $defDef, &$defHp, $defName) use (&$round) {
-      $dodge = mt_rand(1,100) <= 8; // 8% dodge chance — roll BEFORE applying damage
-      if ($dodge) {
-        $round['events'][] = ['type'=>'dodge','text'=>"{$defName} dodged the attack!",'color'=>'#e8d44d'];
-        return 0;
-      }
-      $variance = mt_rand(80, 120) / 100;
-      $dmg = max(1, (int)round(($offAtk - $defDef * 0.4) * $variance));
-      $defHp = max(0, $defHp - $dmg);
-      $round['events'][] = ['type'=>'hit','text'=>"{$offName} struck for {$dmg} damage.",'color'=>$dmg>15?'var(--neon2)':'var(--text)','dmg'=>$dmg];
-      return $dmg;
-    };
-
-    $atkName = $atk_p['username']; $defName = $def_p['username'];
-    if ($atkFirst) {
-      $doPunch($atkAtk, $atkName, $defDef, $defHp, $defName);
-      if ($defHp > 0) $doPunch($defAtk, $defName, $atkDef, $atkHp, $atkName);
-    } else {
-      $doPunch($defAtk, $defName, $atkDef, $atkHp, $atkName);
-      if ($atkHp > 0) $doPunch($atkAtk, $atkName, $defDef, $defHp, $defName);
+function pvp_persona(int $str, int $spd, int $end): string {
+  $mx = max($str, $spd, $end);
+  if ($mx - min($str, $spd, $end) <= 3) return 'juggernaut';
+  if ($mx === $str) return 'brawler';
+  if ($mx === $spd) return 'stalker';
+  return 'sentinel';
+}
+function pvp_telepct(int $atkSpd, int $defSpd): int {
+  return max(55, min(95, 75 + ($atkSpd - $defSpd)));
+}
+function pvp_patch_count(PDO $pdo, int $pid2): int {
+  try {
+    $pc = $pdo->prepare("SELECT COALESCE(pi.qty,0) FROM player_items pi JOIN items i ON i.id = pi.item_id
+                         WHERE pi.player_id = ? AND i.code = 'patch_kit'");
+    $pc->execute([$pid2]);
+    return (int)($pc->fetchColumn() ?: 0);
+  } catch (Throwable $e) { return 0; }
+}
+// pvp_log-compatible replay entries (the tab=log&detail viewer renders these
+// for old and new fights alike) — built up round by round during the fight.
+function pvp_round_events(array $events, string $atkName, string $defName): array {
+  $out = [];
+  foreach ($events as $ev) {
+    switch ($ev['t']) {
+      case 'pdmg':
+        $verb = $ev['act'] === 'burst' ? 'bursts' : ($ev['act'] === 'feint' ? 'jabs' : 'strikes');
+        $out[] = ['type'=>'hit','text'=>"{$atkName} {$verb} for {$ev['v']} damage.",'color'=>$ev['v']>25?'var(--neon2)':'var(--text)','dmg'=>$ev['v']];
+        break;
+      case 'edmg':
+        if (!empty($ev['blocked']))
+          $out[] = ['type'=>'hit','text'=>"{$atkName} blocks — {$ev['v']} chips through.",'color'=>'var(--muted)','dmg'=>$ev['v']];
+        else {
+          $what = $ev['act'] === 'unleash' ? 'UNLEASHES a charged blow' : ($ev['act'] === 'heavy' ? 'lands a heavy blow' : ($ev['act'] === 'guard' ? 'counter-jabs' : 'hits'));
+          $out[] = ['type'=>'hit','text'=>"{$defName} {$what} for {$ev['v']} damage.",'color'=>$ev['v']>25?'var(--neon2)':'var(--text)','dmg'=>$ev['v']];
+        }
+        break;
+      case 'stagger':  $out[] = ['type'=>'dodge','text'=>"{$defName} is STAGGERED by the block!",'color'=>'#3bcf63']; break;
+      case 'open':     $out[] = ['type'=>'dodge','text'=>"{$atkName}'s feint opens {$defName}'s guard.",'color'=>'#19f0c7']; break;
+      case 'interrupt':$out[] = ['type'=>'dodge','text'=>"{$atkName} interrupts the wind-up.",'color'=>'#19f0c7']; break;
+      case 'charge':   $out[] = ['type'=>'dodge','text'=>"{$defName} charges a devastating blow.",'color'=>'#9d6bff']; break;
+      case 'stim':     $out[] = ['type'=>'dodge','text'=>"{$atkName} slams a stim (+{$ev['v']}).",'color'=>'#3bcf63']; break;
     }
-    $round['atk_hp'] = $atkHp; $round['def_hp'] = $defHp;
-    $rounds[] = $round;
-    if ($atkHp <= 0 || $defHp <= 0) break;
   }
-  $winner = $atkHp > $defHp ? 'atk' : 'def';
-  return ['rounds'=>$rounds, 'winner'=>$winner, 'atk_final_hp'=>$atkHp, 'def_final_hp'=>$defHp, 'total_rounds'=>$roundNum];
+  return $out;
 }
 
 $_pvpMerchantUntil = $player['merchant_until'] ?? null;
 $_pvpIsMerchant = is_merchant($player);
 
+/* ── Fight AJAX ─────────────────────────────────────────────────────────── */
+if (!empty($_POST['pv_ajax'])) {
+  header('Content-Type: application/json');
+  $act = $_POST['pv_action'] ?? '';
+  $fight = $_SESSION['pvp_fight'] ?? null;
+  if ($fight && (($fight['v'] ?? 0) !== 1)) { $fight = null; unset($_SESSION['pvp_fight']); }
+  try {
+    $pl = current_player(); $plid = (int)$pl['id'];
+    if (is_merchant($pl)) throw new RuntimeException('Commerce Accord active — combat is locked until ' . ($pl['merchant_until'] ?? '') . '.');
+
+    if ($act === 'challenge') {
+      if ($fight) { // resume instead of double-charging Signal
+        echo json_encode(['ok'=>true,'state'=>cb_to_client($fight),'foe'=>$fight['pvp']['foe']]); exit;
+      }
+      $target = trim($_POST['target'] ?? '');
+      if ($target === '') throw new RuntimeException('Enter a ghost\'s handle.');
+      $q = $pdo->prepare('SELECT * FROM players WHERE username=?'); $q->execute([$target]); $defPlayer = $q->fetch();
+      if (!$defPlayer) throw new RuntimeException('"' . htmlspecialchars($target, ENT_QUOTES) . '" is not a ghost in the Sprawl.');
+      if ((int)$defPlayer['id'] === $plid) throw new RuntimeException("You can't fight yourself.");
+      // Hard exclusions — mirror the Target Search tab: staff, banned, jailed,
+      // and active Commerce Accord merchants are never attackable.
+      if (in_array($defPlayer['role'], ['chatmod','moderator','admin','manager'], true)) throw new RuntimeException("You can't attack game staff.");
+      if ($defPlayer['role'] === 'banned') throw new RuntimeException("That account is banned and can't be attacked.");
+      $jq = $pdo->prepare("SELECT COUNT(*) FROM jail_records WHERE player_id=? AND status='active' AND release_at > NOW()");
+      $jq->execute([(int)$defPlayer['id']]);
+      if ((int)$jq->fetchColumn() > 0) throw new RuntimeException('That target is in the Confinement Grid.');
+      if (is_merchant($defPlayer)) throw new RuntimeException("Registered merchants can't be attacked.");
+      if ((int)$pl['integrity'] < 10) throw new RuntimeException('Your Health is too low to fight. Rest first.');
+      if ((int)$defPlayer['integrity'] < 10) throw new RuntimeException('That ghost is already flatlined. Let them recover.');
+      // Charge Signal atomically BEFORE the fight starts — parallel challenges
+      // can't pass a stale read and fight past the daily cap.
+      $sg = $pdo->prepare('UPDATE players SET `signal` = `signal` - 1 WHERE id=? AND `signal` >= 1');
+      $sg->execute([$plid]);
+      if ($sg->rowCount() !== 1) throw new RuntimeException('Signal depleted — daily combat limit reached. Signal resets at midnight.');
+
+      $qd = $pdo->prepare('SELECT * FROM player_stats WHERE pid=?'); $qd->execute([(int)$defPlayer['id']]); $defStats = $qd->fetch();
+      if (!$defStats) {
+        $pdo->prepare('INSERT IGNORE INTO player_stats (pid) VALUES (?)')->execute([(int)$defPlayer['id']]);
+        $qd->execute([(int)$defPlayer['id']]); $defStats = $qd->fetch();
+      }
+      if (!$defStats) $defStats = ['str_pts'=>5,'spd_pts'=>5,'end_pts'=>5,'unspent'=>0];
+
+      $atkStats  = pvp_calc_stats($pl, $myStats, $pdo);
+      $defStats2 = pvp_calc_stats($defPlayer, $defStats, $pdo);
+      $persona = pvp_persona((int)$defStats2['str'], (int)$defStats2['spd'], (int)$defStats2['end']);
+      $fight = cb_start([
+        'hp' => $atkStats['hp'], 'atk' => $atkStats['atk'], 'def' => $atkStats['def'],
+        'combat_lv' => 0, 'kits' => min(9, pvp_patch_count($pdo, $plid)),
+      ], [
+        'code' => 'pvp:' . (int)$defPlayer['id'], 'name' => $defPlayer['username'], 'tier' => 0,
+        'hp' => $defStats2['hp'], 'attack' => $defStats2['atk'], 'defense' => $defStats2['def'],
+        'persona' => $persona,
+        'telepct' => pvp_telepct((int)$atkStats['spd'], (int)$defStats2['spd']),
+      ]);
+      // PvP settle payload rides along in the session (engine passes unknown keys through).
+      $fight['pvp'] = [
+        'def_id' => (int)$defPlayer['id'],
+        'def_name' => $defPlayer['username'],
+        'def_integrity' => (int)$defPlayer['integrity'],
+        'def_pocket' => (int)$defPlayer['creds_pocket'],
+        'def_level' => (int)$defPlayer['level'],
+        'def_mortality' => (int)($defPlayer['mortality'] ?? 0),
+        'atk_s' => $atkStats, 'def_s' => $defStats2,
+        'rounds' => [],
+        'foe' => ['name' => $defPlayer['username'], 'level' => (int)$defPlayer['level'], 'persona' => $persona],
+      ];
+      $_SESSION['pvp_fight'] = $fight;
+      $pl = current_player();
+      echo json_encode(['ok'=>true,'state'=>cb_to_client($fight),'foe'=>$fight['pvp']['foe'],'signal'=>(int)$pl['signal']]); exit;
+    }
+
+    if (!$fight) throw new RuntimeException('No active fight.');
+
+    if ($act === 'round') {
+      $a = $_POST['act'] ?? '';
+      $preRound = (int)$fight['round'];
+      $r = cb_round($fight, $a);
+      if (!$r['ok']) { echo json_encode(['ok'=>false,'err'=>$r['err']]); exit; }
+
+      // Stim consumed a kit in the engine — mirror atomically BEFORE persisting.
+      if ($a === 'stim') {
+        $pkId = 0;
+        try { $pkId = (int)($pdo->query("SELECT id FROM items WHERE code = 'patch_kit'")->fetchColumn() ?: 0); } catch (Throwable $e2) {}
+        $u = $pkId ? $pdo->prepare('UPDATE player_items SET qty = qty - 1 WHERE player_id = ? AND item_id = ? AND qty >= 1') : null;
+        if ($u) $u->execute([$plid, $pkId]);
+        if (!$u || $u->rowCount() !== 1) { echo json_encode(['ok'=>false,'err'=>'No Patch Kits in your stash.']); exit; }
+        try { $pdo->prepare('DELETE FROM player_items WHERE player_id = ? AND item_id = ? AND qty = 0')->execute([$plid, $pkId]); } catch (Throwable $e2) {}
+      }
+
+      $st = $r['st'];
+      // Accumulate the pvp_log-compatible replay (capped — draws can run 25 rounds).
+      if (count($st['pvp']['rounds']) < 30) {
+        $st['pvp']['rounds'][] = [
+          'num' => $preRound,
+          'events' => pvp_round_events($r['events'], $pl['username'], $st['pvp']['def_name']),
+          'atk_hp' => max(0, (int)$st['php']), 'def_hp' => max(0, (int)$st['ehp']),
+        ];
+      }
+
+      if (!$st['over']) {
+        $_SESSION['pvp_fight'] = $st;
+        echo json_encode(['ok'=>true,'events'=>$r['events'],'state'=>cb_to_client($st)]); exit;
+      }
+
+      // ── Settle. Session keeps the PRE-round fight until the commit lands
+      // (retryable, never double-granted). Outcomes: win | loss | fled | draw.
+      $pv = $st['pvp'];
+      $defId = (int)$pv['def_id'];
+      $won  = $st['outcome'] === 'win';
+      $lost = $st['outcome'] === 'loss';
+      $atkXp = $won ? mt_rand(8, 20) + $pv['def_level'] * 2 : mt_rand(2, 6);
+      $defXp = !$won ? mt_rand(5, 15) + (int)$pl['level'] * 2 : mt_rand(1, 4);
+
+      $pdo->beginTransaction();
+      // Credit transfer — only a decisive outcome moves credits. Deduct with a
+      // balance guard and credit only what was actually deducted (a stale
+      // pocket read can never mint credits).
+      $creditsLooted = 0;
+      if ($won || $lost) {
+        $loserId    = $won ? $defId : $plid;
+        $winnerGets = $won ? $plid : $defId;
+        $loserPocket = (int)($won ? $pv['def_pocket'] : $pl['creds_pocket']);
+        $loot = max(0, (int)floor($loserPocket * 0.10));
+        if ($loot > 0) {
+          $d = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id=? AND creds_pocket >= ?');
+          $d->execute([$loot, $loserId, $loot]);
+          if ($d->rowCount() !== 1) {
+            $lp = $pdo->prepare('SELECT creds_pocket FROM players WHERE id=?');
+            $lp->execute([$loserId]);
+            $loot = max(0, (int)floor((int)$lp->fetchColumn() * 0.10));
+            if ($loot > 0) { $d->execute([$loot, $loserId, $loot]); if ($d->rowCount() !== 1) $loot = 0; }
+          }
+          if ($loot > 0) $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$loot, $winnerGets]);
+          $creditsLooted = $loot;
+        }
+      }
+      // Integrity damage — proportional to fight HP lost, both sides.
+      $atkIntLoss = min((int)$pl['integrity'], max(1, (int)$st['taken']));
+      $defIntLoss = min((int)$pv['def_integrity'], max(1, (int)$st['dealt']));
+      $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id=?')->execute([$atkIntLoss, $plid]);
+      $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id=?')->execute([$defIntLoss, $defId]);
+
+      $logJson = json_encode(['rounds'=>$pv['rounds'],'atk_s'=>$pv['atk_s'],'def_s'=>$pv['def_s']]);
+      $pdo->prepare('INSERT INTO pvp_log (attacker_id,defender_id,winner_id,rounds,atk_xp,def_xp,credits_looted,log_data) VALUES (?,?,?,?,?,?,?,?)')
+          ->execute([$plid, $defId, $won ? $plid : $defId, (int)$st['round'], $atkXp, $defXp, $creditsLooted, $logJson]);
+      $logId = (int)$pdo->lastInsertId();
+      $pdo->commit();
+
+      $atkXpRes = grant_battle_xp($plid, $atkXp);
+      grant_battle_xp($defId, $defXp);
+      $bountyCollected = 0;
+      if ($won) {
+        contract_record($pdo, $plid, 'pvp_win');
+        // Bounty Board: beating this ghost collects every standing bounty on
+        // them (escrow-only; non-fatal, its own transaction).
+        $bountyCollected = bounty_settle_on_beat($pdo, $defId, $plid, $pl['username']);
+        if ($bountyCollected > 0) $pl = current_player();
+      }
+
+      // Mortality alignment — only a decisive outcome shifts it.
+      $mortalityDelta = 0;
+      if ($won || $lost) {
+        $loserMortality = $won ? $pv['def_mortality'] : (int)($pl['mortality'] ?? 0);
+        if ($loserMortality > 0)      $mortalityDelta = -(int)max(2, min(8, (int)round($loserMortality / 10)));
+        elseif ($loserMortality < 0)  $mortalityDelta = (int)max(2, min(8, (int)round(-$loserMortality / 10)));
+        else                          $mortalityDelta = -2;
+        $winnerId2 = $won ? $plid : $defId;
+        try { $pdo->prepare('UPDATE players SET mortality = GREATEST(-200, LEAST(200, mortality + ?)) WHERE id=?')->execute([$mortalityDelta, $winnerId2]); } catch (Throwable $ex) {}
+      }
+
+      // Notify the defender.
+      try {
+        $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+        $atkName = $pl['username'];
+        if ($won)                         $notifBody = $atkName . ' attacked and defeated you. -' . $defIntLoss . ' HP' . ($creditsLooted > 0 ? ', -' . number_format($creditsLooted) . ' credits' : '') . '.';
+        elseif ($lost)                    $notifBody = $atkName . ' attacked you and was defeated. +' . $defXp . ' XP' . ($creditsLooted > 0 ? ', +' . number_format($creditsLooted) . ' credits looted' : '') . '.';
+        elseif ($st['outcome'] === 'fled') $notifBody = $atkName . ' attacked you, then jacked out and ran. +' . $defXp . ' XP.';
+        else                              $notifBody = $atkName . ' attacked you — the fight timed out with both standing. +' . $defXp . ' XP.';
+        $pdo->prepare("INSERT INTO player_notifications (player_id,type,body) VALUES (?,?,?)")->execute([$defId, 'pvp', $notifBody]);
+      } catch (Throwable $ex) {}
+
+      unset($_SESSION['pvp_fight']);
+      $pl = current_player();
+      echo json_encode(['ok'=>true,'events'=>$r['events'],'state'=>cb_to_client($st),
+        'settle'=>[
+          'outcome'=>$st['outcome'],'foe'=>$pv['def_name'],
+          'creds'=>$creditsLooted,'xp'=>$atkXp,
+          'donated'=>(int)$atkXpRes['donated'],'guild_levelup'=>(int)$atkXpRes['guild_levels'],
+          'levelup'=>(int)$atkXpRes['levels'],
+          'hp_lost'=>$atkIntLoss,'hp'=>(int)$pl['integrity'],
+          'mortality'=>$mortalityDelta,'log_id'=>$logId,'bounty'=>$bountyCollected,
+          'dealt'=>(int)$st['dealt'],'taken'=>(int)$st['taken'],
+        ]]); exit;
+    }
+
+    throw new RuntimeException('Unknown action.');
+  } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    echo json_encode(['ok'=>false,'err'=>$e->getMessage()]);
+  }
+  exit;
+}
+
 // ── Handle POST ────────────────────────────────────────────────────────────
-$battleResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $act = $_POST['action'] ?? '';
   try {
@@ -153,7 +378,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($sp->rowCount() !== 1) throw new RuntimeException('No unspent stat points.');
         $pdo->prepare('UPDATE players SET signal_max = LEAST(50, signal_max + 1) WHERE id=?')->execute([$pid]);
         $qs->execute([$pid]); $myStats = $qs->fetch(); $player = current_player();
-        $msg = 'Signal bandwidth upgraded!';
+        $msg = 'Signal bandwidth upgraded!'; $msgOk = true;
       } else {
         if (!in_array($stat, ['str_pts','spd_pts','end_pts'], true)) throw new RuntimeException('Invalid stat.');
         if ((int)$myStats['unspent'] < 1) throw new RuntimeException('No unspent stat points.');
@@ -161,119 +386,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $sp->execute([$pid]);
         if ($sp->rowCount() !== 1) throw new RuntimeException('No unspent stat points.');
         $qs->execute([$pid]); $myStats = $qs->fetch();
-        $msg = 'Stat point spent!';
+        $msg = 'Stat point spent!'; $msgOk = true;
       }
-
-    } elseif ($act === 'challenge') {
-      if ($_pvpIsMerchant) throw new RuntimeException('Commerce Accord active — combat is locked until ' . $_pvpMerchantUntil . '.');
-      $target = trim($_POST['target'] ?? '');
-      if ($target === '') throw new RuntimeException('Enter a ghost\'s handle.');
-      $q = $pdo->prepare('SELECT * FROM players WHERE username=?'); $q->execute([$target]); $defPlayer = $q->fetch();
-      if (!$defPlayer) throw new RuntimeException('"' . htmlspecialchars($target, ENT_QUOTES) . '" is not a ghost in the Sprawl.');
-      if ((int)$defPlayer['id'] === $pid) throw new RuntimeException("You can't fight yourself.");
-      if ((int)$player['integrity'] < 10) throw new RuntimeException('Your Health is too low to fight. Rest first.');
-      if ((int)$defPlayer['integrity'] < 10) throw new RuntimeException('That ghost is already flatlined. Let them recover.');
-      // Charge Signal atomically BEFORE simulating — the WHERE gate means parallel
-      // challenges can't all pass a stale read and fight past the daily cap.
-      $sg = $pdo->prepare('UPDATE players SET `signal` = `signal` - 1 WHERE id=? AND `signal` >= 1');
-      $sg->execute([$pid]);
-      if ($sg->rowCount() !== 1) throw new RuntimeException('Signal depleted — daily combat limit reached. Signal resets at midnight.');
-
-      // Load defender stats
-      $qd = $pdo->prepare('SELECT * FROM player_stats WHERE pid=?'); $qd->execute([(int)$defPlayer['id']]); $defStats = $qd->fetch();
-      if (!$defStats) {
-        $pdo->prepare('INSERT IGNORE INTO player_stats (pid) VALUES (?)')->execute([(int)$defPlayer['id']]);
-        $qd->execute([(int)$defPlayer['id']]); $defStats = $qd->fetch();
-      }
-      if (!$defStats) $defStats = ['str_pts'=>5,'spd_pts'=>5,'end_pts'=>5,'unspent'=>0];
-
-      $atkStats  = pvp_calc_stats($player, $myStats, $pdo);
-      $defStats2 = pvp_calc_stats($defPlayer, $defStats, $pdo);
-      $result    = pvp_simulate($player, $atkStats, $defPlayer, $defStats2);
-      $won       = $result['winner'] === 'atk';
-
-      // XP rewards
-      $atkXp = $won ? mt_rand(8, 20) + (int)$defPlayer['level'] * 2 : mt_rand(2, 6);
-      $defXp = !$won ? mt_rand(5, 15) + (int)$player['level'] * 2   : mt_rand(1, 4);
-
-      // Credit transfer — loser drops 10% of pocket credits to winner.
-      // Deduct with a balance guard and only credit what was actually deducted,
-      // so a stale pocket read can never mint credits (the old GREATEST(0,...)
-      // clamp let the winner receive more than the loser lost).
-      $creditsLooted = 0;
-      $loserId    = $won ? (int)$defPlayer['id'] : $pid;
-      $winnerGets = $won ? $pid : (int)$defPlayer['id'];
-      $loserPocket = (int)($won ? $defPlayer['creds_pocket'] : $player['creds_pocket']);
-      $loot = max(0, (int)floor($loserPocket * 0.10));
-      if ($loot > 0) {
-        $d = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id=? AND creds_pocket >= ?');
-        $d->execute([$loot, $loserId, $loot]);
-        if ($d->rowCount() !== 1) {
-          // Pocket changed since we read it — recompute from the live balance
-          $lp = $pdo->prepare('SELECT creds_pocket FROM players WHERE id=?');
-          $lp->execute([$loserId]);
-          $loot = max(0, (int)floor((int)$lp->fetchColumn() * 0.10));
-          if ($loot > 0) { $d->execute([$loot, $loserId, $loot]); if ($d->rowCount() !== 1) $loot = 0; }
-        }
-        if ($loot > 0) $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$loot, $winnerGets]);
-        $creditsLooted = $loot;
-      }
-
-      // Integrity damage — proportional to HP lost in combat, applied to both players
-      $atkHpLost  = max(0, $atkStats['hp'] - max(0, (int)$result['atk_final_hp']));
-      $defHpLost  = max(0, $defStats2['hp'] - max(0, (int)$result['def_final_hp']));
-      $atkIntLoss = min((int)$player['integrity'], max(1, $atkHpLost));
-      $defIntLoss = min((int)$defPlayer['integrity'], max(1, $defHpLost));
-      $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id=?')->execute([$atkIntLoss, $pid]);
-      $pdo->prepare('UPDATE players SET integrity = GREATEST(0, integrity - ?) WHERE id=?')->execute([$defIntLoss, (int)$defPlayer['id']]);
-
-      // Store round log + record fight
-      $logJson = json_encode(['rounds'=>$result['rounds'],'atk_s'=>$atkStats,'def_s'=>$defStats2]);
-      $pdo->prepare('INSERT INTO pvp_log (attacker_id,defender_id,winner_id,rounds,atk_xp,def_xp,credits_looted,log_data) VALUES (?,?,?,?,?,?,?,?)')->execute([$pid,(int)$defPlayer['id'],$won?$pid:(int)$defPlayer['id'],$result['total_rounds'],$atkXp,$defXp,$creditsLooted,$logJson]);
-      $logId = (int)$pdo->lastInsertId();
-
-      // Battle XP — split per each player's own guild-donation rate. The
-      // attacker's donation feeds their syndicate; the defender's feeds theirs.
-      $atkXpRes = grant_battle_xp($pid, $atkXp);
-      grant_battle_xp((int)$defPlayer['id'], $defXp); // defender earns the XP shown in their log/notification
-
-      // Mortality alignment: beating a good player gains evil, beating an evil player gains good
-      $winnerId2 = $won ? $pid : (int)$defPlayer['id'];
-      $loserMortality = $won ? (int)($defPlayer['mortality'] ?? 0) : (int)($player['mortality'] ?? 0);
-      if ($loserMortality > 0) {
-        $mortalityDelta = -(int)max(2, min(8, (int)round($loserMortality / 10)));
-      } elseif ($loserMortality < 0) {
-        $mortalityDelta = (int)max(2, min(8, (int)round(-$loserMortality / 10)));
-      } else {
-        $mortalityDelta = -2; // fighting a neutral player = slight evil shift
-      }
-      try { $pdo->prepare('UPDATE players SET mortality = GREATEST(-200, LEAST(200, mortality + ?)) WHERE id=?')->execute([$mortalityDelta, $winnerId2]); } catch (Throwable $ex) {}
-
-      $player = current_player();
-
-      // Notify defender
-      try {
-        $pdo->exec('CREATE TABLE IF NOT EXISTS player_notifications (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT NOT NULL, type VARCHAR(40) NOT NULL DEFAULT "info", body TEXT NOT NULL, is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_player_read (player_id, is_read)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-        $atkName = $player['username'];
-        if ($won) {
-          $notifBody = $atkName . ' attacked and defeated you. -' . $defIntLoss . ' HP' . ($creditsLooted > 0 ? ', -' . number_format($creditsLooted) . ' credits' : '') . '.';
-        } else {
-          $notifBody = $atkName . ' attacked you and was defeated. +' . $defXp . ' XP' . ($creditsLooted > 0 ? ', +' . number_format($creditsLooted) . ' credits looted' : '') . '.';
-        }
-        $pdo->prepare("INSERT INTO player_notifications (player_id,type,body) VALUES (?,?,?)")->execute([(int)$defPlayer['id'],'pvp',$notifBody]);
-      } catch (Throwable $ex) {}
-
-      $battleResult = array_merge($result, [
-        'won'            => $won,
-        'atk_xp'         => $atkXp,        'def_xp'    => $defXp,
-        'xp_donated'     => $atkXpRes['donated'], 'xp_kept' => $atkXpRes['kept'],
-        'guild_levels'   => $atkXpRes['guild_levels'],
-        'atk_p'          => $player,        'def_p'     => $defPlayer,
-        'atk_s'          => $atkStats,      'def_s'     => $defStats2,
-        'int_lost'       => $atkIntLoss,    'def_int_lost' => $defIntLoss,
-        'credits_looted' => $creditsLooted, 'log_id'    => $logId,
-        'mortality_delta'=> $mortalityDelta ?? 0,
-      ]);
 
     } elseif ($act === 'save_search') {
       $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_saved_searches (
@@ -299,7 +413,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare('INSERT INTO pvp_saved_searches (player_id, slot, name, filters) VALUES (?,?,?,?)
                      ON DUPLICATE KEY UPDATE name=VALUES(name), filters=VALUES(filters)')
           ->execute([$pid, $slot, $sname, json_encode($filters)]);
-      $msg = 'Search saved to slot ' . $slot . '.';
+      $msg = 'Search saved to slot ' . $slot . '.'; $msgOk = true;
 
     } elseif ($act === 'blacklist_add') {
       $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_blacklist (
@@ -315,7 +429,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($targetId === $pid) throw new RuntimeException("You can't blacklist yourself.");
       $note = mb_substr(trim($_POST['note'] ?? ''), 0, 80);
       $pdo->prepare('INSERT IGNORE INTO pvp_blacklist (player_id, target_id, note) VALUES (?,?,?)')->execute([$pid, $targetId, $note]);
-      $msg = e($handle) . ' added to your blacklist.';
+      $msg = e($handle) . ' added to your blacklist.'; $msgOk = true;
 
     } elseif ($act === 'blacklist_remove') {
       $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_blacklist (
@@ -325,7 +439,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
       $targetId = (int)($_POST['target_id'] ?? 0);
       $pdo->prepare('DELETE FROM pvp_blacklist WHERE player_id=? AND target_id=?')->execute([$pid, $targetId]);
-      $msg = 'Removed from blacklist.';
+      $msg = 'Removed from blacklist.'; $msgOk = true;
 
     } elseif ($act === 'delete_search') {
       $pdo->exec("CREATE TABLE IF NOT EXISTS pvp_saved_searches (
@@ -336,12 +450,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
       $slot = (int)($_POST['slot'] ?? 0);
       $pdo->prepare('DELETE FROM pvp_saved_searches WHERE player_id=? AND slot=?')->execute([$pid, $slot]);
-      $msg = 'Saved search cleared.';
+      $msg = 'Saved search cleared.'; $msgOk = true;
     }
-  } catch (Throwable $ex) { $msg = $ex->getMessage(); }
+  } catch (Throwable $ex) { $msg = $ex->getMessage(); $msgOk = false; }
 }
 
 $tab = in_array($_GET['tab'] ?? '', ['arena','stats','log','search']) ? $_GET['tab'] : 'arena';
+
+// Active interactive fight (resume across reloads/AJAX swaps)
+$pvActiveFight = $_SESSION['pvp_fight'] ?? null;
+if ($pvActiveFight && (($pvActiveFight['v'] ?? 0) !== 1)) { unset($_SESSION['pvp_fight']); $pvActiveFight = null; }
+$pvClientCfg = [
+  'state' => $pvActiveFight ? cb_to_client($pvActiveFight) : null,
+  'foe'   => $pvActiveFight ? ($pvActiveFight['pvp']['foe'] ?? null) : null,
+];
 
 // Arriving here via a target=username link (from search results or a
 // profile's Attack quick action) with no clear feedback if the fight can't
@@ -555,7 +677,7 @@ if (($tab === 'log') && isset($_GET['detail'])) {
 </div>
 
 <?php if ($msg): ?>
-<div class="flash flash-err"><?= e($msg) ?></div>
+<div class="flash <?= $msgOk ? 'flash-ok' : 'flash-err' ?>"><?= $msg ?></div>
 <?php endif; ?>
 
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
@@ -564,115 +686,87 @@ if (($tab === 'log') && isset($_GET['detail'])) {
   <?php endforeach; ?>
 </div>
 
-<!-- ── BATTLE RESULT ── -->
-<?php if ($battleResult): $r = $battleResult;
-  $replayJson = json_encode([
-    'atk'=>['name'=>$r['atk_p']['username'],'hp'=>(int)$r['atk_s']['hp'],'final'=>max(0,(int)$r['atk_final_hp'])],
-    'def'=>['name'=>$r['def_p']['username'],'hp'=>(int)$r['def_s']['hp'],'final'=>max(0,(int)$r['def_final_hp'])],
-    'rounds'=>$r['rounds'],
-    'won'=>$r['won'],
-  ]);
-?>
-<div class="panel" style="border:2px solid <?= $r['won'] ? 'rgba(25,240,199,.5)' : 'rgba(255,45,149,.5)' ?>;background:<?= $r['won'] ? 'rgba(25,240,199,.04)' : 'rgba(255,45,149,.04)' ?>">
 
-  <!-- Battle stage (replayed client-side; static fallback below for no-JS) -->
-  <div id="pvp-stage">
-    <div class="pf me" id="pf-atk">
-      <div class="pf-ava"><?= e(strtoupper(mb_substr($r['atk_p']['username'],0,1))) ?></div>
-      <div class="pf-name" style="color:var(--accent)"><?= e($r['atk_p']['username']) ?></div>
-      <div class="pf-hpbar"><div class="pf-hpfill" id="pf-atk-hp"></div></div>
-      <div class="pf-hpt" id="pf-atk-hpt"><?= max(0,(int)$r['atk_final_hp']) ?> / <?= (int)$r['atk_s']['hp'] ?></div>
-      <div class="pf-stats">STR <?= $r['atk_s']['str'] ?> &middot; END <?= $r['atk_s']['end'] ?> &middot; SPD <?= $r['atk_s']['spd'] ?><br>ATK <?= $r['atk_s']['atk'] ?> &middot; DEF <?= $r['atk_s']['def'] ?></div>
+<!-- ══ ACTIVE FIGHT ══ -->
+<style>
+.pv-bar{height:12px;border-radius:6px;background:#080812;overflow:hidden}
+.pv-bar>div{height:100%;border-radius:6px;transition:width .35s ease}
+.pv-act{flex:1;min-width:86px;padding:9px 6px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);color:var(--text);cursor:pointer;font-size:12px;line-height:1.35;transition:transform .07s,border-color .15s,background .15s}
+.pv-act:hover:not(:disabled){border-color:var(--neon2);background:rgba(255,45,149,.06)}
+.pv-act:active:not(:disabled){transform:scale(.96)}
+.pv-act:disabled{opacity:.38;cursor:not-allowed}
+.pv-act b{display:block;font-size:13px}
+.pv-act span{color:var(--muted);font-size:10px}
+#pv-tele{border-radius:8px;padding:10px 14px;text-align:center;font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:.08em;transition:background .2s,border-color .2s}
+#pv-panel.shake{animation:pvpShake .26s linear}
+@keyframes pvFlashRed{0%{box-shadow:inset 0 0 60px rgba(255,45,149,.5)}100%{}}
+#pv-panel.hitflash{animation:pvFlashRed .45s ease-out}
+@keyframes pvEnemyHit{0%{filter:brightness(2.4) saturate(2)}100%{}}
+#pv-foe-card.hit{animation:pvEnemyHit .35s ease-out}
+@keyframes pvPulseGreen{0%{box-shadow:0 0 0 0 rgba(59,207,99,.5)}100%{box-shadow:0 0 22px 8px rgba(59,207,99,0)}}
+#pv-you-card.heal{animation:pvPulseGreen .6s ease-out}
+#pv-feed{max-height:150px;overflow-y:auto;font-size:12px;display:flex;flex-direction:column;gap:3px;text-align:left}
+#pv-feed div{animation:pvIn .25s ease-out backwards}
+@keyframes pvIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1}}
+.pv-badge{display:inline-block;border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Orbitron',sans-serif;letter-spacing:.06em}
+</style>
+<div id="pv-panel" class="panel" style="display:none">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+    <div>
+      <div style="font-size:14px;font-weight:700">&#9876; <span id="pv-foe-name">&mdash;</span></div>
+      <div style="font-size:11px;color:var(--muted)"><span id="pv-foe-meta"></span></div>
     </div>
-    <div class="pvp-mid">
-      <div id="pvp-vs">VS</div>
-      <div id="pvp-round"><?= (int)$r['total_rounds'] ?> RND</div>
-      <button id="pvp-skip" type="button">skip &#9197;</button>
-    </div>
-    <div class="pf foe" id="pf-def">
-      <div class="pf-ava"><?= e(strtoupper(mb_substr($r['def_p']['username'],0,1))) ?></div>
-      <div class="pf-name" style="color:var(--neon2)"><?= e($r['def_p']['username']) ?></div>
-      <div class="pf-hpbar"><div class="pf-hpfill" id="pf-def-hp"></div></div>
-      <div class="pf-hpt" id="pf-def-hpt"><?= max(0,(int)$r['def_final_hp']) ?> / <?= (int)$r['def_s']['hp'] ?></div>
-      <div class="pf-stats">STR <?= $r['def_s']['str'] ?> &middot; END <?= $r['def_s']['end'] ?> &middot; SPD <?= $r['def_s']['spd'] ?><br>ATK <?= $r['def_s']['atk'] ?> &middot; DEF <?= $r['def_s']['def'] ?></div>
-    </div>
-    <div id="pvp-banner">
-      <div class="pb-txt" style="color:<?= $r['won'] ? 'var(--accent)' : 'var(--neon2)' ?>;text-shadow:0 0 20px <?= $r['won'] ? 'rgba(25,240,199,.7)' : 'rgba(255,45,149,.7)' ?>"><?= $r['won'] ? 'VICTORY' : 'DEFEAT' ?></div>
-      <div class="pb-sub">vs. <?= e($r['def_p']['username']) ?> &mdash; <?= (int)$r['total_rounds'] ?> round<?= $r['total_rounds']!==1?'s':'' ?></div>
-    </div>
-  </div>
-  <div id="pvp-ticker" class="muted">&nbsp;</div>
-
-  <div id="pvp-details">
-
-  <!-- Round-by-round log -->
-  <div style="max-height:320px;overflow-y:auto;border:1px solid var(--line);border-radius:7px;padding:10px;margin-top:10px">
-    <?php foreach ($r['rounds'] as $rnd): ?>
-    <div style="margin-bottom:10px">
-      <div style="font-size:10px;font-family:'Orbitron',sans-serif;color:var(--muted);text-transform:uppercase;margin-bottom:4px">Round <?= $rnd['num'] ?></div>
-      <?php foreach ($rnd['events'] as $ev): ?>
-      <div style="font-size:12px;color:<?= $ev['color'] ?>;margin-bottom:2px;padding-left:10px">&#8250; <?= e($ev['text']) ?></div>
-      <?php endforeach; ?>
-      <div style="font-size:10px;color:var(--muted);margin-top:3px;padding-left:10px">
-        <?= e($r['atk_p']['username']) ?>: <?= max(0,(int)$rnd['atk_hp']) ?> HP &nbsp;|&nbsp;
-        <?= e($r['def_p']['username']) ?>: <?= max(0,(int)$rnd['def_hp']) ?> HP
-      </div>
-    </div>
-    <?php endforeach; ?>
+    <div style="font-size:11px;color:var(--muted)">Round <b id="pv-round" style="color:var(--text)">1</b>/<span id="pv-cap">25</span></div>
   </div>
 
-  <!-- Equipment effects -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;padding:10px;background:rgba(0,0,0,.15);border-radius:6px">
-    <?php foreach ([['atk_p','atk_s','var(--accent)'],['def_p','def_s','var(--neon2)']] as [$pp,$ss,$cc]): ?>
-    <div style="font-size:11px">
-      <div style="color:<?= $cc ?>;font-weight:700;margin-bottom:4px"><?= e($r[$pp]['username']) ?> — Loadout</div>
-      <?php if ($r[$ss]['weapon_name']): ?>
-        <div>&#9876; <?= e($r[$ss]['weapon_name']) ?> <span style="color:var(--neon2)">+<?= $r[$ss]['weapon_atk'] ?> ATK</span></div>
-      <?php else: ?><div style="color:var(--muted)">&#9876; No weapon</div><?php endif; ?>
-      <?php if ($r[$ss]['armor_name']): ?>
-        <div>&#128737; <?= e($r[$ss]['armor_name']) ?> <span style="color:var(--accent)">+<?= $r[$ss]['armor_def'] ?> DEF</span></div>
-      <?php else: ?><div style="color:var(--muted)">&#128737; No armor</div><?php endif; ?>
-      <?php if ($r[$ss]['buff_atk'] || $r[$ss]['buff_def']): ?>
-        <div style="color:#e8a33d">&#9889; Buff: +<?= $r[$ss]['buff_atk'] ?> ATK / +<?= $r[$ss]['buff_def'] ?> DEF</div>
-      <?php endif; ?>
+  <div id="pv-foe-card" style="background:var(--panel2);border:1px solid rgba(255,45,149,.25);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:5px">
+      <span>Their Fight HP</span><span><b id="pv-ehp" style="color:var(--neon2)">0</b> / <span id="pv-emax">0</span></span>
     </div>
-    <?php endforeach; ?>
+    <div class="pv-bar"><div id="pv-ehp-bar" style="width:100%;background:linear-gradient(90deg,var(--neon2),#ff7070)"></div></div>
+    <div id="pv-badges" style="margin-top:7px;min-height:18px"></div>
   </div>
 
-  <!-- Rewards -->
-  <div style="display:flex;justify-content:center;gap:20px;margin-top:14px;flex-wrap:wrap">
-    <div class="pvp-reward"><b style="color:#e8a33d" data-cnt="<?= (int)$r['atk_xp'] ?>" data-pre="+" data-suf=" XP">+<?= $r['atk_xp'] ?> XP</b><div style="font-size:10px;color:var(--muted)">XP Earned</div></div>
-    <?php if (($r['xp_donated'] ?? 0) > 0): ?>
-    <div class="pvp-reward">
-      <b style="color:var(--accent)">&#9876; +<?= (int)$r['xp_donated'] ?></b>
-      <div style="font-size:10px;color:var(--muted)">XP to Guild<?= ($r['guild_levels'] ?? 0) > 0 ? ' &middot; <span style="color:#e8d44d">LEVEL UP!</span>' : '' ?></div>
-    </div>
-    <?php endif; ?>
-    <div class="pvp-reward"><b style="color:var(--neon2)" data-cnt="<?= (int)$r['int_lost'] ?>" data-pre="-" data-suf=" HP">-<?= $r['int_lost'] ?> HP</b><div style="font-size:10px;color:var(--muted)">Health Lost</div></div>
-    <?php if (($r['credits_looted'] ?? 0) > 0): ?>
-    <div class="pvp-reward">
-      <b style="color:<?= $r['won'] ? '#3bcf63' : 'var(--neon2)' ?>" data-cnt="<?= (int)$r['credits_looted'] ?>" data-pre="<?= $r['won'] ? '+' : '-' ?>" data-suf="¢"><?= $r['won'] ? '+' : '-' ?><?= number_format($r['credits_looted']) ?>¢</b>
-      <div style="font-size:10px;color:var(--muted)">Credits <?= $r['won'] ? 'Looted' : 'Lost' ?></div>
-    </div>
-    <?php endif; ?>
-    <?php $md = (int)($r['mortality_delta'] ?? 0); if ($md !== 0): ?>
-    <div class="pvp-reward">
-      <b style="color:<?= $md > 0 ? '#e8d44d' : '#ff2d95' ?>"><?= $md > 0 ? '&#9728; +' : '&#9760; ' ?><?= $md ?></b>
-      <div style="font-size:10px;color:var(--muted)"><?= $md > 0 ? 'Good' : 'Evil' ?> Alignment</div>
-    </div>
-    <?php endif; ?>
-  </div>
-  <?php if (!empty($r['log_id'])): ?>
-  <div style="text-align:center;margin-top:10px"><a href="index.php?p=pvp&tab=log&detail=<?= (int)$r['log_id'] ?>" style="font-size:11px;color:var(--muted);text-decoration:underline">&#128203; View in combat log</a></div>
-  <?php endif; ?>
+  <div id="pv-tele" style="background:rgba(255,255,255,.03);border:1px solid var(--line);margin-bottom:10px">&mdash;</div>
 
-  </div><!-- /#pvp-details -->
+  <div id="pv-you-card" style="background:var(--panel2);border:1px solid rgba(25,240,199,.25);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:5px">
+      <span>Your Fight HP</span><span><b id="pv-php" style="color:var(--accent)">0</b> / <span id="pv-pmax">0</span></span>
+    </div>
+    <div class="pv-bar"><div id="pv-php-bar" style="width:100%;background:linear-gradient(90deg,var(--accent),#3bcf63)"></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin:8px 0 5px">
+      <span>Stamina</span><span><b id="pv-stam" style="color:#e8a33d">100</b> / 100</span>
+    </div>
+    <div class="pv-bar" style="height:8px"><div id="pv-stam-bar" style="width:100%;background:linear-gradient(90deg,#e8a33d,#ffce6b)"></div></div>
+  </div>
+
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px" id="pv-actions">
+    <button type="button" class="pv-act" data-act="strike" onclick="pvAct('strike')"><b>&#9876; Strike</b><span>15 stam &middot; interrupts charges</span></button>
+    <button type="button" class="pv-act" data-act="guard"  onclick="pvAct('guard')"><b>&#128737; Guard</b><span>+25 stam &middot; staggers heavies</span></button>
+    <button type="button" class="pv-act" data-act="feint"  onclick="pvAct('feint')"><b>&#127917; Feint</b><span>10 stam &middot; opens guards</span></button>
+    <button type="button" class="pv-act" data-act="burst"  onclick="pvAct('burst')"><b>&#128165; Burst</b><span>35 stam &middot; huge on openings</span></button>
+    <button type="button" class="pv-act" data-act="stim"   onclick="pvAct('stim')"><b>&#128137; Stim</b><span id="pv-stim-sub">uses a Patch Kit</span></button>
+    <button type="button" class="pv-act" data-act="flee"   onclick="pvAct('flee')" style="border-color:rgba(255,45,149,.3);color:var(--neon2)"><b>&#127939; Flee</b><span>eat a parting shot</span></button>
+  </div>
+
+  <div id="pv-result" style="display:none;text-align:center;margin-bottom:10px"></div>
+
+  <div id="pv-feed" style="background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:7px;padding:8px 10px;margin-bottom:8px"></div>
+  <details style="font-size:11px;color:var(--muted)">
+    <summary style="cursor:pointer">How to read the tells</summary>
+    <div style="margin-top:6px;line-height:1.7">
+      <b style="color:#ff9090">Heavy wind-up</b> &rarr; Guard it (staggers them &mdash; then Burst).&nbsp;
+      <b style="color:#e8a33d">Quick jab</b> &rarr; trade with Strike, or Guard if hurting.&nbsp;
+      <b style="color:var(--accent)">Raised guard</b> &rarr; Feint to open them, then Strike/Burst hits &times;1.5.&nbsp;
+      <b style="color:#9d6bff">Core charge</b> &rarr; Strike to interrupt &mdash; or Guard and brace.&nbsp;
+      Temperament comes from their real build (STR = Brawler, SPD = Stalker, END = Sentinel, balanced = Juggernaut) &mdash; scouting a target teaches you the matchup.
+      Your read clarity (<span id="pv-conf">~75%</span>) is your SPD against theirs. Keys: <b>1-6</b>.
+    </div>
+  </details>
 </div>
-<script>window._pvpReplay = <?= $replayJson ?>;</script>
-<?php endif; ?>
 
 <!-- ── ARENA ── -->
-<?php if ($tab === 'arena' && !$battleResult): ?>
+<?php if ($tab === 'arena'): ?>
 <?php if ($targetWarn): ?>
 <div class="flash flash-err"><?= $targetWarn ?></div>
 <?php endif; ?>
@@ -692,16 +786,15 @@ if (($tab === 'log') && isset($_GET['detail'])) {
     <span class="muted" style="font-size:11px"> fights remaining today</span>
     <?php if ((int)$player['signal'] < 1): ?><span style="color:var(--neon2);margin-left:4px">&#9888; Depleted</span><?php endif; ?></span>
   </div>
-  <form method="post" style="display:flex;gap:8px;align-items:center;max-width:400px">
-    <input type="hidden" name="action" value="challenge">
+  <div id="pv-arena-form" style="display:flex;gap:8px;align-items:center;max-width:400px">
     <div class="ac-wrap" style="flex:1;position:relative">
       <input type="text" id="pvpTarget" name="target" placeholder="Ghost's handle"
              autocomplete="off" maxlength="32" data-no-counter value="<?= e($_GET['target'] ?? '') ?>"
              style="width:100%" <?= ((int)$player['integrity'] < 10 || (int)$player['signal'] < 1) ? 'disabled' : '' ?>>
       <div class="ac-list" id="pvpAcList" style="display:none"></div>
     </div>
-    <button type="submit" style="padding:10px 20px;flex:none" <?= ((int)$player['integrity'] < 10 || (int)$player['signal'] < 1) ? 'disabled' : '' ?>>Fight</button>
-  </form>
+    <button type="button" onclick="pvChallenge()" style="padding:10px 20px;flex:none" <?= ((int)$player['integrity'] < 10 || (int)$player['signal'] < 1) ? 'disabled' : '' ?>>Fight</button>
+  </div>
   <div id="pvpConfirm" style="display:none;margin-top:6px;max-width:400px;background:rgba(25,240,199,.06);border:1px solid rgba(25,240,199,.2);border-radius:5px;padding:7px 10px;font-size:12px"></div>
   <script>
   (function(){
@@ -715,7 +808,7 @@ if (($tab === 'log') && isset($_GET['detail'])) {
 try {
   $arenaLatest = $pdo->query("SELECT l.*, a.username AS atk_name, d.username AS def_name, w.username AS winner_name FROM pvp_log l JOIN players a ON a.id=l.attacker_id JOIN players d ON d.id=l.defender_id JOIN players w ON w.id=l.winner_id ORDER BY l.fought_at DESC LIMIT 10")->fetchAll();
 } catch (Throwable $e) { $arenaLatest = []; }
-if (!empty($arenaLatest) && !$battleResult): ?>
+if (!empty($arenaLatest)): ?>
 <div class="panel">
   <h3 style="margin-top:0">Recent Battles</h3>
   <div style="overflow-x:auto">
@@ -952,7 +1045,7 @@ if (!empty($arenaLatest) && !$battleResult): ?>
   <?php
   $statDefs = [
     'str_pts' => ['Strength',  'Increases ATK power. Each point = +3 ATK.',  'var(--neon2)', (int)$myStats['str_pts']],
-    'spd_pts' => ['Speed',     'Determines strike order and dodge chance.',   '#e8a33d',      (int)$myStats['spd_pts']],
+    'spd_pts' => ['Speed',     'How clearly you read opponents\' tells — and how hard yours are to read.', '#e8a33d', (int)$myStats['spd_pts']],
     'end_pts' => ['Endurance', 'Increases max HP and DEF. +5 HP, +2 DEF.',   'var(--accent)', (int)$myStats['end_pts']],
   ];
   foreach ($statDefs as $key => [$label,$desc,$color,$val]):
@@ -1220,137 +1313,202 @@ if (!empty($arenaLatest) && !$battleResult): ?>
     }
     requestAnimationFrame(pLoop);
   }
+})();
+</script>
 
-  /* ── Battle replay ── */
-  var R=window._pvpReplay||null;
-  window._pvpReplay=null; // consume once
-  var stage=document.getElementById('pvp-stage');
-  if(!R||!stage||!window.pvpFX) return;
-  var FX=window.pvpFX;
-  var details=document.getElementById('pvp-details');
-  var banner=document.getElementById('pvp-banner');
-  var ticker=document.getElementById('pvp-ticker');
-  var roundEl=document.getElementById('pvp-round');
-  var els={
-    atk:{card:document.getElementById('pf-atk'),fill:document.getElementById('pf-atk-hp'),txt:document.getElementById('pf-atk-hpt')},
-    def:{card:document.getElementById('pf-def'),fill:document.getElementById('pf-def-hp'),txt:document.getElementById('pf-def-hpt')}
-  };
-  if(details) details.classList.add('veiled');
+<script>
+/* ══ Interactive PvP fight client ══ */
+(function(){
+'use strict';
+var PV = <?= json_encode($pvClientCfg) ?>;
+var state=PV.state||null, foe=PV.foe||null;
+var busy=false, ending=false;
 
-  var hp={atk:R.atk.hp,def:R.def.hp};
-  function setHp(side){
-    var max=R[side].hp, cur=Math.max(0,hp[side]);
-    var pct=max>0?cur/max*100:0;
-    els[side].fill.style.width=pct+'%';
-    els[side].fill.classList.toggle('low',pct<=30);
-    els[side].txt.textContent=cur+' / '+max;
-  }
-  setHp('atk'); setHp('def');
+var TELE={
+  heavy:  {txt:'&#9888; WINDING UP A HEAVY STRIKE', col:'#ff9090', bg:'rgba(255,100,100,.08)', bd:'rgba(255,100,100,.35)'},
+  quick:  {txt:'&#9889; COILING FOR A QUICK JAB',   col:'#e8a33d', bg:'rgba(232,163,61,.08)',  bd:'rgba(232,163,61,.35)'},
+  guard:  {txt:'&#128737; RAISING THEIR GUARD',     col:'#19f0c7', bg:'rgba(25,240,199,.06)',  bd:'rgba(25,240,199,.3)'},
+  charge: {txt:'&#9762; CHARGING A DEVASTATING BLOW',col:'#9d6bff',bg:'rgba(157,107,255,.1)',  bd:'rgba(157,107,255,.4)'},
+  unleash:{txt:'&#9762;&#9762; UNLEASHING — BRACE!',col:'#ff2d95', bg:'rgba(255,45,149,.14)',  bd:'rgba(255,45,149,.55)'},
+  stagger:{txt:'&#128171; STAGGERED — THEY\'RE OPEN!',col:'#3bcf63',bg:'rgba(59,207,99,.1)',   bd:'rgba(59,207,99,.45)'}
+};
+var PERSONA={brawler:'Brawler — swings first, thinks later',sentinel:'Sentinel — turtles behind their guard',stalker:'Stalker — fast jabs, hard to pin',juggernaut:'Juggernaut — loves charging up'};
 
-  // flatten rounds → steps, inferring actor/target from event text
-  var steps=[];
-  (R.rounds||[]).forEach(function(rnd){
-    steps.push({t:'round',n:rnd.num});
-    (rnd.events||[]).forEach(function(ev){
-      var target, actor;
-      if(ev.type==='dodge'){
-        target=(ev.text||'').indexOf(R.atk.name)===0?'atk':'def';
-        actor=target==='atk'?'def':'atk';
-      } else {
-        actor=(ev.text||'').indexOf(R.atk.name)===0?'atk':'def';
-        target=actor==='atk'?'def':'atk';
-      }
-      steps.push({t:ev.type==='dodge'?'dodge':'hit',actor:actor,target:target,dmg:ev.dmg||0,text:ev.text||'',color:ev.color||'var(--text)'});
-    });
-  });
-  var stepMs=Math.max(300,Math.min(700,Math.round(9000/Math.max(1,steps.length))));
-  var idx=0, timer=null, finished=false;
+function el(id){ return document.getElementById(id); }
+function feed(html,col){
+  var f=el('pv-feed'); if(!f) return;
+  var d=document.createElement('div');
+  d.innerHTML=html; if(col) d.style.color=col;
+  f.insertBefore(d,f.firstChild);
+  while(f.children.length>16) f.removeChild(f.lastChild);
+}
+function esc(s){ var d=document.createElement('div'); d.textContent=String(s); return d.innerHTML; }
 
-  function floatText(side,txt,col,big){
-    var card=els[side].card;
-    var f=document.createElement('div');
-    f.className='pvp-float';
-    f.textContent=txt;
-    f.style.color=col;
-    f.style.fontSize=big?'20px':'15px';
-    f.style.left=(card.offsetLeft+card.offsetWidth/2-20+(Math.random()-.5)*30)+'px';
-    f.style.top=(card.offsetTop+18)+'px';
-    stage.appendChild(f);
-    setTimeout(function(){ if(f.parentNode) f.remove(); },1050);
-  }
-
-  function finish(skip){
-    if(finished) return;
-    finished=true;
-    if(timer) clearTimeout(timer);
-    hp.atk=R.atk.final; hp.def=R.def.final;
-    setHp('atk'); setHp('def');
-    els[R.won?'def':'atk'].card.classList.add('ko');
-    var skipBtn=document.getElementById('pvp-skip');
-    if(skipBtn) skipBtn.style.display='none';
-    if(ticker) ticker.innerHTML='&nbsp;';
-    setTimeout(function(){
-      if(banner) banner.classList.add('show');
-      if(R.won) FX.victory(); else FX.defeat();
-    },skip?60:350);
-    setTimeout(function(){
-      if(details){
-        details.classList.remove('veiled');
-        details.style.opacity='0';
-        requestAnimationFrame(function(){ details.style.transition='opacity .4s'; details.style.opacity='1'; });
-        // reward count-ups
-        details.querySelectorAll('[data-cnt]').forEach(function(el){
-          var n=parseInt(el.dataset.cnt,10)||0, pre=el.dataset.pre||'', suf=el.dataset.suf||'';
-          var t0=performance.now(), DUR=650;
-          (function cnt(now){
-            var p=Math.min(1,(now-t0)/DUR), e2=p*(2-p);
-            el.textContent=pre+Math.round(n*e2).toLocaleString('en-US')+suf;
-            if(p<1) requestAnimationFrame(cnt);
-          })(t0);
-        });
-      }
-    },skip?200:900);
-  }
-
-  function step(){
-    if(idx>=steps.length){ finish(false); return; }
-    var s=steps[idx++];
-    if(s.t==='round'){
-      if(roundEl) roundEl.textContent='ROUND '+s.n;
-      timer=setTimeout(step,Math.min(380,stepMs));
+function render(){
+  if(!state||!el('pv-panel')) return;
+  el('pv-foe-name').textContent=(foe&&foe.name)||state.ename;
+  el('pv-foe-meta').textContent='Level '+((foe&&foe.level)||'?')+' · '+(PERSONA[state.persona]||state.persona);
+  el('pv-round').textContent=state.round;
+  el('pv-cap').textContent=state.cap;
+  el('pv-ehp').textContent=state.ehp;
+  el('pv-emax').textContent=state.emax;
+  el('pv-ehp-bar').style.width=Math.max(0,Math.min(100,state.ehp/state.emax*100))+'%';
+  el('pv-php').textContent=state.php;
+  el('pv-pmax').textContent=state.pstart;
+  el('pv-php-bar').style.width=Math.max(0,Math.min(100,state.php/state.pstart*100))+'%';
+  el('pv-stam').textContent=state.stam;
+  el('pv-stam-bar').style.width=state.stam+'%';
+  el('pv-conf').textContent='~'+state.telepct+'%';
+  var t=TELE[state.tele]||TELE.quick;
+  var tb=el('pv-tele');
+  tb.innerHTML=t.txt+' <span style="font-size:10px;color:var(--muted);letter-spacing:0">(read ~'+state.telepct+'%)</span>';
+  tb.style.color=t.col; tb.style.background=t.bg; tb.style.borderColor=t.bd;
+  var badges='';
+  if(state.charge>0) badges+='<span class="pv-badge" style="background:rgba(157,107,255,.12);border:1px solid rgba(157,107,255,.4);color:#9d6bff">CHARGED</span> ';
+  if(state.estag>0)  badges+='<span class="pv-badge" style="background:rgba(59,207,99,.12);border:1px solid rgba(59,207,99,.4);color:#3bcf63">STAGGERED</span> ';
+  if(state.popen>0)  badges+='<span class="pv-badge" style="background:rgba(25,240,199,.1);border:1px solid rgba(25,240,199,.4);color:var(--accent)">OPENED — next hit &times;1.5</span>';
+  el('pv-badges').innerHTML=badges;
+  document.querySelectorAll('.pv-act').forEach(function(b){
+    var a=b.getAttribute('data-act');
+    if(a==='flee'){ b.disabled=ending; return; }
+    if(a==='stim'){
+      var can=!ending&&state.kits>0&&state.stims_used<state.stim_max&&state.php<state.pstart;
+      b.disabled=!can;
+      el('pv-stim-sub').textContent=state.kits+' kit'+(state.kits===1?'':'s')+' · '+(state.stim_max-state.stims_used)+' use'+((state.stim_max-state.stims_used)===1?'':'s')+' left';
       return;
     }
-    if(ticker){ ticker.style.color=s.color; ticker.textContent=s.text; }
-    if(s.t==='hit'){
-      var big=s.dmg>=15;
-      els[s.actor].card.classList.add(s.actor==='atk'?'lunge-r':'lunge-l');
-      setTimeout(function(){ els[s.actor].card.classList.remove('lunge-r','lunge-l'); },170);
-      setTimeout(function(){
-        hp[s.target]-=s.dmg;
-        setHp(s.target);
-        els[s.target].card.classList.remove('hitflash');
-        void els[s.target].card.offsetWidth;
-        els[s.target].card.classList.add('hitflash');
-        floatText(s.target,'-'+s.dmg,big?'#ff2d95':'#ff6b6b',big);
-        FX.hit(big);
-        if(big){ stage.classList.remove('shake'); void stage.offsetWidth; stage.classList.add('shake'); }
-      },120);
-    } else { // dodge
-      els[s.actor].card.classList.add(s.actor==='atk'?'lunge-r':'lunge-l');
-      setTimeout(function(){ els[s.actor].card.classList.remove('lunge-r','lunge-l'); },170);
-      setTimeout(function(){
-        floatText(s.target,'MISS','#e8d44d',false);
-        FX.miss();
-      },120);
+    b.disabled=ending||(state.costs[a]||0)>state.stam;
+  });
+}
+
+function showFight(){
+  el('pv-panel').style.display='';
+  el('pv-result').style.display='none';
+  el('pv-result').innerHTML='';
+  var af=el('pv-arena-form'); if(af) af.style.display='none';
+}
+
+function pvPost(data,cb){
+  if(busy) return;
+  busy=true;
+  data.pv_ajax=1;
+  var fd=new FormData();
+  for(var k in data) fd.append(k,data[k]);
+  fetch('index.php?p=pvp',{method:'POST',body:fd,credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){busy=false;cb(d);})
+    .catch(function(){busy=false;feed('Network error','var(--neon2)');});
+}
+
+var EVTXT={
+  interrupt:['&#9876; You smash the wind-up — charge INTERRUPTED','#19f0c7'],
+  charge:['&#9762; They finished charging. BRACE for the unleash.','#9d6bff'],
+  unleash:['&#9762; CHARGED BLOW UNLEASHED','#ff2d95'],
+  stagger:['&#128171; Your guard STAGGERS them — wide open','#3bcf63'],
+  open:['&#127917; Feint lands — their guard is OPEN (next hit &times;1.5)','#19f0c7'],
+  openhit:['&#128165; You exploit the opening','#19f0c7'],
+  counter:['They counter-jab through your swing','#e8a33d']
+};
+function animate(events,done){
+  var i=0;
+  (function next(){
+    if(i>=events.length){ if(done) done(); return; }
+    var ev=events[i++]; var panel=el('pv-panel');
+    if(ev.t==='pdmg'){
+      var fc=el('pv-foe-card');
+      fc.classList.remove('hit'); void fc.offsetWidth; fc.classList.add('hit');
+      window.pvpFX&&window.pvpFX.hit(ev.v>25);
+      feed('You '+(ev.act==='burst'?'BURST for':ev.act==='feint'?'jab for':'strike for')+' <b style="color:#19f0c7">'+ev.v+'</b>');
+    } else if(ev.t==='edmg'){
+      panel.classList.remove('hitflash'); panel.classList.remove('shake'); void panel.offsetWidth;
+      panel.classList.add(ev.blocked?'hitflash':'shake');
+      window.pvpFX&&window.pvpFX.hit(!ev.blocked&&ev.v>25);
+      if(ev.blocked) feed('You block — <b style="color:#ff9090">'+ev.v+'</b> chips through','var(--muted)');
+      else feed('They '+(ev.act==='unleash'?'UNLEASH on you for':ev.act==='heavy'?'land a HEAVY for':'hit for')+' <b style="color:#ff9090">'+ev.v+'</b>'+(ev.note?' ('+ev.note+')':''));
+    } else if(ev.t==='stim'){
+      var yc=el('pv-you-card');
+      yc.classList.remove('heal'); void yc.offsetWidth; yc.classList.add('heal');
+      window.pvpFX&&window.pvpFX.tone(500,.1,'sine',.045);
+      feed('&#128137; Stim hits — <b style="color:#3bcf63">+'+ev.v+'</b> fight HP');
+    } else if(ev.t==='regen'){
+      feed('+'+ev.v+' stamina','var(--muted)');
+    } else if(EVTXT[ev.t]){
+      feed(EVTXT[ev.t][0],EVTXT[ev.t][1]);
     }
-    timer=setTimeout(step,stepMs);
-  }
+    setTimeout(next, ev.t==='pdmg'||ev.t==='edmg'?380:220);
+  })();
+}
 
-  var skipBtn=document.getElementById('pvp-skip');
-  if(skipBtn) skipBtn.addEventListener('click',function(){ finish(true); });
+window.pvChallenge=function(){
+  var inp=el('pvpTarget');
+  var target=inp?inp.value.trim():'';
+  if(!target){ alert('Enter a ghost\'s handle.'); return; }
+  pvPost({pv_action:'challenge',target:target},function(d){
+    if(!d.ok){ alert(d.err||'Error'); return; }
+    state=d.state; foe=d.foe||null;
+    var f=el('pv-feed'); if(f) f.innerHTML='';
+    showFight();
+    render();
+    window.pvpFX&&window.pvpFX.intro();
+    feed('Squaring up against <b>'+esc((foe&&foe.name)||state.ename)+'</b>. Watch their tells.','#19f0c7');
+  });
+};
 
-  FX.intro();
-  if(roundEl) roundEl.textContent='FIGHT';
-  timer=setTimeout(step,700);
+window.pvAct=function(a){
+  if(!state||busy||ending) return;
+  pvPost({pv_action:'round',act:a},function(d){
+    if(!d.ok){ feed(d.err||'Error','var(--neon2)'); return; }
+    state=d.state;
+    animate(d.events,function(){
+      render();
+      if(d.settle){
+        ending=true;
+        render();
+        var s=d.settle;
+        var won=s.outcome==='win';
+        var head, col;
+        if(won){ head='VICTORY'; col='var(--accent)'; window.pvpFX&&window.pvpFX.victory(); }
+        else if(s.outcome==='loss'){ head='DEFEAT'; col='var(--neon2)'; window.pvpFX&&window.pvpFX.defeat(); }
+        else if(s.outcome==='fled'){ head='FLED THE FIGHT'; col='#e8a33d'; window.pvpFX&&window.pvpFX.miss(); }
+        else { head='STALEMATE'; col='#e8a33d'; window.pvpFX&&window.pvpFX.miss(); }
+        var bits='<div style="font-family:\'Orbitron\',sans-serif;font-weight:900;font-size:26px;letter-spacing:.12em;color:'+col+';text-shadow:0 0 18px '+col+'">'+head+'</div>'
+          +'<div style="font-size:12px;color:var(--muted);margin:4px 0 10px">vs. '+esc(s.foe)+' — dealt '+s.dealt+', took '+s.taken+'</div>'
+          +'<div style="display:flex;justify-content:center;gap:18px;flex-wrap:wrap">'
+          +'<div class="pvp-reward"><b style="color:#e8a33d">+'+s.xp+' XP</b><div style="font-size:10px;color:var(--muted)">XP Earned'+(s.donated?' · '+s.donated+' to guild':'')+'</div></div>'
+          +'<div class="pvp-reward"><b style="color:var(--neon2)">-'+s.hp_lost+' HP</b><div style="font-size:10px;color:var(--muted)">Health Lost</div></div>';
+        if(s.creds>0) bits+='<div class="pvp-reward"><b style="color:'+(won?'#3bcf63':'var(--neon2)')+'">'+(won?'+':'-')+Number(s.creds).toLocaleString('en-US')+'¢</b><div style="font-size:10px;color:var(--muted)">Credits '+(won?'Looted':'Lost')+'</div></div>';
+        if(s.bounty>0) bits+='<div class="pvp-reward"><b style="color:#e8d44d">&#127919; +'+Number(s.bounty).toLocaleString('en-US')+'¢</b><div style="font-size:10px;color:var(--muted)">Bounty Collected</div></div>';
+        if(s.mortality) bits+='<div class="pvp-reward"><b style="color:'+(s.mortality>0?'#e8d44d':'#ff2d95')+'">'+(s.mortality>0?'&#9728; +':'&#9760; ')+s.mortality+'</b><div style="font-size:10px;color:var(--muted)">'+(s.mortality>0?'Good':'Evil')+' Alignment</div></div>';
+        bits+='</div>'
+          +'<div style="margin-top:12px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap">'
+          +(s.log_id?'<a href="index.php?p=pvp&tab=log&detail='+s.log_id+'" style="font-size:11px;color:var(--muted);text-decoration:underline;align-self:center">&#128203; View in combat log</a>':'')
+          +'<button type="button" class="pv-act" style="flex:none;min-width:0;padding:8px 18px" onclick="pvDone()">Back to Arena</button>'
+          +'</div>';
+        var res=el('pv-result');
+        res.innerHTML=bits;
+        res.style.display='';
+        if(s.levelup) feed('<b style="color:#e8d44d">LEVEL UP! (+'+s.levelup+')</b>');
+      }
+    });
+  });
+};
+window.pvDone=function(){
+  // A full reload refreshes the header HP/Signal chips and Recent Battles honestly.
+  window.location.href='index.php?p=pvp&tab=arena';
+};
+
+// keyboard 1-6 — bound once, guards against detached panel + form fields
+if(!window._pvKeysBound){
+  window._pvKeysBound=true;
+  document.addEventListener('keydown',function(e){
+    var p=document.getElementById('pv-panel');
+    if(!p||!document.body.contains(p)||p.style.display==='none') return;
+    if(/INPUT|TEXTAREA|SELECT/.test((e.target&&e.target.tagName)||'')) return;
+    var map={'1':'strike','2':'guard','3':'feint','4':'burst','5':'stim','6':'flee'};
+    if(map[e.key]){ e.preventDefault(); window.pvAct&&window.pvAct(map[e.key]); }
+  });
+}
+
+if(state){ showFight(); render(); feed('Fight resumed. Watch their tells.','#19f0c7'); }
 })();
 </script>

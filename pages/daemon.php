@@ -19,7 +19,6 @@ $msg = '';
 $msgType    = 'ok';
 $slotReels  = null;
 $diceResult = null;
-$bjResult   = null;
 $activeTab  = 'dice';
 
 const MAX_BET = 1000000;

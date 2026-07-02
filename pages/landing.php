@@ -40,6 +40,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $act === 'signup_init') {
     $ex = db()->prepare('SELECT id FROM players WHERE email=? OR username=?'); $ex->execute([$email, $u]);
     if ($ex->fetchColumn()) { $err = 'That email or handle is already registered.'; }
     else {
+      // Guard against handle hijacking: UNIQUE(username) means an INSERT ... ON
+      // DUPLICATE KEY here would otherwise let a different email overwrite the
+      // pending row of whoever reserved that handle first. Only block when the
+      // handle is pending under a DIFFERENT email — the same email re-submitting
+      // (resend) must still fall through to the upsert below.
+      $pendClash = false;
+      try {
+        $pc = db()->prepare('SELECT 1 FROM pending_signups WHERE username=? AND email<>? LIMIT 1');
+        $pc->execute([$u, $email]);
+        $pendClash = (bool)$pc->fetchColumn();
+      } catch (Throwable $e) {}
+      if ($pendClash) { $err = 'That handle is pending verification by someone else.'; }
+      else {
       $code = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
       try {
         db()->prepare('INSERT INTO pending_signups (email, username, pass_hash, avatar, code, expires_at) VALUES (?,?,?,?,?,DATE_ADD(NOW(), INTERVAL 15 MINUTE)) ON DUPLICATE KEY UPDATE username=VALUES(username), pass_hash=VALUES(pass_hash), avatar=VALUES(avatar), code=VALUES(code), expires_at=DATE_ADD(NOW(), INTERVAL 15 MINUTE)')
@@ -52,6 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $act === 'signup_init') {
         $pendingEmail = $email;
         $err = ''; // clear any error
       } catch (Throwable $e) { $err = 'Registration error. Try again.'; }
+      }
     }
   }
 }
@@ -66,14 +80,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $act === 'signup_verify') {
     $q = db()->prepare('SELECT * FROM pending_signups WHERE email=? AND expires_at > NOW() LIMIT 1');
     $q->execute([$email]); $row = $q->fetch();
   } catch (Throwable $e) {}
+  // Brute-force guard: cap failed 6-digit code guesses within the 15-min window.
+  // Fixed-length settings key (hash of email) mirrors login.php's lockout so a
+  // long email can't overflow settings.k. Reset on success.
+  $vfKey = 'signup_fail:' . substr(sha1($email), 0, 32);
+  $vfMax = 8;
+  $vfCount = (int)setting_get(db(), $vfKey, '0');
   if (!$row)             { $err = 'Code expired or email not found. Start over.'; $signupStep = 1; }
-  elseif ($row['code'] !== $code) { $err = 'Incorrect verification code.'; }
+  elseif ($vfCount >= $vfMax) { $err = 'Too many incorrect codes. Start over.'; $signupStep = 1; }
+  elseif ($row['code'] !== $code) {
+    setting_set(db(), $vfKey, (string)($vfCount + 1));
+    $err = 'Incorrect verification code.';
+  }
   else {
     try {
       db()->prepare('INSERT INTO players (username, pass_hash, avatar, email) VALUES (?,?,?,?)')->execute([$row['username'], $row['pass_hash'], (int)$row['avatar'], $email]);
       session_regenerate_id(true); // same fixation guard as the login path
       $_SESSION['pid'] = (int)db()->lastInsertId();
       try { db()->prepare('DELETE FROM pending_signups WHERE email=?')->execute([$email]); } catch (Throwable $e) {}
+      try { setting_set(db(), $vfKey, '0'); } catch (Throwable $e) {} // clear guard on success
       if (!headers_sent()) header('Location: index.php?p=home');
       echo '<script>location.href="index.php?p=home";</script>'; exit;
     } catch (PDOException $e) { $err = 'That handle is already taken. Please start over.'; $signupStep = 1; }

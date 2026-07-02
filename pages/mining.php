@@ -153,12 +153,14 @@ if (!empty($_POST['mine_ajax'])) {
 
     if ($act === 'exit_mine') {
       if($run['grid'][$run['py']][$run['px']]!==3)throw new RuntimeException('Not at the exit shaft.');
-      $summary=[];
+      $summary=[]; $oreTotal=0;
       foreach($run['collected'] as $ot=>$qty){
         $od=$MINE_ORES[$ot]??$MINE_ORES['scrap'];
         $pdo->prepare('INSERT INTO player_ore(player_id,ore_type,quantity)VALUES(?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+?')->execute([$plid,$ot,$qty,$qty]);
         $summary[$ot]=['name'=>$od['name'],'qty'=>$qty,'col'=>$od['col'],'glyph'=>$od['glyph'],'xp'=>(int)$od['xp']];
+        $oreTotal += (int)$qty;
       }
+      if($oreTotal>0) contract_record($pdo,$plid,'ore_mined',$oreTotal);
       $depth=$run['depth'];$steps=$run['steps'];
       unset($_SESSION['mine_run']);
       echo json_encode(['ok'=>true,'complete'=>true,'summary'=>$summary,'depth'=>$depth,'steps'=>$steps]);exit;

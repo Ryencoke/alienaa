@@ -98,7 +98,6 @@ $aptCat = apartment_catalog();
 $DISTRICT_META = $aptCat['districts'];
 $APT_TYPES = $aptCat['types'];
 
-$REGIONS = array_unique(array_column($APT_TYPES, 'region'));
 $RARITY_COLORS = ['common'=>'var(--muted)','uncommon'=>'var(--accent)','rare'=>'var(--neon2)','legendary'=>'#e8d44d'];
 $RARITY_FLOORS = ['common'=>4,'uncommon'=>5,'rare'=>7,'legendary'=>9];
 
@@ -109,7 +108,13 @@ $RARITY_FLOORS = ['common'=>4,'uncommon'=>5,'rare'=>7,'legendary'=>9];
 try {
   $expiring = $pdo->query("SELECT * FROM apartment_rentals WHERE status='active' AND expires_at <= NOW()")->fetchAll();
   foreach ($expiring as $exp) {
-    $pdo->prepare("UPDATE apartment_rentals SET status='expired' WHERE id=?")->execute([$exp['id']]);
+    // Guard the status flip on status='active' + rowCount so two concurrent
+    // page loads (anywhere) can't both close the same contract and revoke the
+    // renter's partial perk twice (a permanent stat LOSS). Only the load that
+    // actually flips 'active'->'expired' does the revoke.
+    $flip = $pdo->prepare("UPDATE apartment_rentals SET status='expired' WHERE id=? AND status='active'");
+    $flip->execute([$exp['id']]);
+    if ($flip->rowCount() !== 1) continue;
     $pdo->prepare("UPDATE player_apartments SET rented_to=NULL, rent_amount=0 WHERE id=? AND rented_to=?")->execute([$exp['apt_id'], $exp['renter_id']]);
     $expApt = $pdo->prepare('SELECT apt_type_id FROM player_apartments WHERE id=?'); $expApt->execute([$exp['apt_id']]);
     $expTid = (int)$expApt->fetchColumn();
@@ -190,8 +195,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $u->execute([$price, $pid, $price]);
       if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough credits in pocket.'); }
 
-      // Check if they have a primary residence
-      $qp = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND is_primary=1'); $qp->execute([$pid]);
+      // Check if they have a primary residence. Lock this player's apartment
+      // rows FOR UPDATE first so two concurrent first-buys can't both see no
+      // primary, both write is_primary=1, and both fire perk_apply() (a doubled
+      // permanent perk). Serialized here, the second buy sees the first's row.
+      $qp = $pdo->prepare('SELECT COUNT(*) FROM player_apartments WHERE player_id=? AND is_primary=1 FOR UPDATE'); $qp->execute([$pid]);
       $hasPrimary = (int)$qp->fetchColumn() > 0;
       try {
         $pdo->prepare('INSERT INTO player_apartments (player_id, apt_type_id, region, is_primary, paid_price) VALUES (?,?,?,?,?)')->execute([$pid, $typeId, $apt['region'], $hasPrimary ? 0 : 1, $price]);
@@ -254,20 +262,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     } elseif ($act === 'accept_rental') {
       $contractId = (int)($_POST['contract_id'] ?? 0);
-      $cq = $pdo->prepare("SELECT * FROM apartment_rentals WHERE id=? AND renter_id=? AND status='pending'");
-      $cq->execute([$contractId, $pid]); $contract = $cq->fetch();
-      if (!$contract) throw new RuntimeException('Offer not found or already resolved.');
-      $aq = $pdo->prepare('SELECT * FROM player_apartments WHERE id=?'); $aq->execute([$contract['apt_id']]); $aptRow2 = $aq->fetch();
-      if (!$aptRow2 || $aptRow2['rented_to'] !== null) throw new RuntimeException('That apartment is no longer available.');
-      $existingRentalQ = $pdo->prepare("SELECT id FROM apartment_rentals WHERE renter_id=? AND status='active'"); $existingRentalQ->execute([$pid]);
-      if ($existingRentalQ->fetchColumn()) throw new RuntimeException('You already have an active rental — end it before accepting another.');
       $pdo->beginTransaction();
+      // Claim the pending offer inside the txn with a status guard + rowCount:
+      // two parallel accepts (same player, two sessions) would otherwise both
+      // read status='pending', both charge rent, and both apply the partial
+      // perk — the perk gets revoked only once at expiry, leaving a permanent
+      // stat gain. Only the accept that actually flips 'pending'->'active' here
+      // proceeds; the loser rolls back with an error.
+      $cq = $pdo->prepare("SELECT * FROM apartment_rentals WHERE id=? AND renter_id=? AND status='pending' FOR UPDATE");
+      $cq->execute([$contractId, $pid]); $contract = $cq->fetch();
+      if (!$contract) { $pdo->rollBack(); throw new RuntimeException('Offer not found or already resolved.'); }
+      $aq = $pdo->prepare('SELECT * FROM player_apartments WHERE id=? FOR UPDATE'); $aq->execute([$contract['apt_id']]); $aptRow2 = $aq->fetch();
+      if (!$aptRow2 || $aptRow2['rented_to'] !== null) { $pdo->rollBack(); throw new RuntimeException('That apartment is no longer available.'); }
+      // One-active-rental check, now INSIDE the txn (was a SELECT outside it) so
+      // two different pending offers can't both be accepted into stacked perks.
+      $existingRentalQ = $pdo->prepare("SELECT id FROM apartment_rentals WHERE renter_id=? AND status='active'"); $existingRentalQ->execute([$pid]);
+      if ($existingRentalQ->fetchColumn()) { $pdo->rollBack(); throw new RuntimeException('You already have an active rental — end it before accepting another.'); }
+      // Claim: flip pending->active first, guarded, so a racing accept fails here.
+      $claim = $pdo->prepare("UPDATE apartment_rentals SET status='active', responded_at=NOW(), expires_at = DATE_ADD(NOW(), INTERVAL ? DAY) WHERE id=? AND status='pending'");
+      $claim->execute([(int)$contract['days'], $contractId]);
+      if ($claim->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('This rental offer is no longer available.'); }
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([(int)$contract['rent_amount'], $pid, (int)$contract['rent_amount']]);
       if ($u->rowCount() !== 1) { $pdo->rollBack(); throw new RuntimeException('Not enough credits to accept — need ' . number_format($contract['rent_amount']) . '.'); }
       $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([(int)$contract['rent_amount'], (int)$contract['owner_id']]);
       $pdo->prepare('UPDATE player_apartments SET rented_to=?, rent_amount=? WHERE id=?')->execute([$pid, (int)$contract['rent_amount'], $contract['apt_id']]);
-      $pdo->prepare("UPDATE apartment_rentals SET status='active', responded_at=NOW(), expires_at = DATE_ADD(NOW(), INTERVAL ? DAY) WHERE id=?")->execute([(int)$contract['days'], $contractId]);
       $pdo->commit();
       perk_apply_partial($pdo, $pid, (int)$aptRow2['apt_type_id'], $APT_TYPES, true);
       try { $pdo->prepare("INSERT INTO player_notifications (player_id, type, body) VALUES (?, 'guild_loan', ?)")
@@ -294,10 +313,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$endApt || !$endApt['rented_to']) throw new RuntimeException('This apartment is not currently rented.');
       $renterIdEnd = (int)$endApt['rented_to'];
       $pdo->prepare('UPDATE player_apartments SET rented_to=NULL, rent_amount=0 WHERE id=? AND player_id=?')->execute([$aptId, $pid]);
-      $pdo->prepare("UPDATE apartment_rentals SET status='cancelled', responded_at=NOW() WHERE apt_id=? AND status='active'")->execute([$aptId]);
-      perk_apply_partial($pdo, $renterIdEnd, (int)$endApt['apt_type_id'], $APT_TYPES, false);
-      try { $pdo->prepare("INSERT INTO player_notifications (player_id, type, body) VALUES (?, 'guild_loan', ?)")
-        ->execute([$renterIdEnd, 'Your rental contract was ended early by the owner — its perks are no longer active.']); } catch (Throwable $e) {}
+      // Guard the contract close on status='active' + rowCount so this can't
+      // race the lazy expiry (above) into revoking the renter's perk twice.
+      // Only the caller that actually flips the active contract does the revoke.
+      $cxl = $pdo->prepare("UPDATE apartment_rentals SET status='cancelled', responded_at=NOW() WHERE apt_id=? AND status='active'");
+      $cxl->execute([$aptId]);
+      if ($cxl->rowCount() === 1) {
+        perk_apply_partial($pdo, $renterIdEnd, (int)$endApt['apt_type_id'], $APT_TYPES, false);
+        try { $pdo->prepare("INSERT INTO player_notifications (player_id, type, body) VALUES (?, 'guild_loan', ?)")
+          ->execute([$renterIdEnd, 'Your rental contract was ended early by the owner — its perks are no longer active.']); } catch (Throwable $e) {}
+      }
       $msg = 'Rental ended.';
 
     } elseif ($act === 'sellback') {
@@ -333,6 +358,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $decorKey = $_POST['decor_key'] ?? '';
       if (!isset($DECOR_ITEMS[$decorKey])) throw new RuntimeException('Invalid decor item.');
       $qa = $pdo->prepare('SELECT id FROM player_apartments WHERE id=? AND player_id=?'); $qa->execute([$aptId, $pid]); if (!$qa->fetchColumn()) throw new RuntimeException('Apartment not found.');
+      // Server-side duplicate guard — the client only disables the "Placed"
+      // button, so a forged/replayed POST could place (and pay for) the same
+      // decor twice. Reject if this apartment already has this item.
+      $dupq = $pdo->prepare('SELECT id FROM apartment_decor WHERE apt_id=? AND decor_key=?'); $dupq->execute([$aptId, $decorKey]);
+      if ($dupq->fetchColumn()) throw new RuntimeException('That furnishing is already placed in this apartment.');
       $decor = $DECOR_ITEMS[$decorKey];
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ? WHERE id = ? AND creds_pocket >= ?');
       $u->execute([$decor['price'], $pid, $decor['price']]);

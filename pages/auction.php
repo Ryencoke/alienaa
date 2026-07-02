@@ -68,22 +68,29 @@ try {
       $claim = $pdo->prepare("UPDATE auction_listings SET status='ended' WHERE id=? AND status='active'");
       $claim->execute([$el['id']]);
       if ($claim->rowCount() !== 1) { $pdo->rollBack(); continue; }
-      $iqty = max(1, (int)($el['item_qty'] ?? 1));
-      if ((int)$el['bidder_id'] && (int)$el['current_bid'] > 0) {
-        $fee      = (int)max(1, ceil($el['current_bid'] * AUCTION_FEE_PCT));
-        $proceeds = $el['current_bid'] - $fee;
+      // The $el snapshot came from a plain autocommit SELECT before the claim;
+      // a bid could have committed between that read and the claim gate. Re-read
+      // the row FOR UPDATE now so the payout uses the final bidder/bid, not the
+      // stale snapshot (which would strip the last bidder's escrow into nothing).
+      $freshQ = $pdo->prepare("SELECT * FROM auction_listings WHERE id=? FOR UPDATE");
+      $freshQ->execute([$el['id']]);
+      $row = $freshQ->fetch() ?: $el;
+      $iqty = max(1, (int)($row['item_qty'] ?? 1));
+      if ((int)$row['bidder_id'] && (int)$row['current_bid'] > 0) {
+        $fee      = (int)max(1, ceil($row['current_bid'] * AUCTION_FEE_PCT));
+        $proceeds = $row['current_bid'] - $fee;
         // Give item to winner
-        if ((int)$el['item_id'] > 0) {
+        if ((int)$row['item_id'] > 0) {
           $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)')
-              ->execute([(int)$el['bidder_id'], (int)$el['item_id'], $iqty]);
+              ->execute([(int)$row['bidder_id'], (int)$row['item_id'], $iqty]);
         }
         // Give credits to seller (minus fee)
-        $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$proceeds, $el['seller_id']]);
+        $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id = ?')->execute([$proceeds, $row['seller_id']]);
       } else {
         // Return item to seller if no bids
-        if ((int)$el['item_id'] > 0) {
+        if ((int)$row['item_id'] > 0) {
           $pdo->prepare('INSERT INTO player_items (player_id, item_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)')
-              ->execute([(int)$el['seller_id'], (int)$el['item_id'], $iqty]);
+              ->execute([(int)$row['seller_id'], (int)$row['item_id'], $iqty]);
         }
       }
       $pdo->commit();
@@ -100,7 +107,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($act === 'create') {
       $selItemId = (int)($_POST['item_id'] ?? 0);
-      $itemName  = trim($_POST['item_name'] ?? '');
       $startPx   = max(1, (int)($_POST['start_price'] ?? 1));
       $hoursRaw  = (int)($_POST['duration'] ?? 24);
       $hours     = in_array($hoursRaw, [1,6,12,24,48]) ? $hoursRaw : 24;
@@ -112,8 +118,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!$invRow) throw new RuntimeException('Item not found in inventory.');
       if ((int)$invRow['qty'] < $qty) throw new RuntimeException('Not enough in inventory (you have '.(int)$invRow['qty'].').');
       $itemName = $invRow['name'];
-      if ($itemName === '') throw new RuntimeException('Select an item from your inventory.');
-      if (strlen($itemName) > 100) throw new RuntimeException('Item name too long.');
       $feePct  = $AUCTION_LISTING_FEES[$hours] ?? 0.05;
       $listFee = (int)ceil($startPx * $feePct);
       // Add item_qty column if missing (silent) — must run BEFORE the transaction

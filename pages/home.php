@@ -195,6 +195,45 @@ if ($attrPoints > 0) array_unshift($newsFeed, ['id'=>null,'type'=>'levelup','tex
   </div>
 </div>
 
+<!-- ══ TODAY'S CONTRACTS (teaser) ══════════════════════════════ -->
+<?php
+require_once __DIR__ . '/../contracts_engine.php';
+ensure_player_contracts_table($pdo);
+$hcDay = contracts_mt_date();
+$hcToday = daily_contracts($hcDay);
+$hcState = [];
+try {
+  $hq = $pdo->prepare('SELECT contract_id, progress, claimed FROM player_contracts WHERE player_id=? AND day=?');
+  $hq->execute([$pid, $hcDay]);
+  foreach ($hq as $r) $hcState[$r['contract_id']] = ['progress'=>(int)$r['progress'],'claimed'=>(int)$r['claimed']];
+} catch (Throwable $e) {}
+$hcClaimable = 0;
+foreach ($hcToday as $cid => $def) { $p = $hcState[$cid]['progress'] ?? 0; if ($p >= $def['goal'] && !($hcState[$cid]['claimed'] ?? 0)) $hcClaimable++; }
+?>
+<div class="panel" style="border:1px solid rgba(232,212,77,.22);background:rgba(232,212,77,.03)">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.5px">&#128220; Today's Contracts<?php if ($hcClaimable): ?> <span style="background:#3bcf63;color:#04120a;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700;margin-left:4px"><?= $hcClaimable ?> ready</span><?php endif; ?></h3>
+    <a href="index.php?p=contracts" style="font-size:11px;color:#e8d44d">Open board &rarr;</a>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">
+    <?php foreach ($hcToday as $cid => $def):
+      $p = min($hcState[$cid]['progress'] ?? 0, (int)$def['goal']);
+      $cl = ($hcState[$cid]['claimed'] ?? 0) === 1;
+      $done = $p >= (int)$def['goal'];
+      $pct = $def['goal'] > 0 ? min(100, round($p / (int)$def['goal'] * 100)) : 0;
+    ?>
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 10px">
+      <div style="font-size:11px;font-weight:700;display:flex;justify-content:space-between;align-items:center">
+        <span><?= $def['icon'] ?> <?= e($def['label']) ?></span>
+        <?php if ($cl): ?><span style="color:#3bcf63;font-size:10px">&#10003;</span><?php elseif ($done): ?><span style="color:#3bcf63;font-size:9px;font-weight:700">READY</span><?php endif; ?>
+      </div>
+      <div style="height:5px;border-radius:3px;background:#0a0812;overflow:hidden;margin-top:6px"><div style="width:<?= $pct ?>%;height:100%;background:<?= $done ? '#3bcf63' : 'var(--accent)' ?>"></div></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:3px"><?= $p ?>/<?= (int)$def['goal'] ?> &middot; +<?= number_format((int)$def['cr']) ?> cr</div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+</div>
+
 <!-- ══ STATS GRID ══════════════════════════════════════════════ -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">
 

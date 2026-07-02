@@ -447,19 +447,24 @@ function lib_rarity_class($r) { return 'lib-rarity-'.($r ?: 'common'); }
 
   apply(); // run on load to set count
 
-  // Expandable cards
-  document.addEventListener('click', function(ev) {
-    var card = ev.target.closest('.lib-expandable');
-    if (!card) return;
-    // Don't toggle if clicking a link inside the detail
-    if (ev.target.closest('.lib-detail a')) return;
-    var detail = card.querySelector('.lib-detail');
-    var arrow  = card.querySelector('.lib-expand-arrow');
-    if (!detail) return;
-    var open = detail.style.display !== 'none';
-    detail.style.display = open ? 'none' : 'block';
-    if (arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
-  });
+  // Expandable cards — document listeners survive index.php's AJAX page swaps,
+  // so guard against binding a second time on revisit (would double-toggle and
+  // break expand/collapse). Matches the guard pattern used elsewhere.
+  if (!window._libClickBound) {
+    window._libClickBound = true;
+    document.addEventListener('click', function(ev) {
+      var card = ev.target.closest('.lib-expandable');
+      if (!card) return;
+      // Don't toggle if clicking a link inside the detail
+      if (ev.target.closest('.lib-detail a')) return;
+      var detail = card.querySelector('.lib-detail');
+      var arrow  = card.querySelector('.lib-expand-arrow');
+      if (!detail) return;
+      var open = detail.style.display !== 'none';
+      detail.style.display = open ? 'none' : 'block';
+      if (arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
+    });
+  }
 })();
 </script>
 

@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Role changes are Manager+ only — a non-manager admin's submitted value is
         // ignored outright rather than trusted, even if the UI already hides the select.
         $nr = $isManager ? ($_POST['role'] ?? $old['role']) : $old['role'];
-        if (!in_array($nr, ['member','chatmod','moderator','admin','manager'], true)) $nr = $old['role'];
+        if (!in_array($nr, ['member','chatmod','moderator','admin','manager','banned'], true)) $nr = $old['role'];
         // Subscription/Accord are edited as "days from today" rather than a raw date.
         $subDays = max(0, (int)($_POST['sub_days'] ?? 0));
         $sub = $subDays > 0 ? date('Y-m-d', strtotime("+{$subDays} days")) : null;
@@ -113,6 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $log('role', $old['role'] ?? '', $nr);
         $log('sub_until', $old['sub_until'] ?? '', $sub);
         $log('merchant_until', $old['merchant_until'] ?? '', $merchantUntil);
+        if ($emailEdit)    $log('email', $old['email'] ?? '', $emailEdit);
         if ($usernameEdit) $log('username', $old['username'] ?? '', $usernameEdit);
         if ($birthdayEdit) $log('birthday', $old['birthday'] ?? '', $birthdayEdit);
         $log('bio', $old['bio'] ?? '', $bioEdit);
@@ -156,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Capture pre-reset counts for summary
       $rTotal   = (int)$pdo->query('SELECT COUNT(*) FROM players')->fetchColumn();
       $rHealth  = (int)$pdo->query('SELECT COUNT(*) FROM players WHERE integrity < integrity_max')->fetchColumn();
-      $rSignal  = (int)$pdo->query('SELECT COUNT(*) FROM players WHERE signal < signal_max')->fetchColumn();
+      $rSignal  = (int)$pdo->query('SELECT COUNT(*) FROM players WHERE `signal` < signal_max')->fetchColumn();
       $rDriveNs = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE (sub_until IS NULL OR sub_until < CURDATE()) AND cycles < 500")->fetchColumn();
       $rDriveSb = (int)$pdo->query("SELECT COUNT(*) FROM players WHERE sub_until >= CURDATE() AND cycles < 1500")->fetchColumn();
       // Run daily reset for all players
@@ -251,7 +252,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } catch (Throwable $ex) { $msg = $ex->getMessage(); }
 }
 
-$flash = $msg ? '<div class="flash">'.e($msg).'</div>' : '';
+$flash = $msg ? '<div class="flash">'.$msg.'</div>' : '';
 $back  = '<p class="muted"><a href="index.php?p=admin">&laquo; Admin</a></p>';
 
 /* ============================ EDIT PLAYERS ============================ */
@@ -362,7 +363,7 @@ if ($sec === 'editplayer' && $canAdmin) {
             <span>Role<?= $isManager ? '' : ' (Manager+ only)' ?></span>
             <?php if ($isManager): ?>
             <select name="role">
-              <?php foreach (['member','chatmod','moderator','admin','manager'] as $rr): ?>
+              <?php foreach (['member','chatmod','moderator','admin','manager','banned'] as $rr): ?>
                 <option value="<?= $rr ?>" <?= ($t['role'] ?? 'member') === $rr ? 'selected' : '' ?>><?= $rr ?></option>
               <?php endforeach; ?>
             </select>
@@ -1341,33 +1342,13 @@ if ($sec === 'impersonate' && $isManager) {
 $hubStats = [];
 try {
   $hs = db()->query("SELECT
-    COUNT(*) AS total,
-    SUM(last_seen >= (NOW() - INTERVAL 5 MINUTE)) AS online_now,
-    SUM(sub_until >= CURDATE()) AS subs,
-    SUM(creds_pocket) AS total_pocket,
-    SUM(creds_bank) AS total_bank,
-    SUM(loan) AS total_loans,
-    AVG(level) AS avg_level,
-    MAX(level) AS max_level,
-    SUM(created_at >= (NOW() - INTERVAL 24 HOUR)) AS new_today,
-    SUM(created_at >= (NOW() - INTERVAL 7 DAY)) AS new_week,
-    SUM(mortality > 0) AS good_players,
-    SUM(mortality < 0) AS evil_players
+    SUM(last_seen >= (NOW() - INTERVAL 5 MINUTE)) AS online_now
   FROM players")->fetch();
   $hubStats = $hs;
 } catch (Throwable $e) {}
 
 $openReports = 0;
 try { $openReports = (int)db()->query("SELECT COUNT(*) FROM reports WHERE status='open'")->fetchColumn(); } catch (Throwable $e) {}
-
-// Signups per day, last 14 days (sparkline)
-$signupSeries = array_fill(0, 14, 0);
-try {
-  $ssq = db()->query("SELECT DATE(created_at) d, COUNT(*) n FROM players WHERE created_at >= (NOW() - INTERVAL 14 DAY) GROUP BY DATE(created_at)");
-  $byDay = [];
-  foreach ($ssq as $sr) $byDay[$sr['d']] = (int)$sr['n'];
-  for ($i = 13; $i >= 0; $i--) $signupSeries[13 - $i] = $byDay[date('Y-m-d', strtotime("-{$i} days"))] ?? 0;
-} catch (Throwable $e) {}
 
 // Activity feed
 $feedAdmin = [];
@@ -1598,26 +1579,6 @@ if(hc){
     c.fillStyle='rgba(25,240,199,.05)'; c.fillRect(0,sy,HW,1.5);
   }
   requestAnimationFrame(hLoop);
-}
-
-/* ── Signups sparkline ── */
-var sp=document.getElementById('adm-spark');
-if(sp){
-  var sc=sp.getContext('2d');
-  var data=<?= json_encode(array_values($signupSeries)) ?>;
-  var W2=sp.width, H2=sp.height;
-  var mx=Math.max(1,Math.max.apply(null,data));
-  sc.strokeStyle='#19f0c7'; sc.lineWidth=1.6; sc.lineJoin='round';
-  sc.beginPath();
-  data.forEach(function(v,i){
-    var x=4+i*(W2-8)/(data.length-1), y=H2-4-(v/mx)*(H2-10);
-    i?sc.lineTo(x,y):sc.moveTo(x,y);
-  });
-  sc.stroke();
-  var lg=sc.createLinearGradient(0,0,0,H2);
-  lg.addColorStop(0,'rgba(25,240,199,.25)'); lg.addColorStop(1,'rgba(25,240,199,0)');
-  sc.lineTo(W2-4,H2-2); sc.lineTo(4,H2-2); sc.closePath();
-  sc.fillStyle=lg; sc.fill();
 }
 
 /* ── Quick player search autocomplete ── */

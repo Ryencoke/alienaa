@@ -10,7 +10,7 @@ define('WELFARE_MAX_DAYS', 30);  // account must be under 30 days old
 // Calculate account age in days
 $created = !empty($player['created_at']) ? strtotime($player['created_at']) : time();
 $daysOld = (int)floor((time() - $created) / 86400);
-$eligible = $daysOld <= WELFARE_MAX_DAYS;
+$eligible = $daysOld < WELFARE_MAX_DAYS;
 
 // Check if claimed today
 $lastClaim = '';

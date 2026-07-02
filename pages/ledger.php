@@ -5,6 +5,7 @@ $msg = '';
 $msgErr = false;
 
 define('BANK_INTEREST_RATE', 0.005); // 0.5% per day on bank balance
+define('LOAN_INTEREST_RATE', 0.02);  // 2% per day, compounding, on outstanding loans
 // Withdrawal fee: 0.5% under Commerce Accord, 2% otherwise
 $_today = date('Y-m-d');
 $_isMerchant = !empty($player['merchant_until']) && $player['merchant_until'] >= $_today;
@@ -25,7 +26,8 @@ try {
     $gate = $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)');
     $gate->execute(["bank_interest:{$pid}", $today]);
     if ($gate->rowCount() === 0) throw new RuntimeException('interest already applied');
-    $q->execute(["apt_bank_bonus:{$pid}"]); $bankBonus = (int)$q->fetchColumn();
+    $q = $pdo->prepare('SELECT COALESCE(SUM(v),0) FROM settings WHERE k IN (?,?)');
+    $q->execute(["apt_bank_bonus:{$pid}", "apt_bank_bonus_rent:{$pid}"]); $bankBonus = (int)$q->fetchColumn();
     $rate = BANK_INTEREST_RATE + ($bankBonus > 0 ? $bankBonus / 10000 : 0); // perk_val 25 = +0.0025 = +0.25%
     $interestEarned = (int)max(1, floor((int)$player['creds_bank'] * $rate));
     $pdo->prepare('UPDATE players SET creds_bank = creds_bank + ? WHERE id = ?')->execute([$interestEarned, $pid]);
@@ -35,12 +37,50 @@ try {
   }
 } catch (Throwable $e) {}
 
+// Daily compounding interest on outstanding loans — the counterpart of the
+// bank's 0.5%/day. A loan used to carry only the one-time 4.5% surcharge with
+// no running cost, so borrowing straight into the bank out-earned the debt in
+// ~9 days and there was never a reason to repay. At 2%/day the debt grows
+// four times faster than banked credits earn, which kills that arbitrage.
+// Lazy accrual with catch-up: interest is applied for every day since the
+// last accrual (capped at 60 days), so skipping the bank doesn't dodge it.
+$loanInterestAdded = 0;
+try {
+  if ((int)$player['loan'] > 0) {
+    $today = date('Y-m-d');
+    $lk = "loan_interest:{$pid}";
+    $lq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
+    $lq->execute([$lk]);
+    $lastAccrual = (string)($lq->fetchColumn() ?: '');
+    if ($lastAccrual !== $today) {
+      // Claim today's marker FIRST — same atomic gate as the bank interest
+      // above, so parallel loads can't each compound a day's interest.
+      $gate = $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)');
+      $gate->execute([$lk, $today]);
+      if ($gate->rowCount() === 0) throw new RuntimeException('loan interest already accrued');
+      if ($lastAccrual !== '') {
+        $days = (int)min(60, max(0, (strtotime($today) - strtotime($lastAccrual)) / 86400));
+        if ($days > 0) {
+          $before = (int)$player['loan'];
+          $mult = pow(1 + LOAN_INTEREST_RATE, $days);
+          // Multiplicative atomic update — no read-modify-write race window.
+          $pdo->prepare('UPDATE players SET loan = CEIL(loan * ?) WHERE id = ? AND loan > 0')->execute([$mult, $pid]);
+          $player = current_player();
+          $loanInterestAdded = (int)$player['loan'] - $before;
+        }
+      }
+      // No prior marker (loan predates this mechanic): the gate above seeded
+      // today's date, so interest starts accruing from tomorrow.
+    }
+  }
+} catch (Throwable $e) {}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = $_POST['action'] ?? '';
   try {
 
     if ($action === 'deposit') {
-      $amt = isset($_POST['all']) ? (int)$player['creds_pocket'] : (int)($_POST['amount'] ?? 0);
+      $amt = (int)($_POST['amount'] ?? 0);
       if ($amt <= 0) throw new RuntimeException('Enter an amount above zero.');
       $u = $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket - ?, creds_bank = creds_bank + ?
                           WHERE id = ? AND creds_pocket >= ?');
@@ -50,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     elseif ($action === 'withdraw') {
-      $amt = isset($_POST['all']) ? (int)$player['creds_bank'] : (int)($_POST['amount'] ?? 0);
+      $amt = (int)($_POST['amount'] ?? 0);
       if ($amt <= 0) throw new RuntimeException('Enter an amount above zero.');
       $fee = (int)max(1, ceil($amt * WITHDRAW_FEE_PCT));
       $total = $amt + $fee;
@@ -98,7 +138,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $b = $pdo->prepare("UPDATE players SET loan = loan + ?, {$dest} = {$dest} + ? WHERE id = ? AND loan + ? <= ?");
       $b->execute([$owe, $amt, $pid, $amt, $loanCap]);
       if ($b->rowCount() !== 1) throw new RuntimeException('That would push you past your loan cap of ' . number_format($loanCap) . ' creds.');
-      $msg = 'Borrowed ' . number_format($amt) . ' creds. You now owe ' . number_format($owe) . '.';
+      // Seed the accrual marker so daily interest starts tomorrow, not today.
+      // INSERT IGNORE: if a loan is already running, its marker stays put.
+      try { $pdo->prepare('INSERT IGNORE INTO settings (k,v) VALUES (?,?)')->execute(["loan_interest:{$pid}", date('Y-m-d')]); } catch (Throwable $e) {}
+      $msg = 'Borrowed ' . number_format($amt) . ' creds. You now owe ' . number_format($owe) . ' — interest runs at 2%/day until repaid.';
     }
 
     elseif ($action === 'repay') {
@@ -109,6 +152,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                           WHERE id = ? AND creds_pocket >= ? AND loan >= ?');
       $u->execute([$pay, $pay, $pid, $pay, $pay]);
       if ($u->rowCount() !== 1) throw new RuntimeException('Not enough creds in pocket to repay that.');
+      // Fully repaid: clear the accrual marker so a future loan reseeds fresh.
+      if ($pay >= (int)($player['loan'] ?? 0)) {
+        try { $pdo->prepare('DELETE FROM settings WHERE k=?')->execute(["loan_interest:{$pid}"]); } catch (Throwable $e) {}
+      }
       $msg = 'Repaid ' . number_format($pay) . ' creds.';
     }
 
@@ -162,8 +209,14 @@ $feePct = WITHDRAW_FEE_PCT;
       <span class="muted">— your balance works while you sleep.</span>
     </div>
     <?php endif; ?>
+    <?php if ($loanInterestAdded > 0): ?>
+    <div style="background:rgba(255,107,53,.07);border:1px solid rgba(255,107,53,.3);border-radius:6px;padding:8px 12px;font-size:12px;text-align:center;margin-bottom:8px">
+      &#9888; <b style="color:#ff6b35">Loan interest accrued:</b> <b style="color:var(--neon2);font-family:'Orbitron',sans-serif">+<?= number_format($loanInterestAdded) ?> cr</b>
+      <span class="muted">— 2%/day on what you owe. Repay to stop the meter.</span>
+    </div>
+    <?php endif; ?>
     <?php if ($msg && ($interestEarned === 0 || $_SERVER['REQUEST_METHOD'] === 'POST')): ?>
-    <div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>" style="margin-bottom:0"><?= e($msg) ?></div>
+    <div class="flash <?= $msgErr ? 'flash-err' : 'flash-ok' ?>" style="margin-bottom:0"><?= $msg ?></div>
     <?php endif; ?>
   </div>
 </div>
@@ -238,7 +291,7 @@ $feePct = WITHDRAW_FEE_PCT;
 
   <div class="panel bank-card" style="--bk-col:#ff6b35;--bk-glow:rgba(255,107,53,.1);margin:0">
     <h3><span style="color:#ff6b35">&#128184;</span> Bank Loan</h3>
-    <p class="muted">Borrow up to <b><?= number_format($avail) ?></b> creds. +4.5% surcharge on repayment.</p>
+    <p class="muted">Borrow up to <b><?= number_format($avail) ?></b> creds. +4.5% surcharge up front, then 2% interest per day on what you owe.</p>
     <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)">
       <span>Loan used</span><span><?= number_format($loan) ?> / <?= number_format($loanCap) ?> cr</span>
     </div>
@@ -430,7 +483,7 @@ window.updateLoanHint=function(){
   var a=parseInt(document.getElementById('loan-amt').value)||0;
   var el=document.getElementById('loan-hint');
   if(!el) return;
-  if(a>0){var owe=Math.ceil(a*1.045);el.innerHTML='You’ll owe: <b style="color:#ff6b35">'+owe.toLocaleString()+'</b> cr (+'+(owe-a).toLocaleString()+' surcharge)';}
+  if(a>0){var owe=Math.ceil(a*1.045);el.innerHTML='You’ll owe: <b style="color:#ff6b35">'+owe.toLocaleString()+'</b> cr (+'+(owe-a).toLocaleString()+' surcharge, then 2%/day)';}
   else el.innerHTML='';
 };
 /* withdraw Max that actually fits the fee (old Max always over-drew) */

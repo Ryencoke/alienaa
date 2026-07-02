@@ -22,7 +22,7 @@ $DISTRICTS = [
     ['transit', 'Transit Hub'],
   ]],
   ['The Datacore',      '&#129504;', '#4d6be8', 'Knowledge is loaded, not learned.', [
-    ['datacore&act=lab', 'Skillsoft Lab'], ['library', 'The Library'],
+    ['datacore&act=lab', 'Skillsoft Lab'], ['library', 'The Library'], ['thenet', 'The Net (Grid Dive)'],
   ]],
   ['Foundry Sector',    '&#9881;',   '#8fa3c8', 'Scrap goes in. Gear comes out.', [
     ['foundry', 'Fabrication Bay'],
@@ -36,9 +36,11 @@ $DISTRICTS = [
   ['The Grid Authority','&#127963;', '#e8d44d', 'Bureaucracy with teeth.', [
     ['cityhall', 'Admin Spire'], ['registry', 'ID Registry'], ['tickets', 'Customer Service'],
     ['awards', 'Grid Rankings'], ['welfare', 'Subsistence Terminal'], ['jail', 'Confinement Grid'],
+    ['contracts', 'Contract Board'], ['achievements', 'Achievements'],
   ]],
   ['Combat Zone',       '&#9876;',   '#ff2d95', 'Ghost versus ghost, or the machines. No referees.', [
     ['pvp', 'Combat Arena'], ['training', 'Neural Training'], ['sim', 'Combat Simulator'],
+    ['bounties', 'Bounty Board'],
   ]],
 ];
 ?>
@@ -82,6 +84,43 @@ $DISTRICTS = [
   </div>
   <?php endforeach; ?>
 </div>
+
+<?php
+// ── Territory control board (read-only; the fight is on the Syndicate page) ──
+require_once __DIR__ . '/../territory_engine.php';
+$terrCtrl = [];
+try {
+  $tq = db()->query("SELECT t.district_key, t.controller_id, t.fortification, s.name AS syn_name, s.tag AS syn_tag
+                     FROM syndicate_territory t LEFT JOIN syndicates s ON s.id=t.controller_id");
+  foreach ($tq as $r) $terrCtrl[$r['district_key']] = $r;
+} catch (Throwable $e) {}
+if ($terrCtrl):
+?>
+<div class="panel" style="margin-top:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    <h3 style="margin:0">&#127937; District Control</h3>
+    <a href="index.php?p=guilds&tab=territory" style="font-size:11px;color:var(--neon2)">Fight for territory &rarr;</a>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px">
+    <?php foreach (TERR_DISTRICTS as $key => $info):
+      $r = $terrCtrl[$key] ?? null;
+      $held = $r && $r['controller_id'] !== null;
+      $fortPct = $r ? max(0, min(100, round((float)$r['fortification']))) : 0;
+      $fc = $fortPct >= 70 ? '#ff2d95' : ($fortPct >= 40 ? '#e8a33d' : '#3bcf63');
+    ?>
+    <div style="background:var(--panel2);border:1px solid <?= $held ? 'rgba(255,45,149,.25)' : 'var(--line)' ?>;border-radius:7px;padding:9px 11px">
+      <div style="font-weight:700;font-size:12px"><?= e($info[0]) ?></div>
+      <div style="font-size:11px;color:var(--muted);margin:2px 0 6px">
+        <?php if ($held): ?>Held by <b style="color:var(--neon2)">[<?= e($r['syn_tag'] ?? '??') ?>]</b> <?= e($r['syn_name'] ?? '') ?>
+        <?php else: ?><span style="color:#3bcf63">Unclaimed</span><?php endif; ?>
+      </div>
+      <div style="height:5px;border-radius:3px;background:#0a0812;overflow:hidden"><div style="width:<?= $fortPct ?>%;height:100%;background:<?= $fc ?>"></div></div>
+      <div style="font-size:9px;color:var(--muted);text-align:right;margin-top:2px"><?= $fortPct ?>% fortified</div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+</div>
+<?php endif; ?>
 
 <script>
 (function(){

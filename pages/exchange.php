@@ -23,7 +23,7 @@ $SUB_PERKS = [
   '+25% XP from all combat and training',
   '+500 max Drive capacity',
   '&#9733; Subscriber badge on your handle',
-  'Daily Vault gives double Shards',
+  'Daily Vault gives a wider Shard range (0&ndash;10 vs 0&ndash;6)',
   'Access to subscriber-only Lounge tab',
   'Priority customer service queue',
   'Exclusive account themes &amp; accent colors',
@@ -54,16 +54,7 @@ if (!empty($_POST['exch_ajax'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $a = $_POST['action'] ?? '';
   try {
-    if ($a === 'pull') { // no-JS fallback
-      if (($player['shard_pull_at'] ?? null) === $today) throw new RuntimeException('Already cracked today. Back tomorrow.');
-      $isSub = is_subscribed($player);
-      $got = random_int(0, $isSub ? 10 : 6);
-      $u = $pdo->prepare('UPDATE players SET shards = shards + ?, shard_pull_at = ? WHERE id = ? AND (shard_pull_at IS NULL OR shard_pull_at <> ?)');
-      $u->execute([$got, $today, $pid, $today]);
-      if ($u->rowCount() !== 1) throw new RuntimeException('Already cracked today. Back tomorrow.');
-      $msg = $got > 0 ? "Cracked it — {$got} Shard" . ($got === 1 ? '' : 's') . " secured." : 'Vault was empty today. Come back tomorrow.';
-    }
-    elseif ($a === 'subscribe30') {
+    if ($a === 'subscribe30') {
       $u = $pdo->prepare('UPDATE players SET shards = shards - ? WHERE id = ? AND shards >= ?');
       $u->execute([SUB_COST_30, $pid, SUB_COST_30]);
       if ($u->rowCount() !== 1) throw new RuntimeException('Need ' . SUB_COST_30 . ' Shards to subscribe.');
@@ -174,7 +165,7 @@ $pulled = (($player['shard_pull_at'] ?? null) === $today);
       <div><b style="color:var(--text)">Are Shards refundable?</b><br><span class="muted">No. All Shard purchases are final.</span></div>
       <div><b style="color:var(--text)">Do Shards expire?</b><br><span class="muted">No. Shards stay on your account indefinitely.</span></div>
       <div><b style="color:var(--text)">Can I trade Shards?</b><br><span class="muted">Shards cannot be traded between players.</span></div>
-      <div><b style="color:var(--text)">How else can I get Shards?</b><br><span class="muted">Crack the daily Vault for 0&ndash;6 Shards per day (double for subscribers).</span></div>
+      <div><b style="color:var(--text)">How else can I get Shards?</b><br><span class="muted">Crack the daily Vault for 0&ndash;6 Shards per day (0&ndash;10 for subscribers).</span></div>
     </div>
   </div>
 </div>
