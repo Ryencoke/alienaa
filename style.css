@@ -298,11 +298,6 @@ code{color:var(--neon2);font-size:12px}
 .convo-badge{background:var(--neon2);color:#fff;border-radius:20px;min-width:18px;height:18px;
   display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;padding:0 5px}
 
-/* ============================================================ Profile */
-.profile-hero{text-align:center;padding:10px 0 16px}
-.profile-name{font-size:1.4rem;font-weight:bold;letter-spacing:.5px}
-.profile-bio{color:var(--muted);font-style:italic;margin:8px 0;font-size:13px}
-
 /* ============================================================ Landing / splash */
 .land{max-width:1080px;margin:0 auto;padding:24px 16px}
 .land-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
@@ -579,13 +574,11 @@ code{color:var(--neon2);font-size:12px}
 .prof-stat:hover{border-color:rgba(25,240,199,.3)}
 .prof-stat .val{font-size:20px;font-weight:700;font-family:'Orbitron',sans-serif;color:var(--accent)}
 .prof-stat .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:3px}
-.prof-section{margin-top:0}
 .prof-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .prof-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:11px;border:1px solid var(--line);background:var(--panel2)}
 .prof-badge.gold{border-color:#e8d44d;color:#e8d44d;background:rgba(232,212,77,.06)}
 .prof-badge.teal{border-color:var(--accent);color:var(--accent);background:rgba(25,240,199,.06)}
 .prof-badge.pink{border-color:var(--neon2);color:var(--neon2);background:rgba(255,45,149,.06)}
-.prof-flag{border-radius:2px;vertical-align:middle;margin-right:4px;box-shadow:0 1px 3px rgba(0,0,0,.3)}
 
 /* ============================================================ Admin panel stats */
 .admin-stats-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:16px}

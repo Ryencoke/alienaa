@@ -2,6 +2,751 @@ SPRAWL-9 CHANGELOG
 ==================
 Tracking all changes made session-by-session.
 
+--- SESSION: 2026-07-02 BATCH-81 ---
+
+NEW SYSTEM — ACHIEVEMENTS (permanent lifetime milestones)
+(achievements_engine.php, pages/achievements.php, lib.php)
+------------------------------------------------------
+The long-term progression layer to complete the goals trio: daily Contract
+Board (short-term) + Bounty Board (player-driven) + Achievements (lifetime).
+36 tiered milestones (Bronze/Silver/Gold) across 6 categories — Combat,
+Industry, Netrunning, Reputation, Progression, Syndicate — each a one-time
+badge + credit/shard reward. Gives every activity a long tail of goals.
+
+TRACKING WITHOUT NEW HOOKS: contract_record() (already called at every
+activity completion) is the single chokepoint, so it now also bumps a
+lifetime counter for the event — no new call sites needed. New player_lifetime
+table (player_id, stat, value) via lifetime_add(); bounty collection bumps a
+bounty_collected counter in the settle. Achievements read those counters plus
+three derived live values (level, net_worth = pocket+bank, territory_held).
+
+Milestones (examples): Drone Slayer 10/100/500 PvE wins · Arena Killer
+5/25/100 · Prospector 100/1k/5k ore · Hauler / Weaponsmith / Chemist ·
+Ghost 10/50/200 Net dives · Core Breaker · Bounty Hunter · Ascendant
+(level 10/25/50) · Magnate (net worth 50k/500k/5M) · Warlord (hold
+1/3/5 districts). Full clear pays ~143k credits + 55 shards across the 36.
+
+CLAIMS are one-time and forge-proof: the page re-verifies completion
+server-side (value >= threshold) then claims via an INSERT-gated PK on
+player_achievements, so a replayed/forged POST can't double-pay or claim an
+unearned badge. Dedicated page (nav 'achievements' + city Grid Authority)
+grouped by category with progress bars and reward chips; cross-linked with
+the Grid Rankings leaderboards.
+
+HARNESS (ach_test.php): catalog sanity (strictly-increasing tier thresholds,
+every tier rewards, known metrics, unique ids), flatten integrity, tiered
+completion by threshold (exact-threshold completes), derived-metric
+evaluation, and a bounded full-clear reward check. ALL PASS. Engine + hook +
+page (no new canvas), low browser-verification risk; pages pass php -l +
+node --check.
+
+--- SESSION: 2026-07-02 BATCH-80 ---
+
+NEW SYSTEM — THE BOUNTY BOARD (player-funded PvP contracts)
+(bounty_engine.php, pages/bounties.php, lib.php, pvp.php, profile.php)
+------------------------------------------------------
+The player-driven counterpart to BATCH-79's PvE Contract Board: put credits
+on a rival's head. Posting ESCROWS the amount from your pocket immediately
+(like a trade escrow); whoever BEATS that ghost in the Arena collects every
+standing bounty on them. Gives PvP a reason beyond loot/XP — grudges,
+protection rackets, coordinated hunts — and a live target economy.
+
+ECONOMY-SAFE BY CONSTRUCTION: bounties only ever MOVE credits (escrow in →
+payout out), never mint. On a qualifying beat, the killer collects the sum
+of everyone else's bounties on the target; bounties the killer posted
+themselves are refunded to them; every active bounty on the target closes.
+The harness proves the zero-sum invariant (payout + refund == total escrow)
+across a 500-pool fuzz — so even collusion just shuffles a player's own
+credits, no dupe.
+
+FLOW: post (bounty_validate: no self/staff/banned targets, min 100 / max 5M,
+must cover the escrow) → atomic pocket deduct + insert. Cancel anytime for a
+full refund (FOR UPDATE + status gate, no double-refund). Collect is wired
+into pvp.php's Arena settle on a WIN via lib.php bounty_settle_on_beat():
+its own transaction, loads the target's active bounties FOR UPDATE, pays the
+killer, closes them, and notifies the funders. Two attackers beating the
+same mark race on the row lock, so only the first collects — no double
+payout. New bounties table (lazy ensure).
+
+SURFACED: a Bounty Board page (nav + city Combat Zone) with a post form
+(handle autocomplete via players_search), your cancelable postings, a
+"bounties on YOU" warning, and a marketplace of open contracts ranked by
+pool with a Hunt link straight to the Arena (respecting attackability). The
+Arena result shows a "Bounty Collected" chip; profiles show a bounty badge
+so hunters spot marks.
+
+HARNESS (bounty_test.php): validation rules, payout/refund partition (own
+vs others), full-pool closure on a beat, and the 500-pool zero-sum fuzz.
+ALL PASS. Escrow + form + hook (no new canvas), low browser-verification
+risk; pages pass php -l + node --check.
+
+--- SESSION: 2026-07-02 BATCH-79 ---
+
+NEW SYSTEM — THE CONTRACT BOARD (daily cross-activity objectives)
+(contracts_engine.php, pages/contracts.php, lib.php, + hooks across 6 pages)
+------------------------------------------------------
+The game was a rich sandbox of activities with no unifying goals. The
+Contract Board gives it direction: each Mountain-Time day the board offers
+3 objectives (the same set for everyone, rotating daily) that tick
+automatically as you play the activities you already play, and pay
+credits + XP when finished. It's the connective tissue over the whole
+game — one place that rewards engaging with any system.
+
+CONTRACTS watch activity events emitted at each activity's completion:
+  pve_win (Combat Sim) · pvp_win (Arena) · ore_mined (The Sump) ·
+  cargo_delivered (Switchyard) · net_dive + net_core (The Net) ·
+  gear_forged (Fabrication Lab) · stim_brewed (Synth Den).
+The catalog (contracts_engine.php CONTRACT_POOL, 9 contracts) rotates
+deterministically by md5(day:id) — same 3 for everyone today, varying
+day to day, full pool coverage over time, no seeded RNG needed.
+
+INTEGRATION: a single lib.php contract_record($pdo,$pid,$event,$amount)
+helper is called (non-fatally, post-commit) from sim/pvp/mining/transit/
+thenet/weaponcraft/synth — each hook is 1 line and wrapped so a contracts
+hiccup can never break the activity. Progress is capped at each goal in
+SQL. Claiming is atomic (UPDATE ... WHERE claimed=0 AND progress>=goal,
+rowCount gate), so a double-submit can't pay twice. Daily rotation reuses
+the Mountain-Time day; unclaimed rewards forfeit when the board rotates
+(built-in daily urgency). New player_contracts table (lazy ensure).
+
+Surfaced in: a dedicated Contract Board page (nav 'contracts' + city map
+under Grid Authority) with progress bars, reward chips, per-contract
+"where to work it" hints, and a rotation countdown; plus a compact
+"Today's Contracts" teaser on the Hideout dashboard (home.php) with a
+"N ready" badge. cron.php now also prunes player_contracts rows older
+than 7 days so the table stays bounded.
+
+HARNESS (contracts_test.php): catalog sanity, deterministic daily
+selection, rotation coverage (every contract appears across 120 days),
+fair long-run distribution (900-day sample), event matching, and
+progress-cap math. ALL PASS. Pure engine + form/hook integration (no new
+canvas game), so browser-verification risk is low; pages pass php -l +
+node --check.
+
+--- SESSION: 2026-07-02 BATCH-78 ---
+
+SCHEDULER/CRON PASS + DEPLOY FIX
+(index.php, NEW cron.php, config.sample.php, .cpanel.yml)
+------------------------------------------------------
+Audited every time-based system for what actually needs a scheduler.
+Finding: the game is already lazy-accrual almost everywhere — the daily
+reset (index.php), bank + loan interest (ledger), Drive regen (state_api),
+territory tithe/fortification (guilds), apartment expiry, bond maturity,
+stock drift, auction resolution all self-heal on next access. That's the
+right design for shared hosting with no guaranteed cron; very little truly
+needs one. Three real issues surfaced and are fixed:
+
+1) DEPLOY MANIFEST WAS STALE (.cpanel.yml) — the biggest one. It copied a
+   hardcoded root-file list that predated most of the codebase: it omitted
+   every *_engine.php (combat/net/forge/territory/transit) and several
+   *_api.php endpoints, so a cPanel deploy would FATAL the pages that
+   require_once them. Now copies *.php + *.js + style.css + .user.ini +
+   favicon.svg (config.php is gitignored, so the server's real one is never
+   overwritten). This is what would have broken the last several batches
+   the moment they were deployed.
+
+2) DAILY-RESET DOUBLE-APPLY RACE (index.php, deferred from BATCH-69) — the
+   lazy per-player reset was check-then-act (SELECT marker, then reset if
+   not today), so two concurrent loads at the midnight rollover could both
+   grant +250 Drive and both decay skills. Now an ATOMIC claim: INSERT
+   IGNORE the marker row, then UPDATE ... WHERE v<>today; only the load
+   whose UPDATE affects 1 row applies the reset. Exactly one wins.
+
+3) NO CRON ENTRY POINT despite the synopsis claiming "runs via cron" — added
+   cron.php: token-guarded (CRON_TOKEN in config, hash_equals), idempotent
+   bulk daily reset that only touches players whose marker isn't already
+   today, so it's safe to run hourly. Its value over pure-lazy: OFFLINE
+   players get reset too (fresh Signal/Health makes them valid PvP targets)
+   instead of only updating when they next log in. Shares the daily_reset:{id}
+   marker with the lazy path and the admin trigger, so no path can double-
+   reset. config.sample.php gains CRON_TOKEN (default '' = cron.php disabled).
+
+NEW — TERRITORY HOLDER PERK (lib.php, pvp.php, sim.php, guilds.php)
+------------------------------------------------------
+Holding districts now confers real power, not just a credit tithe: each
+district a syndicate controls grants its members +2% ATK and +2% DEF in
+combat, capped at +10% (5 districts) — syn_territory_combat_mult() in
+lib.php, applied in the Arena (pvp_calc_stats, both fighters get their
+own), the Combat Sim, and territory assaults themselves (so a
+territory-rich syndicate is better at taking more — a deliberate, bounded
+snowball; +10% is an edge, not an autowin). Shown on the Territory tab
+("Combat bonus: +X% ATK/DEF"). Reads syndicate_territory defensively
+(returns the no-op 1.0 multiplier if the table/syndicate is absent), so
+it's safe on installs that haven't touched territory. Combat engine and
+its harness are unchanged (the perk is a page-layer stat scale); full
+combat + territory harnesses still pass.
+
+--- SESSION: 2026-07-02 BATCH-77 ---
+
+NEW SYSTEM — SYNDICATE TERRITORY WAR
+(territory_engine.php, guilds.php, city.php, schema_territory.sql)
+------------------------------------------------------
+The first thing syndicates can fight each OTHER over. Eight contestable
+Sprawl districts can each be held by one syndicate; a new "Territory" tab
+on the Syndicate page shows the map, and city.php shows a read-only
+control board. This reuses the BATCH-72 combat engine for the assaults —
+the promised "turf contests on the combat engine."
+
+THE LOOP:
+- HOLD: each district you control passively accrues a credit TITHE into a
+  pot and regenerates its FORTIFICATION (0-100) over real time (lazy tick,
+  no cron). The Vault Keeper collects the tithe into the guild bank.
+- ASSAULT: any member attacks a rival/unclaimed district by fighting its
+  GARRISON — a full interactive telegraph/stamina fight (combat_engine)
+  whose HP/ATK/DEF scale with the district's fortification (Sentinel
+  temperament; it turtles). Costs 1 Signal + Health, like an Arena fight.
+  Each win knocks fortification down (a dominant win, little HP lost, hits
+  harder); when it reaches zero, control FLIPS to the attacker's syndicate
+  and the old owner's uncollected tithe is lost.
+- REINFORCE: the Vault Keeper spends the guild bank to add fortification
+  (40 cr/point, +20 per action, up to 100).
+Balance (harness-tuned): a low/freshly-claimed district falls to one
+strong raider, but a fully-fortified fortress is a coordinated siege
+(~36% solo win rate, ~5 clean wins to break) — passive regen + reinforcing
+race against attackers, so holding contested ground takes real effort.
+
+ENGINE + PROOF (territory_engine.php, pure logic): garrison scaling,
+assault damage (margin-scaled), control-flip rules, fortification regen
+(caps, no overshoot), credit yield (fort-scaled, capped), and reinforce
+cost/clamps — all headless-tested, PLUS a full assault simulation driving
+combat_engine against garrisons at every fortification level (win rates
+100/100/100/81/36% at fort 20/40/60/80/100). ALL PASS.
+
+SECURITY/INTEGRITY: assault is server-authoritative (client sends only
+strike/guard/feint/burst/stim/flee); Signal charged atomically up front;
+fortification/pot ticked under SELECT...FOR UPDATE inside the settle
+transaction (no double-apply across concurrent assaults); settle-once
+semantics; you can't assault your own district; reinforce/collect gated to
+manage_bank rank and blocked when the syndicate is locked. New
+syndicate_territory + territory_log tables (lazy ensure + schema_territory.sql).
+Assaults resume across reloads. Page passes php -l + node --check; not
+browser-verified (standing rule).
+
+--- SESSION: 2026-07-02 BATCH-76 ---
+
+NEW — FABRICATION LAB FORGE MINIGAME + GEAR QUALITY
+(forge_engine.php, weaponcraft.php, lib.php, player_gear.quality)
+------------------------------------------------------
+Crafting at the Fabrication Lab was a single click. It's now a heat-and-
+strike minigame that rolls a QUALITY grade on the gear you build — the
+game's first quality-differentiated equipment.
+
+THE GAME (forge_engine.php, pure logic, headless-tested): the billet has a
+temperature; you must land 5 hammer blows, and each blow scores on how
+close the temp sits to the sweet band when it lands. Every action is a
+DECISION, not a reflex (no timing bars) — temp, the sweet band, and the
+cooling per action are all shown:
+  STOKE  — bellows, temperature up
+  STRIKE — land a blow (scores, consumes a strike, cools the billet)
+  DRAW   — pull it back, temperature down a little
+Strike too cold and it cracks; too hot and it scorches — both tank that
+blow. You have a 16-action budget; run out before 5 blows land and the
+unstruck blows score zero. Average blow score maps to quality 80-115%
+(Flawed → Masterwork). FABRICATION SKILL widens the sweet band and raises
+the ceiling (up to 125% at Fab 10), so skilled crafters roll better gear.
+
+ECONOMY: gear stats are stored ALREADY SCALED by quality/100 (a Masterwork
++65 blueprint becomes +75 ATK; a Flawed one +52), plus a `quality` label
+column — so combat, PvP, the Sim, the guild armoury, and every stat reader
+are quality-aware with ZERO reader changes. Well-forged gear is now premium
+goods for the guild armoury and trades. Fabrication finally has a visible,
+economically-meaningful payoff.
+
+FLOW: crafting is a three-phase forge session (forge_start reserves the ore
+atomically and opens the session; forge_act runs one heat/strike round; the
+final blow commits the quality-scaled gear). Abandoning refunds the ore;
+the session resumes across reloads. Same server-authoritative session/AJAX
+pattern as sim/thenet — the client only sends stoke/strike/draw, all scoring
+is server-side. player_gear gains a `quality INT DEFAULT 100` column
+(idempotent ALTER in ensure_player_gear_table); the Arsenal shows a grade
+badge. The Blacksmith stays a straight purchase (bought gear = Standard
+100%) — it sells finished gear rather than forging it.
+
+HARNESS (forge_test.php): scoring-band boundaries, the clean-forge and
+ran-out-of-budget paths, temp clamps, grade bands, a 3000-forge fuzz
+(always terminates in budget, quality always in [80, ceiling]), and
+strategy bots — heat-managing play averages 115/120/125 quality at Fab
+0/5/10 vs 98/101/104 for blind mashing (a 15-20pt skill gap that never
+lets mashing reach Masterwork). ALL PASS. Page passes php -l + node
+--check; not browser-verified.
+
+--- SESSION: 2026-07-02 BATCH-75 ---
+
+THE NET — DEPTH TIERS (net_engine.php, thenet.php)
+------------------------------------------------------
+Netrunning's skill_defs promise ("unlock higher-tier net intrusions") is
+now real: The Net has three dive depths, gated by Netrunning level, picked
+from the lobby.
+- T1 Perimeter Grid (Netrun 0): the original 5-layer grid, 2-3 ICE, 8
+  Drive, trace ceiling 100, core 300-500, vaults to T3.
+- T2 Corporate Subnet (Netrun 2): 6 layers, denser rows, 3-4 ICE, 12
+  Drive, ceiling 125, core 540-820, vaults to T4 (need Cryptocracking 4).
+- T3 Blacksite Core (Netrun 5): 7 layers, 4-5 ICE, 16 Drive, ceiling 155,
+  core 900-1400, vaults to T5 (need Cryptocracking 5).
+Deeper grids pay far more but demand a longer route past more ICE; the
+trace ceiling rises with depth so the run stays completable, and higher
+vault tiers give Cryptocracking a real reason to climb. Grid generation,
+ICE seeding, loot placement, ports, and trace are all parameterized off a
+NET_TIERS config table (nd_gen now takes a $tier arg).
+
+SECURITY: the requested tier is clamped server-side to what Netrunning
+unlocks (net_max_tier), in BOTH nd_gen and thenet.php's charge path, so a
+forged deep-tier POST can't dive past your skill — and the Drive charge is
+read off the clamped tier so cost and grid always agree.
+
+HARNESS: nd_test.php now sweeps all three tiers — 400-grid generation
+invariants per tier (layer depth, vault-tier range, ICE count, loot mix,
+trace ceiling), the gating clamp, an 800-dive fuzz across tiers, and a
+per-tier greedy bot: T1 ~85% settle / ~315 cr avg, T2 ~86% / ~464 cr,
+T3 ~87% / ~1262 cr — all winnable, cores stay ~50% hard at depth. ALL
+PASS. Lobby renders a tier picker (locked tiers show the Netrunning
+requirement); page passes php -l + node --check, not browser-verified.
+
+--- SESSION: 2026-07-02 BATCH-74 ---
+
+OVERHAUL — PVP ARENA FIGHTS NOW INTERACTIVE (pvp.php on combat_engine.php)
+------------------------------------------------------
+The Arena's one-POST auto-resolver (watch a replay of a fight you didn't
+play) is replaced by the same telegraph/stamina combat the Sim uses —
+BATCH-72's engine was shaped for exactly this port. Two PvP-specific
+mappings make ghost-vs-ghost fights personal:
+- TEMPERAMENT FROM BUILD: the defender's AI personality derives
+  deterministically from their real stat spread — STR-heavy fights like a
+  Brawler, SPD like a Stalker, END like a Sentinel, balanced like a
+  Juggernaut (shown in the fight header + the tells cheat-sheet), so
+  scouting a target before attacking genuinely teaches you the matchup.
+- SPD IS NOW READ CLARITY: telegraph honesty = 75 ± 1% per point of SPEED
+  gap (clamped 55-95) — fast attackers read tells better, fast defenders
+  are harder to read. This replaces the old flat dodge roll as Speed's
+  combat role (Stats-tab copy updated).
+Attackers can also Stim mid-fight (Patch Kits, max 2 — the defender AI
+has none; the attacker already holds the initiative).
+
+PRESERVED EXACTLY: every BATCH-69 hard exclusion (staff/banned/jailed/
+merchant unattackable) now enforced in the AJAX challenge path, atomic
+Signal charge before the fight exists, the guarded 10% pocket-loot
+transfer (deduct-then-credit-only-what-was-deducted), integrity damage to
+both sides, defender XP + battle-XP tithes, mortality shifts, defender
+notifications, pvp_log records. Fight HP formula unchanged
+(integrity + END×5 — PvP always had headroom).
+NEW OUTCOMES: fleeing or a 25-round stalemate ends the fight with NO
+credit movement and no mortality shift (defender logged as winner,
+consolation XP both ways, honest notification wording).
+
+REPLAY COMPATIBILITY: each interactive round is recorded into the same
+log_data rounds/events schema the tab=log&detail viewer renders, so old
+auto-resolved fights and new interactive ones display identically in the
+combat log. The old pvp_simulate(), the post-fight replay theater, and
+the tactic-free challenge form POST are gone; the arena form now opens a
+live fight panel (resumable across reloads — Signal is never
+double-charged; settle-once semantics identical to sim/thenet).
+
+Engine change (combat_engine.php): cb_start() now accepts optional
+'persona' and 'telepct' overrides on the enemy block (validated/clamped;
+falls back to the tier/skill defaults the Sim uses) — covered by new
+harness assertions, full suite still ALL PASS. Fight panel passes
+php -l + node --check; not run in a live browser here (standing rule).
+
+--- SESSION: 2026-07-02 BATCH-73 ---
+
+NEW SYSTEM — THE NET: GRID DIVES (NEW pages/thenet.php, net_engine.php)
+------------------------------------------------------
+The first real home for the Netrunning and Cryptocracking skills — both
+existed in skill_defs() ("unlock net intrusions", "+crypto yield & unlock
+encrypted vault targets") but had NO gameplay behind them in a cyberpunk
+game. New page under The Datacore district (city.php) + sidebar nav
+(lib.php nav_links 'thenet').
+
+THE GAME: a corporate grid as a layered node graph (entry port → three
+middle layers → the CORE), fully visible — deterministic planning, not
+hidden rolls. Crack caches (30-60 cr, 1 turn), crypto vaults (80-350 cr,
+2 turns, tier-gated by Cryptocracking level, +4%/level yield), and the
+core (300-500 cr, 3 turns) while 2-3 ICE sentinels ping-pong fixed walks,
+one step per action of yours. The TRACE is the clock: move +3, crack
++4..7/turn, cloak +2, hold +1, ICE clash +25 (and -25% of unbanked loot);
+at 100% you're DUMPED — everything unbanked gone, -8 Signal. Loot only
+banks by jacking out at the entry or a relay PORT; panic EJECT anywhere
+keeps 40% for -5 Signal. Bank a cracked core for a 35-55% Shard bounty
+(scales with Cryptocracking). Netrunning grants 1-4 CLOAK charges (ICE
+passes through you for a turn). Entry: 8 Drive. XP: 2/cache + 4/vault +
+8/core via grant_xp. Signal finally has a real sink outside PvP.
+
+ENGINE + HEADLESS PROOF (net_engine.php, pure logic): CLI harness ran 400
+generated grids (full connectivity, symmetric edges, <=1-layer spans,
+port/vault/cache mix, ICE walks adjacent + never on entry/core, cloak
+charges), 20 scripted scenarios (crack progress/gating, clash math, cloak
+dodge, walking-into-ICE, jackout-only-at-ports, eject 40%, dump wipes
+loot, trace accounting, client payload zeroes cracked values), an
+800-dive fuzzer (bounds + guaranteed termination — every action adds
+trace, so the clock always ends a dive), and a greedy bot: 87% of
+sensible dives settle profitably (avg ~283 cr per settled dive on
+8 Drive), dumps stay under 13%, the core falls in ~59% of dives at
+modest skills. ALL PASS.
+
+Server-authoritative session state (nd version stamp), atomic Drive
+charge, settle-once semantics identical to sim/transit (payout commits in
+the same request that clears the dive; a failed settle is retryable,
+never double-granted). Canvas client passes node --check; not run in a
+live browser here (standing rule — flagged, not declared perfect).
+
+--- SESSION: 2026-07-02 BATCH-72 ---
+
+OVERHAUL — COMBAT SIM REBUILT AS INTERACTIVE TURN-BASED COMBAT
+(sim.php, NEW combat_engine.php)
+------------------------------------------------------
+Fights used to auto-resolve in one POST (pick a stance radio, read a log
+table). Rebuilt as real turn-based combat: each round the enemy TELEGRAPHS
+its next move and the player answers — rock-paper-scissors with
+information plus a stamina economy.
+- ACTIONS: Strike (15 stam; interrupts charges) · Guard (+25 stam regen;
+  reading a HEAVY with guard STAGGERS the enemy for a free round) · Feint
+  (10 stam; OPENS a guarding enemy — next hit ×1.5) · Burst (35 stam;
+  huge, brutal on staggered/charging enemies, badly punished by guard) ·
+  Stim (consumes a Patch Kit mid-fight, +25 construct HP, max 2/fight,
+  leaves you exposed that round — gives Foundry kits real demand) · Flee
+  (eat a parting shot, keep nothing).
+- ENEMIES: four temperaments (Brawler/Sentinel/Stalker/Juggernaut, hashed
+  per enemy code so each drone keeps a learnable personality, shown on its
+  roster card), plus CHARGE → UNLEASH (×2.5 — interrupt it or guard it).
+  Telegraphs are mostly honest: higher tiers bluff more, Combat skill
+  sharpens the read (55–95%, shown in the UI).
+- FIGHT HP RUNS AT integrity × 5 ("construct integrity" — the Sim is a
+  simulation): integrity_max is 15 and NOTHING in the game raises it, so
+  the old system was secretly binary — DEF >= enemy ATK meant chip-proof
+  (max(1, atk-def) = 1/round), anything else meant dead in two rounds.
+  Real integrity damage on exit = ceil(taken/5), same relative-with-floor
+  application as before. New soft mitigation (damage never below 25% of
+  attack) kills the chip-proof degenerate case at max gear too.
+- TIERS 5-7 RETUNED (sim.php's own seeds; idempotent UPDATE migration for
+  existing installs): the old attack values (30-105) were mathematically
+  unwinnable at ANY gear given the 15-integrity ceiling. New values are
+  harness-calibrated (see below).
+- Everything else preserved: Drive cost/gating, tier Combat-skill gates,
+  level gates, reward formulas (creds range/XP/loot roll/battle-XP tithe),
+  combat_log history (now also records 'draw'/'fled'), heal panel, roster,
+  header canvas, FX kit (the win/loss ceremony overlay is reused as the
+  fight finale). Tactic radios and the old sim_fight() auto-resolver are
+  gone; stale sim_log/sim_tactic session keys are cleared.
+
+ENGINE + HEADLESS PROOF (combat_engine.php, pure logic, no DB/session):
+CLI harness ran 20+ scripted matrix scenarios (stagger/interrupt/open/
+unleash flows, stamina accounting, stim rules, kill ordering — a dead
+enemy never swings back, flee rules, round-cap draw, client payload never
+leaks the true intent behind a bluff), a 2000-fight fuzzer (bounds +
+guaranteed termination), and strategy-bot calibration: a telegraph-
+reading bot vs a button-masher across real tier stats —
+  on-tier T1: both 100% (low tiers are meant to be easy)
+  on-tier T5: 100% reader vs 50% masher
+  one-tier-up T6: 59% vs 1% (only beatable by reading)
+  two-tiers-up: 18% vs 0% (desperate boss attempt)
+  endgame T7 apex: 78% vs 1% (the final boss demands skill at max gear)
+ALL PASS. Server-authoritative session state, atomic Drive/kit charges
+before state persists, settle-once semantics (rewards commit in the same
+request that removes the fight; a failed settle leaves the pre-round
+state so the final blow can be repeated, never double-granted).
+
+NOT LIVE-VERIFIED: the fight panel (DOM animations, bars, feed) passes
+php -l + node --check but hasn't run in a real browser here — flagged
+per the standing rule, not declared perfect.
+
+--- SESSION: 2026-07-01 BATCH-71 ---
+
+OVERHAUL — TRANSIT CARGO RUNS REBUILT AS "THE SWITCHYARD"
+(transit.php, NEW transit_engine.php)
+------------------------------------------------------
+The 3-checkpoint pick-a-button cargo run (itself an upgrade over the
+original single click) is replaced with a real interactive game in the
+mining.php mold — server-authoritative session state, one validated AJAX
+action per move, canvas client.
+
+THE GAME: a top-down, fully-visible 13x11 container yard. You pilot a
+cargo loader from the depot (bottom-left) to a district terminal
+(top-right), scooping freight crates on the way, while patrol drones
+sweep fixed ping-pong beats — every move YOU make, each drone takes one
+step (their beats and next step are drawn on screen, so it plays as
+deterministic timing/planning, not hidden dice — deliberately the
+opposite identity to The Sump's fog-of-war crawler). Getting caught
+loses all carried cargo and costs Health (8 + 2/crate, cap 16).
+- PUSH-YOUR-LUCK WEIGHT: 7 crates per yard in three tiers (Standard
+  20-32 cr / Sealed 40-60 / Volatile 75-105). Every crate carried adds
+  weight; at the overload threshold drones move TWICE per step. Bigger
+  hauls pay more and are genuinely harder to walk out.
+- TOOLKIT: Hold (stand still, let the beats tick past — free), Dash
+  (2 tiles, 3 Drive; a drone on the lane blocks it rather than killing
+  you), Jammer (5 Drive, once per run, freezes every drone for 3+ moves).
+- SKILL HOOKS: Scavenging +2%/lv crate value (cap +20%), Drone Ops +1
+  overload threshold per 3 levels (4 base, cap 6), Netrunning +1 jam
+  turn per level (cap +3). Run entry costs 6 Drive.
+
+THE NEW ECONOMY MECHANIC — SHARED FREIGHT-DEMAND MARKET: three district
+terminals (Neon Docks / Ashfall Yards / Crown Terminal) each carry a live
+payout multiplier (x0.60-x1.60) stored in ONE global settings row
+('transit_demand') shared by every player on the server. Crate values
+pay x demand; every delivery citywide SOFTENS the delivered district's
+demand (0.03 + 0.01/crate) and lifts the other two by half that, and all
+three drift back toward x1.00 at 0.02/hour of real time. Players
+collectively chase, deplete, and rotate the hot route — a player-driven
+commons that no other system in the game has. The pool is read with
+lazy drift for display and only ever WRITTEN under a SELECT...FOR UPDATE
+lock inside the delivery transaction (synth/vats blob-lock pattern), so
+concurrent deliveries serialize cleanly. Volatile crates also have a 40%
+chance each to hide 1 forge ore (copper/iron into player_ore — the same
+pool The Sump and the Forge use), tying the yard into the crafting
+economy. XP: 3/crate + 3/tier above standard, granted via grant_xp().
+
+ENGINE + HEADLESS TEST HARNESS: all game rules live in a new pure-logic
+transit_engine.php (no DB/session/output) precisely so they could be
+tested without a browser. A CLI harness (not shipped with the site) ran:
+400 generated yards (terminal + every crate reachable by BFS, drone
+beats 5-7 cells, contiguous, never through spawn/terminal/crates, drones
+start 3+ tiles from the depot), 15 scripted rule scenarios (wall blocks,
+walk-into-drone bust, drone-onto-player bust, ping-pong reversal exact
+index sequence, jam freeze duration + resume + one-per-run, overload
+double-step, capped bust damage, dash lane rules, delivery-before-drone-
+phase), a 600-run random fuzzer asserting state invariants every step,
+a greedy bot playing full games (91% delivery rate — maps are winnable;
+its losses are shallow lookahead, humans see the whole board), and
+demand-pool math (drift converges to 1.00 without overshoot, bounds hold
+across 1000 random deliveries). ALL PASS. During testing the bot exposed
+a real design flaw — crates could generate directly ON a patrol beat,
+making some grabs near-suicidal — fixed by placing drones before crates
+and excluding beat cells from crate placement.
+
+EXPLOIT-SURFACE NOTES: client only ever sends move/dash/hold/jam + a
+direction; crate values, drone motion, payouts, ore, and demand are all
+computed server-side from the session copy. Drive-priced actions charge
+atomically BEFORE the new state persists (a lost charge = the move never
+happened). Bust damage floors Health at 1 (GREATEST), never 0. A version
+stamp on the session state discards stale pre-deploy runs.
+
+KEPT: Tunnel Mining (unchanged mechanic), the rail-yard header canvas,
+the FX kit (loader ceremony reused for delivery/bust, new pickup/jam
+tones). The retired checkpoint-run session key (transit_run) is cleared
+on page load. The old $routes/CHECKPOINT_ACTIONS tables are gone.
+
+NOT LIVE-VERIFIED: the canvas client (rendering, input, lerp animation)
+could not be run in a browser here — the page's PHP passes php -l and
+the extracted JS passes node --check, and every server rule is covered
+by the CLI harness, but per this project's standing rule the client-side
+feel/rendering is flagged as untested in a real browser, not declared
+perfect.
+
+--- SESSION: 2026-07-01 BATCH-70 ---
+
+ECONOMY BALANCE — the two exploits flagged (not fixed) in BATCH-69
+------------------------------------------------------
+
+LOANS NOW CHARGE DAILY INTEREST (ledger.php)
+The Iron Ledger loan carried only a one-time 4.5% surcharge with no running
+cost and no repayment pressure — borrowing straight into the bank (0.5%/day
+interest) out-earned the debt in ~9 days, making every loan free money and
+repayment strictly irrational. Loans now accrue 2%/day compounding interest
+on the outstanding balance:
+- Lazy accrual on bank visit with catch-up: interest applies for every day
+  since the last accrual (capped at 60 days), so avoiding the bank page
+  doesn't dodge the meter. Same atomic settings-gate pattern as the daily
+  bank interest (loan_interest:{pid} marker), so parallel loads can't
+  double-compound a day.
+- Marker is seeded at borrow time (interest starts the next day), left
+  untouched when adding to an existing loan, and cleared on full repayment.
+- An orange "Loan interest accrued: +N cr" banner (mirroring the daily
+  interest banner) shows whenever a visit applies interest; the borrow
+  panel copy, the live borrow hint, and the borrow success message all
+  now disclose "+4.5% up front, then 2%/day".
+- Verified by simulation (PHP CLI): a 1,000-cr borrow parked in the bank
+  is now ~700 cr NET NEGATIVE after 30 days instead of pure profit.
+
+STOCK EXCHANGE: MEAN REVERSION + TWO-SIDED CRED (stockex.php)
+CRED's price driver was strictly positive every tick (+0.2% minimum, up to
++1.0%) and the drift loop had no mean reversion or ceiling — since sell
+payouts are minted with no counterparty, buy-and-hold CRED compounded into
+an unbounded credit printer.
+- New SX_ANCHORS const: each ticker's original listing price, now the single
+  source of truth for both fresh-install seeding and reversion (the seed
+  array previously duplicated these prices).
+- Drift loop applies mean reversion every tick: pct -= 0.02 * (price-anchor)/
+  anchor. Self-limiting both directions — a sustained max-boost CRED now
+  equilibrates ~+25% above anchor (simulated), the worst-case ticker (GRDX
+  at implausible sustained max volume) is bounded at ~3x anchor, and a
+  crashed ticker gets an equivalent lift back toward its anchor.
+- CRED's boost is now two-sided: min(0.008, bankSum/50M * 0.01) - 0.003 —
+  positive only when citywide banked wealth exceeds ~15M cr, gently negative
+  below. Its "why it's moving" reason text, detail-page trend blurb, and
+  the Total Banked Wealth stat's good/bad coloring all updated to match
+  (they previously promised a perpetual climb).
+Both files pass php -l. Live price behavior not browser-verified (no
+browser/DB here) — the drift math was verified by standalone simulation.
+
+--- SESSION: 2026-07-01 BATCH-69 ---
+
+FULL-CODEBASE BUG & DEAD-CODE AUDIT (third full pass, after BATCH-28 and
+BATCH-52/54)
+------------------------------------------------------
+Seven parallel read-only audits across every page + all root endpoints +
+lib.php, findings verified against the code and past batches, then fixed.
+A portable PHP 8.3 CLI was fetched solely to `php -l` every file (there is
+no PHP on this box); all files pass. No live-browser verification was
+possible, so JS/timing changes are noted as such.
+
+[COMBAT / PROGRESSION]
+- pvp.php challenge handler: a direct Arena POST (or the profile "Attack"
+  link) bypassed every "never attackable" protection the Target Search tab
+  advertises — you could attack game staff, banned accounts, jailed ghosts,
+  and active Commerce Accord merchants (who are combat-locked and so could
+  be farmed with no retaliation). Enforcement existed only in the search
+  display code. Added the same four hard exclusions (staff role, banned,
+  active jail_records, is_merchant) to the actual challenge handler.
+- pvp.php: Speed had NO effect on dodge despite the Stats tab and
+  training.php both selling it as governing dodge chance — dodge was a flat
+  8%. Dodge now scales with the attacker/defender Speed gap, bounded 3–25%,
+  applied per swing to whichever side is defending.
+- sim.php (Combat Sim): a killed enemy still landed its final counter-blow
+  — the enemy's strike was applied unconditionally before the dead-check, so
+  every win charged the player an extra round of damage (could flatline you
+  on the killing blow). Guarded with `if ($eHp > 0)`, matching pvp.php.
+- foundry.php: XP was shown on both Scrap Run result cards and Fabrication
+  recipe cards but NEVER granted (same class of bug BATCH-65 fixed for
+  transit). Now grants the accrued Scrap Run XP and each craft's xp_reward
+  via grant_xp(). Also added the missing `WHERE venue='foundry'` filter on
+  the scrap loot pool (schema_transit.sql documents it) so transit-only ore
+  no longer leaks into foundry crates.
+- pvp.php / lounge.php flash styling: success messages ("Stat point spent!",
+  "Search saved", blacklist add/remove, and lounge's "stronger buff active"
+  rejection) were rendering in the red error style. Now classed correctly.
+  pvp.php also had double-escaped $msg (built with e() then output through
+  e() again) — output is now raw, with build-time escaping verified on every
+  path.
+
+[ECONOMY / WORLD]
+- guilds.php: 1-credit donations granted 1 guild XP (a `max(1,amt/100)`
+  floor) — 100× the intended 100-cr-per-XP rate, so scripted micro-donations
+  leveled a syndicate for ~1% of the intended cost. Removed the floor.
+- guilds.php stockpile-give and armoury-loan were check-then-act with no
+  transaction: concurrent requests could duplicate a given item or turn one
+  physical armoury item into two live loans. Both now claim their rows
+  FOR UPDATE inside a transaction and re-check availability under the lock.
+- guilds.php: a syndicate leader could never leave or hand off — the "leave"
+  error told leaders to "transfer or be demoted" but no transfer mechanism
+  existed, and a leader whose subscription lapsed (locked syndicate) trapped
+  their co-leaders in a total deadlock (every action blocked, leave throws,
+  can't be demoted). Added a `transfer_leader` action (leader → member/
+  co-leader; old leader steps down to co-leader), allowed even while locked
+  so a subbed member can be promoted to unlock the syndicate. New "Make
+  Leader" control on the Members tab and a transfer form in the locked panel.
+- apartments.php rental contracts: multiple check-then-act races fixed —
+  double-accepting one offer (perk applied twice, revoked once = permanent
+  stat gain), the global lazy-expiry sweep double-revoking a perk (permanent
+  stat LOSS), accepting two different offers into stacked perks, and two
+  first-buys both claiming primary residence. All now claim status inside the
+  transaction with a rowCount gate / FOR UPDATE lock. Decor placement gained
+  a server-side duplicate guard (was client-only).
+- apartments.php RENTAL PERK BUG (paid-for-nothing): renting an XP/Foundry/
+  Bank-perk apartment wrote its bonus to `apt_*_bonus_rent:` settings keys
+  that NO reader consumed — renters paid the lump sum and got nothing while
+  the offer UI promised "50% of +X% XP". The three readers (lib.php grant_xp,
+  foundry.php scrap bonus, ledger.php interest) now sum the owned-perk key
+  AND the rental key, so rental perks actually apply. (Stat-type rental perks
+  already worked — they write columns directly.)
+- vats.php ↔ synth.php herb duplication: harvest did an unlocked read-modify-
+  write of the vat_herbs JSON blob while synth's brew locks it FOR UPDATE, so
+  a brew + harvest race could overwrite the brew's herb consumption (free
+  potions / infinite herbs). Harvest now takes the same FOR UPDATE lock.
+- stockex.php: `stocks.price` is INT with a price floor but no ceiling — a
+  runaway drift past 2.1B threw on UPDATE and silently killed the whole drift
+  tick. Added a 2B ceiling (crash guard only — the drift/boost formula itself
+  is unchanged; see the CRED note under KNOWN/DEFERRED). Also: `trend` was
+  always written 0 (MySQL evaluates the SET left-to-right so SIGN() saw the
+  new price) and the column is never rendered — dropped the dead write. Quote-
+  poll setInterval now bound-once (was stacking pollers across AJAX swaps).
+- ledger.php / bazaar.php / cityhall.php / welfare.php / generalstore.php /
+  exchange.php: removed a dead withdraw-"all" branch; empty/zero bazaar buy
+  qty now errors instead of silently buying the whole stack; cryo freeze
+  gained a 30-day ceiling (was unbounded via crafted POST); welfare
+  eligibility off-by-one (`<=` gave 31 days) fixed to exactly 30; general
+  store "not enough" error showed the ◆ shard symbol for a credit cost (now
+  "cr"); exchange removed a dead no-JS "pull" handler and corrected two
+  "double Shards" copy lines to the real 0–10-vs-0–6 range.
+- awards.php: the "Combat Wins" leaderboard counted combat_log (PvE Sim log)
+  instead of pvp_log, so it excluded all PvP wins and disagreed with the same
+  player's profile — the exact combat_log→pvp_log fix BATCH-20/21 applied
+  elsewhere but missed here. Now counts pvp_log.
+- boards.php: posting a reply lit up the board index as "NEW" to the author
+  themselves (their own reply bumped last_post_at but only stamped their read
+  marker in the topic/board views). Reply now stamps the author's topic_reads
+  and board_reads.
+- tickets.php: replying to a CLOSED ticket silently reopened it (status
+  forced to pending unconditionally); closed tickets now stay closed on reply
+  (staff reopen explicitly via setstatus). The staff new-ticket counter is now
+  an atomic increment instead of read-then-write.
+
+[SECURITY / AUTH]
+- The 'banned' role was enforced NOWHERE — a banned account logged in and
+  played normally, and staff couldn't even assign the role (it was missing
+  from the admin editor whitelist). Added: login.php refuses a banned account
+  after password check; index.php tears down the session and redirects if a
+  loaded player is banned (backstops mid-session bans / DB edits); 'banned'
+  added to the admin role editor whitelist and select.
+- admin.php DAILY RESET was broken: the pre-reset summary query used an
+  unbackticked reserved word `signal`, throwing before the reset ran, so the
+  manager "Trigger Daily Reset" button only ever showed a SQL error. Backticked.
+- chat_api.php: jailed players could still post to chat through this
+  standalone endpoint (index.php only blocks jailed players from in-page
+  actions). Added a jail check to the 'say' path (read polls untouched).
+- login.php / landing.php: the login lockout settings key could overflow
+  settings.k VARCHAR(48) for long emails (fatal or silent cross-user lockout)
+  — now a fixed-length hashed key. Signup verification had no brute-force cap
+  on the 6-digit code (added an 8-attempt limit) and an ON DUPLICATE KEY
+  hijack where a second email could overwrite a pending signup's reserved
+  handle (now rejected).
+- players_search.php: LIKE metacharacters in the query weren't escaped, so
+  ?q=% enumerated all players 10 at a time — now escaped, matching admin_api.
+
+[DEAD CODE REMOVED]
+- lib.php: country_flag() (superseded by flag_img()), card_svg(),
+  card_back_svg() (leftover from the retired standalone card tables) — all
+  0 callers repo-wide.
+- admin.php: the Server Overview leftovers BATCH-68 left behind — 11 unused
+  $hubStats aggregates (kept only online_now), the $signupSeries builder, and
+  the #adm-spark sparkline JS (its canvas no longer exists). Also: admin email
+  edits are now written to admin_log (were applied but not logged).
+- account.php: the orphaned handle-rename validation JS + no-op `handle`
+  action stub (the rename UI was retired; ID Registry is the single path).
+- state_api.php: the `mortality` column fetched into every online-list query
+  and JSON but never consumed. Also FIXED the first-ever Drive regen tick
+  computing ticks from epoch (floor(time()/300) ≈ millions) and instantly
+  maxing a new/old player's Drive — now seeds the timer and grants nothing.
+- apartments.php $REGIONS, vats.php orphan #vhud-creds/#vhud-drive HUD sync,
+  daemon.php $bjResult, auction.php dead $itemName POST read + its unreachable
+  validation, style.css orphan .profile-hero/.profile-name/.profile-bio/
+  .prof-section/.prof-flag (reverted-redesign leftovers), config.sample.php
+  dead require_login().
+
+[JS LIFECYCLE LEAKS FIXED]
+- player_ac.js: the document click-to-close handler was re-added on every
+  attach() and never removed (accumulated across AJAX navs) — now bound once
+  with a shared instance list. library.php expandable-card document listener
+  and weaponcraft.php + stockex.php rAF/poll loops now guard against
+  double-binding / detached-node execution on AJAX revisits.
+
+[DEPLOY]
+- config.sample.php now defines SESSION_TIMEOUT (index.php references it; it
+  lived only in the gitignored production config.php, so a fresh deploy from
+  the sample fataled on the undefined constant).
+
+[EQUIP LEVEL-GATE — both entry points]
+- stash.php AND weaponcraft.php: the gear level requirement was enforced only
+  for the catalog each page "owned" — stash checked only Blacksmith rows (so
+  Fabrication Lab gear equipped at any level), and weaponcraft's Arsenal tab
+  checked only Fabrication recipes (so Blacksmith gear equipped at any level).
+  A Level-1 player could equip Level-100 gear via the other page. Both now
+  resolve the level requirement from BOTH catalogs.
+
+[NOT FIXED — flagged for a decision, see KNOWN DEFERRED below]
+CRED-stock inflation, the free-loan arbitrage, the equipped-id ambiguity, the
+orphan collectibles table, and optimistic pre-response success FX were all
+found and deliberately left for the user (balance calls / unverifiable-blind
+data-format changes).
+
 --- SESSION: 2026-07-01 BATCH-68 ---
 
 BUGFIX — DAEMON.PHP SPIN/ROLL RESULT-BEFORE-REVEAL (6th report, new root

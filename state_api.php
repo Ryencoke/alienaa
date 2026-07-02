@@ -16,16 +16,20 @@ try {
   $regenKey = 'drive_regen_at:' . $p['id'];
   $rq = $pdo->prepare('SELECT v FROM settings WHERE k=?'); $rq->execute([$regenKey]);
   $lastRegen = (int)($rq->fetchColumn() ?: 0);
-  $ticks = (int)floor((time() - $lastRegen) / 300); // 1 tick per 5 min
-  if ($ticks > 0 && (int)$p['cycles'] < $driveCap) {
-    $add = min($ticks, $driveCap - (int)$p['cycles']);
-    $pdo->prepare('UPDATE players SET cycles = LEAST(?, cycles + ?) WHERE id=?')->execute([$driveCap, $add, $p['id']]);
-    $newLastRegen = $lastRegen + ($ticks * 300);
-    $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute([$regenKey, (string)$newLastRegen]);
-    $p = current_player();
-  } elseif ($lastRegen === 0) {
-    // First time: seed the timer
+  if ($lastRegen <= 0) {
+    // No prior timestamp: seed the timer to now and grant nothing this tick.
+    // (Computing ticks from epoch here would floor(time()/300) into the
+    // millions and instantly max Drive on the very first poll.)
     $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute([$regenKey, (string)time()]);
+  } else {
+    $ticks = (int)floor((time() - $lastRegen) / 300); // 1 tick per 5 min
+    if ($ticks > 0 && (int)$p['cycles'] < $driveCap) {
+      $add = min($ticks, $driveCap - (int)$p['cycles']);
+      $pdo->prepare('UPDATE players SET cycles = LEAST(?, cycles + ?) WHERE id=?')->execute([$driveCap, $add, $p['id']]);
+      $newLastRegen = $lastRegen + ($ticks * 300);
+      $pdo->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute([$regenKey, (string)$newLastRegen]);
+      $p = current_player();
+    }
   }
   // Enforce cap if sub expired and cycles over 500
   if (!is_subscribed($p) && (int)$p['cycles'] > 500) {
@@ -37,30 +41,30 @@ try {
 $online = ['friends'=>[], 'syndicate'=>[], 'staff'=>[]];
 // Friends online
 try {
-  $oq1 = $pdo->prepare("SELECT p.id, p.username, p.role, p.chat_color, COALESCE(p.mortality,0) AS mortality
+  $oq1 = $pdo->prepare("SELECT p.id, p.username, p.role, p.chat_color
     FROM friends f JOIN players p ON p.id = f.friend_id
     WHERE f.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
     ORDER BY p.username LIMIT 30");
   $oq1->execute([$p['id']]);
-  foreach ($oq1 as $o) $online['friends'][] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],''),'mortality'=>(int)$o['mortality']];
+  foreach ($oq1 as $o) $online['friends'][] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],'')];
 } catch (Throwable $e) {}
 // Syndicate members online
 try {
-  $oq2 = $pdo->prepare("SELECT p.id, p.username, p.role, p.chat_color, COALESCE(p.mortality,0) AS mortality
+  $oq2 = $pdo->prepare("SELECT p.id, p.username, p.role, p.chat_color
     FROM syndicate_members sm1
     JOIN syndicate_members sm2 ON sm2.syndicate_id=sm1.syndicate_id AND sm2.player_id != ?
     JOIN players p ON p.id = sm2.player_id
     WHERE sm1.player_id = ? AND p.last_seen >= (NOW() - INTERVAL 5 MINUTE)
     ORDER BY p.username LIMIT 30");
   $oq2->execute([$p['id'], $p['id']]);
-  foreach ($oq2 as $o) $online['syndicate'][] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],''),'mortality'=>(int)$o['mortality']];
+  foreach ($oq2 as $o) $online['syndicate'][] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],'')];
 } catch (Throwable $e) {}
 // Staff online
 try {
-  $oq3 = $pdo->query("SELECT id, username, role, chat_color, COALESCE(mortality,0) AS mortality FROM players
+  $oq3 = $pdo->query("SELECT id, username, role, chat_color FROM players
     WHERE role IN ('manager','admin','moderator','chatmod') AND last_seen >= (NOW() - INTERVAL 5 MINUTE)
     ORDER BY username LIMIT 20");
-  foreach ($oq3 as $o) $online['staff'][] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],''),'mortality'=>(int)$o['mortality']];
+  foreach ($oq3 as $o) $online['staff'][] = ['id'=>(int)$o['id'],'name'=>$o['username'],'color'=>chat_color($o['role'],'')];
 } catch (Throwable $e) {}
 
 echo json_encode([

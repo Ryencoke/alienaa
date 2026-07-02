@@ -6,9 +6,24 @@
    ID" lookups keep working unchanged) and, if a confirm element is given, shows
    a small confirmed line with name + role + ID + level via players_search.php?lookup=. */
 window.PlayerAC = {
+  _instances: [],   // {input, list} pairs for every active autocomplete
+  _docBound: false, // ensures the document click handler is bound only once
   attach: function (input, list, opts) {
     if (!input || !list) return;
     opts = opts || {};
+
+    // Bind the outside-click-to-close handler on document ONCE. Previously this
+    // was added on every attach() call and never removed, so under AJAX nav the
+    // listeners accumulated. Now a single handler iterates all live instances.
+    if (!PlayerAC._docBound) {
+      PlayerAC._docBound = true;
+      document.addEventListener('click', function (e) {
+        PlayerAC._instances.forEach(function (inst) {
+          if (!inst.input.contains(e.target) && !inst.list.contains(e.target)) inst.list.style.display = 'none';
+        });
+      });
+    }
+    PlayerAC._instances.push({ input: input, list: list });
     var confirmEl = opts.confirm || null;
     var cur = -1, items = [];
 
@@ -71,6 +86,5 @@ window.PlayerAC = {
         if (q.length > 0) setConfirm(q); else if (confirmEl) { confirmEl.style.display = 'none'; }
       }, 120);
     });
-    document.addEventListener('click', function (e) { if (!input.contains(e.target) && !list.contains(e.target)) list.style.display = 'none'; });
   }
 };

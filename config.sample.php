@@ -10,6 +10,16 @@ define('DB_NAME', 'sprawl9');            // your database name
 define('DB_USER', 'your_db_user');       // your database user
 define('DB_PASS', 'your_db_password');   // your database password
 
+// Idle auto-logout window, in seconds. index.php reads this (warns 5 min before,
+// forces logout at the limit). Kept here so a fresh deploy from this sample
+// doesn't fatal on the undefined constant. 1800 = 30 minutes.
+define('SESSION_TIMEOUT', 1800);
+
+// Shared secret for cron.php (optional scheduled bulk maintenance). Set this to
+// a long random string and pass it as ?token=... The game self-heals lazily
+// even without cron, so this is optional; leave it '' to disable cron.php.
+define('CRON_TOKEN', '');
+
 function db() {
   static $pdo = null;
   if ($pdo === null) {
@@ -30,10 +40,6 @@ function current_player() {
   $stmt = db()->prepare('SELECT * FROM players WHERE id = ?');
   $stmt->execute([$_SESSION['pid']]);
   return $stmt->fetch() ?: null;
-}
-
-function require_login() {
-  if (!current_player()) { header('Location: index.php?p=login'); exit; }
 }
 
 function e($s) { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }

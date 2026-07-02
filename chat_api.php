@@ -41,6 +41,14 @@ $action = $_POST['action'] ?? $_GET['action'] ?? 'list';
 $room   = resolve_room((string)($_POST['room'] ?? $_GET['room'] ?? 'public'), $player, $pdo);
 
 if ($action === 'say' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+  // Jail check — index.php blocks jailed players from in-page actions, but this
+  // standalone endpoint needs its own guard or a jailed player can still post.
+  // Only gates the state-changing 'say' path, not read polls (list/active).
+  try {
+    $jq = $pdo->prepare("SELECT 1 FROM jail_records WHERE player_id=? AND status='active' AND release_at > NOW() LIMIT 1");
+    $jq->execute([$player['id']]);
+    if ($jq->fetchColumn()) { echo json_encode(['ok' => false, 'error' => 'Account suspended.']); exit; }
+  } catch (Throwable $e) {}
   $body = trim($_POST['body'] ?? '');
   if ($body === '') { echo json_encode(['ok' => false, 'error' => 'empty']); exit; }
   if (mb_strlen($body) > 240) $body = mb_substr($body, 0, 240);

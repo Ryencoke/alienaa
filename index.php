@@ -2,6 +2,12 @@
 require 'config.php';
 require 'lib.php';
 
+// Safety fallbacks for config constants that may predate an older config.php
+// (config.sample.php defines these; a live config.php from before they existed
+// would otherwise fatal the whole site on the pages that use them).
+if (!defined('SESSION_TIMEOUT')) define('SESSION_TIMEOUT', 1800);
+if (!defined('CRON_TOKEN'))      define('CRON_TOKEN', '');
+
 // ── Site password gate ──────────────────────────────────────────────────────
 $SITE_PASSWORD = 'durpin';
 if (!empty($_POST['__site_pw'])) {
@@ -81,6 +87,16 @@ if ($isImpersonating && !empty($_SESSION['role_override']) && $player && $realPl
   $ovRank   = $rank[$_SESSION['role_override']] ?? 0;
   $player['role'] = ($ovRank <= $realRank) ? $_SESSION['role_override'] : ($realPlayer['role'] ?? 'member');
 }
+// Banned enforcement — backstops accounts banned mid-session or via DB edit.
+// Mirrors logout.php's teardown. Skipped while a staff member is impersonating
+// so an admin can still open (and unban) a banned account.
+if ($player && !$isImpersonating && ($player['role'] ?? '') === 'banned') {
+  session_unset();
+  session_destroy();
+  if (!headers_sent()) header('Location: index.php?p=login');
+  echo '<script>location.replace("index.php?p=login");</script>';
+  exit;
+}
 // Jail check
 $jailRecord = null;
 if ($player) {
@@ -128,19 +144,25 @@ if ($player) {
     if ($sbRaw !== false && $sbRaw !== '') $sbBars = array_filter(explode(',', $sbRaw));
   } catch (Throwable $e) {}
 }
-// Daily reset — lazy-eval on first page load of a new Mountain Time day
+// Daily reset — lazy-eval on first page load of a new Mountain Time day.
+// The claim is ATOMIC: ensure the marker row exists, then flip it to today
+// only if it wasn't already today (rowCount()===1 means WE won the claim).
+// Two concurrent loads at the day rollover can no longer both apply the reset
+// (which previously double-granted +250 Drive and double-decayed skills).
 if ($player && !$isImpersonating) {
   try {
     $__mtDate = (new DateTime('now', new DateTimeZone('America/Denver')))->format('Y-m-d');
     $__drKey  = 'daily_reset:' . $player['id'];
-    $__drQ    = db()->prepare('SELECT v FROM settings WHERE k=?'); $__drQ->execute([$__drKey]);
-    if ($__drQ->fetchColumn() !== $__mtDate) {
+    db()->prepare('INSERT IGNORE INTO settings (k,v) VALUES (?,?)')->execute([$__drKey, '']);
+    $__claim = db()->prepare('UPDATE settings SET v=? WHERE k=? AND v<>?');
+    $__claim->execute([$__mtDate, $__drKey, $__mtDate]);
+    if ($__claim->rowCount() === 1) {
       $__driveCap = is_subscribed($player) ? 1500 : 500;
       db()->prepare('UPDATE players SET integrity = integrity_max, `signal` = signal_max,
         cycles = LEAST(?, cycles + 250) WHERE id = ?')->execute([$__driveCap, $player['id']]);
-      // Skillsoft decay: flat -1 per skill per day, floored at 0
+      // Skillsoft decay: flat -1 per skill per day, floored at 0 (must match
+      // admin.php trigger_reset and cron.php exactly, or the paths disagree).
       db()->prepare('UPDATE player_skills SET points = GREATEST(0, points - 1) WHERE player_id = ?')->execute([$player['id']]);
-      db()->prepare('INSERT INTO settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)')->execute([$__drKey, $__mtDate]);
       $player = current_player();
     }
   } catch (Throwable $e) {}

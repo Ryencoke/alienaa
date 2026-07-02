@@ -1,0 +1,4 @@
+[Updates.php] - Have the "Thanks to" search for players and then have it link to their profile.
+[Guilds.php] - Don't allow stockpile items to be loaned. Only weapons/armor. I also want players to get a new notification to their hideout when they've got an item being lent or retracted from their account.
+[Admin.php] - Remove the "Records Hall" information on the main page and make this the "latest staff actions" area. Then have the ability to view the changes on a details page if we want more information . Sort areas based on the applicability for their staff title (manager, admin...etc)
+[bazaar.php] - Remove the no trades yet moving text.

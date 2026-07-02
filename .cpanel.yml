@@ -9,6 +9,11 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home/ixv3yw83owgs/public_html/
-    - /bin/cp -R index.php chat_api.php state_api.php admin_api.php lib.php config.sample.php style.css .user.ini $DEPLOYPATH
+    # Copy ALL root PHP — the entry point, every *_api.php endpoint, and the
+    # *_engine.php files the new interactive pages require_once. A hardcoded
+    # file list here had gone stale (missing the engines + several APIs), which
+    # would fatal those pages on deploy. config.php is gitignored so it isn't in
+    # the repo checkout — the server's real config.php is never overwritten.
+    - /bin/cp -R *.php *.js style.css .user.ini favicon.svg $DEPLOYPATH
     - /bin/cp -R pages $DEPLOYPATH
     - /bin/cp -R *.sql $DEPLOYPATH

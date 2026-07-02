@@ -70,14 +70,26 @@ auction.php       → Black Market Auctions; timed listings
 stash.php         → Inventory / loadout; equip/unequip items
 ledger.php        → Bank: deposit/withdraw/transfer credits; bank interest
 trade.php         → Secure Trade Post: escrow trades (items+credits+shards), direct transfer
-pvp.php           → Combat Arena: PvP fights using str/spd/end stats; Target Search tab
-                    (level/HP%/alignment/syndicate filters, up to 5 saved searches,
-                    attack directly from results) + a Blacklist of specific ghosts
-                    always shown regardless of search filters
+pvp.php           → Combat Arena: INTERACTIVE PvP on combat_engine.php — the
+                    defender is AI-driven with a temperament derived from their
+                    real build (STR=Brawler/SPD=Stalker/END=Sentinel/balanced=
+                    Juggernaut; scouting matters) and telegraph read-clarity set
+                    by the SPD gap (Speed's combat role — the old dodge roll is
+                    gone). Guarded 10% pocket loot on decisive outcomes only
+                    (flee/stalemate move no credits). Target Search tab
+                    (filters, 5 saved searches, attack from results) + Blacklist
 training.php      → Neural Training: spend Drive to gain STR/SPD/END; 30min cooldown
 datacore.php      → Skillsoft Lab: spend Drive on skills (combat, stealth, hack, etc.)
 mining.php        → The Sump: interactive cave crawler; proc-gen 5-depth mines; WASD/click movement; fog of war; ore harvesting costs Drive; Drone Ops skill gates depth access
-guilds.php        → Syndicates: create/join guilds, board, stockpile, log, applications, treasury (credit donations + battle-XP tithe). Guilds level up from accrued XP (credit donations, new members, and members' pledged battle XP); cumulative XP-to-level = 250*L*(L-1), see lib.php syn_grant_xp()/syn_xp_for_level()
+guilds.php        → Syndicates: create/join guilds, board, stockpile, log, applications, treasury (credit donations + battle-XP tithe). Guilds level up from accrued XP (credit donations, new members, and members' pledged battle XP); cumulative XP-to-level = 250*L*(L-1), see lib.php syn_grant_xp()/syn_xp_for_level().
+                    TERRITORY tab: claim/hold/contest 8 Sprawl districts. Held
+                    districts accrue a credit tithe + regenerate fortification;
+                    rivals ASSAULT the district garrison in interactive combat
+                    (combat_engine) until fortification breaks and control flips;
+                    Vault Keeper reinforces (guild bank) + collects the tithe.
+                    Pure rules in root territory_engine.php (headless-tested);
+                    syndicate_territory/territory_log tables; city.php shows a
+                    read-only control board.
 boards.php        → Public message boards (topics + replies)
 tickets.php       → Support ticket system
 admin.php         → Staff hub (sub-pages via ?sec=)
@@ -97,9 +109,50 @@ cityhall.php      → City Hall hub
 library.php       → Item/skill reference; weapons/armor tabs list both Blacksmith
                     (bought) and Fabrication Lab (crafted, ore cost shown) gear live
                     from their catalogs; Materials tab includes the 7 mining ore types
-transit.php       → The Loading Docks: 3-checkpoint interactive cargo runs (Push
-                    Through/Play It Safe/Scan & Reroute choices shift risk+payout
-                    per leg) + Tunnel Mining (Drive-gated ore digs)
+transit.php       → The Loading Docks: THE SWITCHYARD — top-down canvas cargo
+                    game (pilot a loader through a container yard, scoop tiered
+                    crates, dodge patrol drones on visible ping-pong beats;
+                    weight overload doubles drone speed; Dash/Hold/Jam toolkit;
+                    Scavenging/Drone Ops/Netrunning hooks) selling into a
+                    server-wide freight-demand market (settings key
+                    'transit_demand': per-district x0.60-1.60 multiplier that
+                    every delivery softens and time recovers — player-driven
+                    commons). Pure rules in root transit_engine.php (headless-
+                    testable). + Tunnel Mining (Drive-gated ore digs)
+thenet.php        → The Net: Grid Dive — Netrunning intrusion runs on a layered
+                    node-graph canvas: crack caches/crypto vaults (tier-gated by
+                    Cryptocracking)/the Core while ICE patrols walk and the
+                    TRACE clock climbs per action; bank at exit ports, eject
+                    keeps 40%, a full trace dumps loot + burns Signal; Netrunning
+                    grants cloaks + unlocks 3 DIVE DEPTHS (Perimeter/Corporate/
+                    Blacksite — bigger grids, more ICE, hotter loot, higher
+                    vault tiers; tier clamped server-side to Netrunning level),
+                    core banks can pay a Shard. Pure rules in root net_engine.php
+                    (NET_TIERS config; headless-tested).
+achievements.php  → Achievements: 36 tiered lifetime milestones (Bronze/Silver/
+                    Gold) across Combat/Industry/Netrunning/Reputation/
+                    Progression/Syndicate; one-time badge + credit/shard rewards,
+                    claimed with server-side re-verification + INSERT-gated
+                    one-time claim. Tracked via player_lifetime counters bumped
+                    inside lib.php contract_record() (the shared activity
+                    chokepoint) + derived level/net_worth/territory. Rules in
+                    root achievements_engine.php (headless-tested).
+bounties.php      → The Bounty Board: player-funded PvP contracts. Post credits
+                    on a rival (escrowed from pocket); whoever beats them in the
+                    Arena collects every standing bounty (lib.php
+                    bounty_settle_on_beat, hooked into pvp.php's win settle).
+                    Escrow-only (credits move, never mint); cancel = full
+                    refund. Marketplace w/ Hunt links, "bounty on you" warning,
+                    profile bounty badge. Rules in root bounty_engine.php
+                    (headless-tested; zero-sum invariant fuzzed).
+contracts.php     → The Contract Board: 3 daily cross-activity objectives (same
+                    set for everyone, rotating daily by md5(day:id)) that tick
+                    as you play — pve_win/pvp_win/ore_mined/cargo_delivered/
+                    net_dive/net_core/gear_forged/stim_brewed — and pay credits+
+                    XP on claim (atomic gate). Progress recorded via lib.php
+                    contract_record() hooks in sim/pvp/mining/transit/thenet/
+                    weaponcraft/synth. Rules in root contracts_engine.php
+                    (headless-tested); player_contracts table; home.php teaser.
 updates.php       → Game update announcements
 welcome.php       → New player welcome screen
 login.php         → Auth: handle/email + password login
@@ -108,10 +161,23 @@ landing.php       → Logged-out splash; the canonical signup flow (email-verifi
                     pending_signups + 6-digit code) — register.php is a thin
                     legacy redirect into this same flow, not a separate path
 jail.php          → Confinement Grid (admin/staff tool — detain/release, reasons, days)
-sim.php           → Combat Sim: solo PvE fights vs NPC enemies (tiers, loot)
+sim.php           → Combat Sim: INTERACTIVE turn-based PvE — enemy telegraphs
+                    its move each round (honesty scales w/ tier + Combat skill),
+                    player answers Strike/Guard/Feint/Burst/Stim/Flee; stamina
+                    economy, stagger/interrupt/open mechanics, enemy
+                    temperaments, mid-fight Patch-Kit stims. Fight HP =
+                    integrity×5 ("construct integrity"). Pure rules in root
+                    combat_engine.php (headless-tested; shaped for a future
+                    pvp.php port). Tiers, loot, rewards unchanged.
 blacksmith.php    → The Forge: craft weapons/armor from ore into player_gear (one-of-each)
-weaponcraft.php   → Fabrication Lab: craft weapons/armor into player_gear (stockpilable,
-                    for guild armoury donation)
+weaponcraft.php   → Fabrication Lab: FORGE MINIGAME (heat-and-strike, decision-
+                    based) rolls a QUALITY grade (Flawed→Masterwork, 80-125%,
+                    widened by Fabrication skill) on crafted weapons/armor.
+                    Stats are stored quality-scaled (+ a quality label), so
+                    combat/armoury/trade are quality-aware with no reader
+                    changes — quality gear is premium armoury/trade goods.
+                    Stockpilable for guild armoury donation. Pure rules in root
+                    forge_engine.php (headless-tested).
 lounge.php        → Stim bar: buy/administer combat buffs (atk/def, timed)
 generalstore.php  → The Supply Node (item shop — consumables/collectibles)
 awards.php        → Player awards/badges showcase
@@ -191,8 +257,26 @@ IMPORTANT PATTERNS
 - Escrow pattern (trade.php): credits/shards/items deducted from proposer on propose,
   returned on cancel/reject, transferred on accept — all in a DB transaction.
 - state_api.php: polled by JS every 4s; returns online list, chat messages, notifications.
-- Daily reset: triggered manually via admin panel (manager only) or runs via cron;
-  restores Health/Signal, adds +250 Drive up to cap (500 non-sub / 1500 sub).
+- transit_engine.php (root): pure game logic for the Switchyard — no DB/session/
+  output, so a CLI harness can fuzz the full rule set headlessly. The shared
+  freight-demand pool lives in settings k='transit_demand' (global JSON, only
+  written under SELECT...FOR UPDATE inside the delivery transaction).
+- combat_engine.php / net_engine.php (root): same pure-engine pattern for the
+  interactive Combat Sim (telegraph/stamina combat, fight HP = integrity×5,
+  shaped for a future pvp.php port) and The Net grid dives (trace clock, ICE,
+  vault tiers). ALL new interactive games follow this recipe: pure engine +
+  CLI harness proof first, then the page wires session/AJAX/Drive/payouts.
+- Daily reset: restores Health/Signal, adds +250 Drive up to cap (500 non-sub /
+  1500 sub), decays each skill -1. Runs THREE ways, all sharing the
+  daily_reset:{id} settings marker (Mountain Time) so none can double-apply:
+  (1) LAZY per-player on page load (index.php — atomic claim: INSERT IGNORE
+  then UPDATE ... WHERE v<>today); (2) cron.php — token-guarded, idempotent
+  bulk reset for a real cron, also refreshes OFFLINE players; (3) admin panel
+  manual trigger (manager only). The game is otherwise lazy-accrual throughout
+  (interest, Drive regen, territory, apartments, bonds) — cron is optional.
+- Territory holder perk: each district a syndicate controls grants members
+  +2% ATK/DEF in combat (cap +10%), via lib.php syn_territory_combat_mult();
+  applied in pvp/sim/territory assaults, shown on the guild Territory tab.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WHAT WE ARE DOING (ONGOING WORK)
@@ -206,6 +290,26 @@ Typical session workflow:
 2. Changes are implemented across relevant pages
 3. CHANGELOG.txt is updated
 4. Changes are committed to git
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECENTLY COMPLETED (2026-07-01 BATCH-69)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Third full-codebase bug & dead-code audit (seven parallel reviewers, all
+  findings verified and php -l'd). Highlights: pvp.php challenge handler now
+  enforces the staff/banned/jailed/merchant "never attackable" rules that were
+  previously only in the search UI; Speed now actually affects dodge; sim.php
+  no longer lets a dead enemy land a final blow; foundry.php now grants the XP
+  it advertises (+ venue filter on scrap loot); rental apartment XP/Foundry/
+  Bank perks are finally read (were written to keys nothing consumed); a raft
+  of check-then-act races closed (guild stockpile/loan, apartment accept/
+  expiry/buy, vats↔synth herb dup); guild leaders can now transfer leadership
+  (fixes the locked-syndicate co-leader deadlock); the 'banned' role is now
+  actually enforced (login + index + admin editor); admin daily-reset button
+  fixed (unbackticked `signal`); jailed players can no longer post via
+  chat_api; signup/login hardened; awards Combat Wins counts pvp_log; plus
+  ~15 dead-code removals and JS lifecycle-leak guards. Full detail in
+  CHANGELOG.txt BATCH-69. Five items were deliberately NOT changed and flagged
+  for a decision — see KNOWN DEFERRED / PENDING below.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RECENTLY COMPLETED (2026-07-01 BATCH-68)
@@ -306,3 +410,25 @@ KNOWN DEFERRED / PENDING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - guilds.php: extra Drive bonus for syndicate members when leader is subscribed
   (requires daily reset changes)
+
+- FLAGGED IN BATCH-69 (found, deliberately not changed — need your call):
+  (items 1 & 2 — CRED stock printer and the free-loan arbitrage — were FIXED
+  in BATCH-70: stock mean reversion toward anchor prices + two-sided CRED
+  driver, and 2%/day compounding loan interest with lazy catch-up accrual)
+  3. Equipped-item id ambiguity (stash M2): equipped_weapon/armor settings store
+     a bare numeric id, and readers resolve player_gear before items — so a
+     player_gear row whose id collides with an items id in the same slot shows/
+     fights the wrong item. Real but narrow (all readers are consistent with each
+     other). The fix is a stored-format change (source prefix) across 5 reader
+     files + a data migration — not safe to land blind without a live DB/browser.
+  4. generalstore.php collectibles (data_spike, smoke_canister, burner_chip,
+     duct_tape): purchases go to an orphan player_general_items table nothing
+     else reads, so they're invisible/untradeable despite "Added to stash".
+     They have NO rows in the `items` table, so routing them to player_items
+     needs a schema/catalog decision: seed them as real items, or drop the
+     collectible category.
+  5. Optimistic success FX: bazaar/auction/blacksmith/generalstore/ledger/
+     stockex/exchange fire their success ceremony (receipt/"FILLED"/"FORGED")
+     on form submit, before the server responds — a rejected action still plays
+     a full success animation, then an error toast. Cosmetic; a broad ~7-page JS
+     change best done with a browser to verify.

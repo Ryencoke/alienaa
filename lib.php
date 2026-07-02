@@ -68,10 +68,32 @@ function ensure_player_gear_table(PDO $pdo): void {
       gear_type  ENUM(\'weapon\',\'armor\') NOT NULL,
       atk_bonus  INT NOT NULL DEFAULT 0,
       def_bonus  INT NOT NULL DEFAULT 0,
+      quality    INT NOT NULL DEFAULT 100,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       KEY idx_player (player_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    // Forge quality (Fabrication Lab minigame). atk_bonus/def_bonus are stored
+    // ALREADY scaled by quality/100, so combat/display need no changes — this
+    // column is the label. Idempotent add for tables created before BATCH-76.
+    try { $pdo->exec('ALTER TABLE player_gear ADD COLUMN quality INT NOT NULL DEFAULT 100'); } catch (Throwable $e) {}
   } catch (Throwable $e) {}
+}
+
+// Forge quality label + accent color for a stored gear quality percent.
+// Bands MUST match forge_engine.php's forge_grade().
+function gear_quality_label(int $q): string {
+  if ($q >= 118) return 'Masterwork';
+  if ($q >= 106) return 'Fine';
+  if ($q >= 96)  return 'Standard';
+  if ($q >= 88)  return 'Crude';
+  return 'Flawed';
+}
+function gear_quality_color(int $q): string {
+  if ($q >= 118) return '#e8d44d';
+  if ($q >= 106) return 'var(--accent)';
+  if ($q >= 96)  return 'var(--muted)';
+  if ($q >= 88)  return '#e8a33d';
+  return '#ff6b6b';
 }
 
 // Cosmetic ownership for the Chrome Boutique (boutique.php). Equipped state
@@ -131,13 +153,6 @@ function csrf_guard() {
     http_response_code(403);
     exit('Forbidden: cross-origin request blocked.');
   }
-}
-
-// Flag emoji from a 2-letter country code ('' if none/invalid).
-function country_flag($code) {
-  $code = strtoupper(trim((string)$code));
-  if (!preg_match('/^[A-Z]{2}$/', $code)) return '';
-  return mb_chr(127397 + ord($code[0]), 'UTF-8') . mb_chr(127397 + ord($code[1]), 'UTF-8');
 }
 
 // Gender icon: ♂ blue for male, ♀ pink for female, '' for unset.
@@ -219,6 +234,9 @@ function nav_links() {
     'messages' => ['Messages',       'index.php?p=messages'],
     'chat'     => ['Public Channel', 'index.php?p=chat'],
     'datacore' => ['Datacore',       'index.php?p=datacore&act=lab'],
+    'thenet'   => ['The Net',        'index.php?p=thenet'],
+    'contracts'=> ['Contracts',      'index.php?p=contracts'],
+    'achievements'=> ['Achievements', 'index.php?p=achievements'],
     'library'  => ['Library',        'index.php?p=library'],
     'account'  => ['Account',        'index.php?p=account'],
     'guilds'    => ['Syndicate',       'index.php?p=guilds'],
@@ -232,6 +250,7 @@ function nav_links() {
     'apartments'=> ['Apartments',      'index.php?p=apartments'],
     'training'  => ['Neural Training', 'index.php?p=training'],
     'pvp'       => ['Combat Arena',    'index.php?p=pvp'],
+    'bounties'  => ['Bounty Board',    'index.php?p=bounties'],
     'accord'    => ['Commerce Accord', 'index.php?p=accord'],
     'trade'     => ['Secure Trade',    'index.php?p=trade'],
   ];
@@ -803,8 +822,8 @@ function grant_xp(int $pid, int $amount): int {
   $pdo = db();
   if ($amount <= 0) return 0;
   try {
-    $bq = $pdo->prepare('SELECT v FROM settings WHERE k=?');
-    $bq->execute(["apt_xp_bonus:{$pid}"]);
+    $bq = $pdo->prepare('SELECT COALESCE(SUM(v),0) FROM settings WHERE k IN (?,?)');
+    $bq->execute(["apt_xp_bonus:{$pid}", "apt_xp_bonus_rent:{$pid}"]);
     $b = (int)$bq->fetchColumn();
     if ($b > 0) $amount = (int)ceil($amount * (1 + $b / 100));
   } catch (Throwable $e) {}
@@ -846,6 +865,174 @@ function player_guild_id(PDO $pdo, int $pid): int {
     $q->execute([$pid]);
     return (int)$q->fetchColumn();
   } catch (Throwable $e) { return 0; }
+}
+
+// ── Bounty Board (player-funded PvP contracts) ──
+function ensure_bounties_table(PDO $pdo): void {
+  try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS bounties (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      target_id INT NOT NULL, poster_id INT NOT NULL, amount BIGINT NOT NULL,
+      status ENUM('active','paid','cancelled') NOT NULL DEFAULT 'active',
+      killer_id INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, resolved_at DATETIME NULL,
+      KEY idx_target_status (target_id, status), KEY idx_poster (poster_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+  } catch (Throwable $e) {}
+}
+// Total active bounty pool on a target (0 if none / table absent).
+function bounty_pool_on(PDO $pdo, int $targetId): int {
+  try {
+    $q = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM bounties WHERE target_id=? AND status='active'");
+    $q->execute([$targetId]);
+    return (int)$q->fetchColumn();
+  } catch (Throwable $e) { return 0; }
+}
+// Resolve every active bounty on a target that was just beaten in the Arena by
+// $killerId — pays the killer, refunds the killer's own postings, closes them
+// all. Escrow-only (credits move, never mint). Non-fatal: never breaks the
+// fight that triggered it. Returns credits the killer collected. Notifies
+// funders whose bounty was collected. Requires bounty_engine.php.
+function bounty_settle_on_beat(PDO $pdo, int $targetId, int $killerId, string $killerName): int {
+  require_once __DIR__ . '/bounty_engine.php';
+  $collected = 0;
+  try {
+    $pdo->beginTransaction();
+    $bq = $pdo->prepare("SELECT id, poster_id, amount FROM bounties WHERE target_id=? AND status='active' FOR UPDATE");
+    $bq->execute([$targetId]);
+    $rows = $bq->fetchAll();
+    if (!$rows) { $pdo->commit(); return 0; }
+    $res = bounty_resolve($rows, $killerId);
+    $collected = $res['payout'] + $res['refund']; // all of it lands with the killer
+    if ($collected > 0) $pdo->prepare('UPDATE players SET creds_pocket = creds_pocket + ? WHERE id=?')->execute([$collected, $killerId]);
+    // Lifetime counter for the Bounty Hunter achievement — one per bounty
+    // actually PAID to the killer (their own refunded postings don't count).
+    if (!empty($res['paid_ids'])) lifetime_add($pdo, $killerId, 'bounty_collected', count($res['paid_ids']));
+    if ($res['paid_ids']) {
+      $in = implode(',', array_fill(0, count($res['paid_ids']), '?'));
+      $pdo->prepare("UPDATE bounties SET status='paid', killer_id=?, resolved_at=NOW() WHERE id IN ($in)")
+          ->execute(array_merge([$killerId], $res['paid_ids']));
+    }
+    if ($res['refund_ids']) {
+      $in = implode(',', array_fill(0, count($res['refund_ids']), '?'));
+      $pdo->prepare("UPDATE bounties SET status='cancelled', resolved_at=NOW() WHERE id IN ($in)")
+          ->execute($res['refund_ids']);
+    }
+    $pdo->commit();
+    // Tell each funder their bounty was collected (best-effort).
+    if ($res['paid_ids']) {
+      try {
+        ensure_player_notifications_table($pdo);
+        $fq = $pdo->prepare("SELECT poster_id, amount FROM bounties WHERE id IN (" . implode(',', array_fill(0, count($res['paid_ids']), '?')) . ")");
+        $fq->execute($res['paid_ids']);
+        $ins = $pdo->prepare("INSERT INTO player_notifications (player_id, type, body) VALUES (?, 'info', ?)");
+        foreach ($fq as $f) {
+          $ins->execute([(int)$f['poster_id'], 'Your ' . number_format((int)$f['amount']) . '-credit bounty was collected — ' . e($killerName) . ' beat the mark in the Arena.']);
+        }
+      } catch (Throwable $e) {}
+    }
+  } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    return 0;
+  }
+  return $collected;
+}
+
+// ── Contract Board (daily cross-activity objectives) ──
+function ensure_player_contracts_table(PDO $pdo): void {
+  try {
+    $pdo->exec('CREATE TABLE IF NOT EXISTS player_contracts (
+      player_id INT NOT NULL, day DATE NOT NULL, contract_id VARCHAR(24) NOT NULL,
+      progress INT NOT NULL DEFAULT 0, claimed TINYINT NOT NULL DEFAULT 0,
+      PRIMARY KEY (player_id, day, contract_id), KEY idx_pd (player_id, day)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+  } catch (Throwable $e) {}
+}
+function contracts_mt_date(): string {
+  return (new DateTime('now', new DateTimeZone('America/Denver')))->format('Y-m-d');
+}
+
+// ── Lifetime activity counters (power the Achievements system) ──
+function ensure_player_lifetime_table(PDO $pdo): void {
+  try {
+    $pdo->exec('CREATE TABLE IF NOT EXISTS player_lifetime (
+      player_id INT NOT NULL, stat VARCHAR(24) NOT NULL, value BIGINT NOT NULL DEFAULT 0,
+      PRIMARY KEY (player_id, stat)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+  } catch (Throwable $e) {}
+}
+// Add to a player's lifetime counter (never decreases). Non-fatal.
+function lifetime_add(PDO $pdo, int $pid, string $stat, int $amount = 1): void {
+  if ($amount <= 0) return;
+  try {
+    $pdo->prepare('INSERT INTO player_lifetime (player_id, stat, value) VALUES (?,?,?)
+                   ON DUPLICATE KEY UPDATE value = value + ?')->execute([$pid, $stat, $amount, $amount]);
+  } catch (Throwable $e) {
+    try { ensure_player_lifetime_table($pdo); } catch (Throwable $e2) {}
+  }
+}
+// Read a player's lifetime counters as [stat => value].
+function lifetime_stats(PDO $pdo, int $pid): array {
+  $out = [];
+  try {
+    $q = $pdo->prepare('SELECT stat, value FROM player_lifetime WHERE player_id=?');
+    $q->execute([$pid]);
+    foreach ($q as $r) $out[$r['stat']] = (int)$r['value'];
+  } catch (Throwable $e) {}
+  return $out;
+}
+function ensure_player_achievements_table(PDO $pdo): void {
+  try {
+    $pdo->exec('CREATE TABLE IF NOT EXISTS player_achievements (
+      player_id INT NOT NULL, ach_id VARCHAR(32) NOT NULL, claimed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (player_id, ach_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+  } catch (Throwable $e) {}
+}
+// Record an activity event against today's contracts. Called from activity
+// completions (sim/pvp/mining/transit/thenet/weaponcraft/synth). Non-fatal:
+// a contracts hiccup must never break the activity that triggered it. Only
+// ticks contracts whose type matches; caps at each contract's goal.
+function contract_record(PDO $pdo, int $pid, string $eventType, int $amount = 1): void {
+  if ($amount <= 0) return;
+  require_once __DIR__ . '/contracts_engine.php';
+  // Every activity event also feeds the lifetime counters behind Achievements
+  // — this is the single chokepoint all activities already call, so no extra
+  // hooks are needed at the call sites.
+  lifetime_add($pdo, $pid, $eventType, $amount);
+  try {
+    $day = contracts_mt_date();
+    $ins = $pdo->prepare('INSERT INTO player_contracts (player_id, day, contract_id, progress) VALUES (?,?,?,?)
+                          ON DUPLICATE KEY UPDATE progress = LEAST(?, progress + ?)');
+    foreach (daily_contracts($day) as $cid => $def) {
+      if (!contract_matches($def, $eventType)) continue;
+      $goal = (int)$def['goal'];
+      $ins->execute([$pid, $day, $cid, min($goal, $amount), $goal, $amount]);
+    }
+  } catch (Throwable $e) {
+    // Table not applied yet, or a transient error — never propagate.
+    try { ensure_player_contracts_table($pdo); } catch (Throwable $e2) {}
+  }
+}
+
+// How many contestable districts the player's syndicate currently controls.
+function syn_territory_held(PDO $pdo, int $pid): int {
+  try {
+    $q = $pdo->prepare('SELECT COUNT(*) FROM syndicate_territory t
+                        JOIN syndicate_members m ON m.syndicate_id = t.controller_id
+                        WHERE m.player_id = ?');
+    $q->execute([$pid]);
+    return (int)$q->fetchColumn();
+  } catch (Throwable $e) { return 0; } // table not applied yet, or no syndicate
+}
+// Territory combat perk: holding districts makes a syndicate's members tougher
+// in combat — +2% ATK/DEF per district, capped at +10% (5 districts). Returns
+// a multiplier >= 1.0 applied to atk/def in pvp/sim/territory-assault. Bounded
+// low so map dominance is an edge, not an autowin.
+const SYN_TERRITORY_PERK_PER = 0.02;
+const SYN_TERRITORY_PERK_CAP = 5;
+function syn_territory_combat_mult(PDO $pdo, int $pid): float {
+  return 1.0 + SYN_TERRITORY_PERK_PER * min(SYN_TERRITORY_PERK_CAP, syn_territory_held($pdo, $pid));
 }
 
 // Add XP to a syndicate and raise its level to match. Idempotent and
@@ -1120,26 +1307,3 @@ function scene_header_js(): string {
 SCENEJS;
 }
 
-// ---- playing cards (SVG) ----
-
-function card_svg($rank, $suit) {
-  $glyphs = ['S'=>'&#9824;', 'H'=>'&#9829;', 'D'=>'&#9830;', 'C'=>'&#9827;'];
-  $g      = $glyphs[$suit] ?? '?';
-  $isRed  = ($suit === 'H' || $suit === 'D');
-  $col    = $isRed ? '#ff5555' : '#dde2f0';
-  $border = $isRed ? '#cc3333' : '#3a3f5c';
-  return '<svg class="pcard" viewBox="0 0 60 84" style="width:46px;height:64px;display:inline-block;vertical-align:middle;margin:1px" xmlns="http://www.w3.org/2000/svg">'
-    . '<rect x="1" y="1" width="58" height="82" rx="6" fill="#0e0e1a" stroke="'.$border.'" stroke-width="1.5"/>'
-    . '<text x="6" y="18" font-family="Verdana,Arial,sans-serif" font-size="14" font-weight="bold" fill="'.$col.'">'.e($rank).'</text>'
-    . '<text x="30" y="52" text-anchor="middle" font-size="26" fill="'.$col.'">'.$g.'</text>'
-    . '<text x="54" y="78" text-anchor="end" font-family="Verdana,Arial,sans-serif" font-size="14" font-weight="bold" fill="'.$col.'">'.e($rank).'</text>'
-    . '</svg>';
-}
-
-function card_back_svg() {
-  return '<svg class="pcardback" viewBox="0 0 60 84" style="width:46px;height:64px;display:inline-block;vertical-align:middle;margin:1px" xmlns="http://www.w3.org/2000/svg">'
-    . '<rect x="1" y="1" width="58" height="82" rx="6" fill="#12121f" stroke="var(--accent)"/>'
-    . '<rect x="7" y="7" width="46" height="70" rx="3" fill="none" stroke="var(--accent)" stroke-dasharray="3 3"/>'
-    . '<text x="30" y="50" text-anchor="middle" font-size="22" fill="var(--accent)">&#9760;</text>'
-    . '</svg>';
-}
